@@ -1,0 +1,13 @@
+# Cloudflare Pages Routes Configuration
+# Controls routing between static assets and Worker
+
+/api/*    cloudflare_workers
+/admin/*  cloudflare_workers
+/static/*  cache_override
+/assets/*  cache_override
+/_next/static/*  cache_override
+/_next/image/*  cache_override
+/favicon.ico  cache_override
+/robots.txt  cache_override
+/sitemap.xml  cache_override
+/*  cloudflare_workers

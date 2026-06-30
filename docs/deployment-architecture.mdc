@@ -1,0 +1,278 @@
+# ApexOS Cloudflare Pages Deployment Architecture
+
+```mermaid
+graph TB
+    subgraph "User Access"
+        U[User Browser]
+        CDN[Cloudflare CDN]
+    end
+
+    subgraph "Cloudflare Pages"
+        P1[Production<br/>apex-os.pages.dev]
+        P2[Preview<br/>branch-name.pages.dev]
+    end
+
+    subgraph "OpenNext Deployment"
+        ON[.open-next/]
+        WR[worker-wrapper.js]
+        RTS[_routes]
+        STAT[Static Assets]
+        FN[Functions]
+    end
+
+    subgraph "Cloudflare Workers Bindings"
+        KV[KV Namespace<br/>apex-os-cache]
+        D1D1[(D1 Database<br/>apex-os-db)]
+        R2[R2 Bucket<br/>apex-os-uploads]
+    end
+
+    subgraph "External Services"
+        RES[Resend<br/>Email API]
+        STELLAR[Stellar<br/>USDC Payouts]
+        EX[Exchanges<br/>Binance/Bybit]
+        AUTH[Better Auth<br/>D1 Adapter]
+    end
+
+    U --> CDN
+    CDN --> P1
+    CDN --> P2
+
+    P1 --> ON
+    P2 --> ON
+
+    ON --> WR
+    ON --> RTS
+    ON --> STAT
+    ON --> FN
+
+    WR --> KV
+    WR --> D1D1
+    WR --> R2
+
+    FN -->|API Routes| WR
+    WR -->|DB Queries| D1D1
+    WR -->|Cache| KV
+    WR -->|Storage| R2
+    WR -->|Emails| RES
+    WR -->|Payouts| STELLAR
+    WR -->|Webhooks| EX
+    WR -->|Auth| AUTH
+
+    style P1 fill:#4ade80
+    style D1D1 fill:#60a5fa
+    style KV fill:#fbbf24
+    style R2 fill:#a855f7
+```
+
+## Deployment Flow
+
+```mermaid
+graph LR
+    Dev[Developer] -->|1. git push| GH[GitHub Repository]
+
+    GH -->|2. Webhook| CP[Cloudflare Pages]
+
+    subgraph CP
+        B1[Build: pnpm build] --> B2[OpenNext: .open-next/]
+        B2 --> B3[Deploy]
+    end
+
+    CP -->|3. Deploy| PROD[Production<br/>apex-os.pages.dev]
+
+    subgraph Env[Production Environment]
+        EV[Env Vars] -->|SECRETS| PROD
+        D1[(D1)] -->|Database| PROD
+        KV[KV] -->|Cache| PROD
+        R2[R2] -->|Storage| PROD
+    end
+
+    PROD -->|4. Live| Users[End Users]
+
+    Dev -->|Manual: wrangler| Direct[Direct Deploy]
+    Direct --> PROD
+
+    style PROD fill:#22c55e
+    style Dev fill:#3b82f6
+```
+
+## Build Pipeline
+
+```mermaid
+graph TB
+    Start[Source Code] -->|pnpm install| Deps[Dependencies]
+
+    Deps -->|pnpm build| Build[Next.js Build]
+
+    Build -->|OpenNext| ON1[Generate .open-next/]
+    ON1 --> ON2[worker-wrapper.js]
+    ON1 --> ON3[_routes]
+    ON1 --> ON4[static/]
+    ON1 --> ON5[functions/]
+
+    ON2 -->|Upload| CF[Cloudflare Pages]
+    ON3 -->|Upload| CF
+    ON4 -->|Upload| CF
+    ON5 -->|Upload| CF
+
+    CF -->|Bind| D1[D1 Database]
+    CF -->|Bind| KV[KV Namespace]
+    CF -->|Bind| R2[R2 Bucket]
+
+    subgraph "Runtime"
+        CF -->|Handle| Req[Requests]
+        Req -->|API| Worker[Worker]
+        Req -->|Static| Static[Static Files]
+        Worker -->|DB| D1
+        Worker -->|Cache| KV
+        Worker -->|Storage| R2
+    end
+
+    style CF fill:#f58231
+    style D1 fill:#64b5f6
+```
+
+## Custom Domain Setup
+
+```mermaid
+graph TB
+    subgraph "DNS Configuration"
+        DNS[DNS Records]
+        CNAME[CNAME: @ → apex-os.pages.dev]
+        DNS --> CNAME
+    end
+
+    subgraph "Cloudflare"
+        Pages[Pages Project]
+        Cert[SSL Certificate]
+        Domain[Custom Domain<br/>apex-os.com]
+    end
+
+    CNAME -->|Points to| Pages
+    Pages -->|Provisions| Cert
+    Pages -->|Serves| Domain
+
+    subgraph "Traffic Flow"
+        User[User] -->|https://apex-os.com| CDN[CDN]
+        CDN -->|Routes to| Pages
+    end
+
+    Domain -->|Resolves to| User
+
+    style Cert fill:#e91e63
+    style Pages fill:#4caf50
+```
+
+## Environment Variable Hierarchy
+
+```mermaid
+graph TD
+    subgraph "Priority Order (highest to lowest)"
+        P1[1. Cloudflare Pages<br/>Production Env Vars]
+        P2[2. Cloudflare Pages<br/>Preview Env Vars]
+        P3[3. .env.local<br/>Local development]
+        P4[4. .env<br/>Fallback]
+        P5[5. Default values<br/>in code]
+    end
+
+    P1 -->|Overrides| P2
+    P2 -->|Overrides| P3
+    P3 -->|Overrides| P4
+    P4 -->|Overrides| P5
+
+    note1[Note: Production uses P1 only]
+    note2[Note: Set BETTER_AUTH_SECRET in P1]
+    note3[Note: Set NEXT_PUBLIC_APP_URL in P1]
+
+    style P1 fill:#ff6b6b
+```
+
+## Database Schema Overview
+
+```mermaid
+erDiagram
+    profiles ||--o{ affiliate_codes : "has"
+    profiles ||--o{ earnings : "receives"
+    profiles ||--o{ payouts : "receives"
+    profiles ||--o{ deals : "creates"
+
+    affiliate_codes ||--o{ deal_clicks : "generates"
+    deal_clicks ||--o{ conversions : "leads to"
+    deals ||--o{ deal_clicks : "has"
+
+    profiles }o--|| referral_tree : "parent_of"
+    referral_tree }o--|| profiles : "child_of"
+    profiles ||--o{ referral_tree : "downline"
+
+    conversions ||--o{ earnings : "creates"
+    earnings ||--|| payouts : "batched_in"
+
+    profiles {
+        uuid id PK
+        string email
+        string role
+        string wallet_address
+        string preferred_chain
+        datetime created_at
+    }
+
+    affiliate_codes {
+        uuid id PK
+        uuid user_id FK
+        string code UK
+        datetime created_at
+    }
+
+    referral_tree {
+        uuid id PK
+        uuid user_id FK
+        uuid parent_id FK
+        int level
+        datetime created_at
+    }
+
+    deals {
+        uuid id PK
+        string exchange
+        string title
+        decimal cashback_pct
+        boolean active
+        datetime created_at
+    }
+
+    deal_clicks {
+        uuid id PK
+        uuid deal_id FK
+        string affiliate_code
+        string ip_hash
+        string user_agent_hash
+        datetime clicked_at
+    }
+
+    conversions {
+        uuid id PK
+        uuid deal_id FK
+        uuid user_id FK
+        string wallet_address
+        decimal trade_volume_usd
+        decimal commission_amount
+        datetime converted_at
+    }
+
+    earnings {
+        uuid id PK
+        uuid user_id FK
+        uuid source_id FK
+        string source_type
+        decimal amount
+        datetime earned_at
+    }
+
+    payouts {
+        uuid id PK
+        uuid user_id FK
+        string stellar_tx_hash
+        decimal amount
+        string status
+        datetime paid_at
+    }
+```

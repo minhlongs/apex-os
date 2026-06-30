@@ -1,0 +1,240 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "$tokens": {
+    "color": {
+      "primary": {
+        "50":  { "$value": "#eff4ff", "$type": "color" },
+        "100": { "$value": "#dbe6fe", "$type": "color" },
+        "200": { "$value": "#bfcefe", "$type": "color" },
+        "300": { "$value": "#93a9fd", "$type": "color" },
+        "400": { "$value": "#6080fa", "$type": "color" },
+        "500": { "$value": "#3b54f4", "$type": "color", "$description": "Base primary" },
+        "600": { "$value": "#2d3de0", "$type": "color", "$description": "Hover states" },
+        "700": { "$value": "#2531b8", "$type": "color" },
+        "800": { "$value": "#1f2892", "$type": "color" },
+        "900": { "$value": "#1b2374", "$type": "color" },
+        "950": { "$value": "#0f1552", "$type": "color" }
+      },
+      "secondary": {
+        "50":  { "$value": "#f5f6fa", "$type": "color" },
+        "100": { "$value": "#e8eaf2", "$type": "color" },
+        "200": { "$value": "#d1d5e4", "$type": "color" },
+        "300": { "$value": "#b0b7d0", "$type": "color" },
+        "400": { "$value": "#8b94b8", "$type": "color" },
+        "500": { "$value": "#6e779e", "$type": "color" },
+        "600": { "$value": "#5a6288", "$type": "color" },
+        "700": { "$value": "#4a506f", "$type": "color" },
+        "800": { "$value": "#3e435c", "$type": "color" },
+        "900": { "$value": "#353a4f", "$type": "color" },
+        "950": { "$value": "#1f2233", "$type": "color" }
+      },
+      "accent": {
+        "50":  { "$value": "#fffdf0", "$type": "color" },
+        "100": { "$value": "#fff9d6", "$type": "color" },
+        "200": { "$value": "#fff3ad", "$type": "color" },
+        "300": { "$value": "#ffe980", "$type": "color" },
+        "400": { "$value": "#ffd94d", "$type": "color" },
+        "500": { "$value": "#ffc928", "$type": "color", "$description": "Base accent — earnings highlights" },
+        "600": { "$value": "#e6b200", "$type": "color" },
+        "700": { "$value": "#c48f00", "$type": "color" },
+        "800": { "$value": "#9e7200", "$type": "color" },
+        "900": { "$value": "#7d5a00", "$type": "color" },
+        "950": { "$value": "#4a3400", "$type": "color" }
+      },
+      "semantic": {
+        "success": {
+          "50":  { "$value": "#ecfdf5", "$type": "color" },
+          "100": { "$value": "#d1fae5", "$type": "color" },
+          "200": { "$value": "#a7f3d0", "$type": "color" },
+          "300": { "$value": "#6ee7b7", "$type": "color" },
+          "400": { "$value": "#34d399", "$type": "color" },
+          "500": { "$value": "#10b981", "$type": "color", "$description": "Base success" },
+          "600": { "$value": "#059669", "$type": "color" },
+          "700": { "$value": "#047857", "$type": "color" },
+          "800": { "$value": "#065f46", "$type": "color" },
+          "900": { "$value": "#064e3b", "$type": "color" },
+          "950": { "$value": "#022c22", "$type": "color" }
+        },
+        "warning": {
+          "50":  { "$value": "#fffbeb", "$type": "color" },
+          "100": { "$value": "#fef3c7", "$type": "color" },
+          "200": { "$value": "#fde68a", "$type": "color" },
+          "300": { "$value": "#fcd34d", "$type": "color" },
+          "400": { "$value": "#fbbf24", "$type": "color" },
+          "500": { "$value": "#f59e0b", "$type": "color", "$description": "Base warning" },
+          "600": { "$value": "#d97706", "$type": "color" },
+          "700": { "$value": "#b45309", "$type": "color" },
+          "800": { "$value": "#92400e", "$type": "color" },
+          "900": { "$value": "#78350f", "$type": "color" },
+          "950": { "$value": "#451a03", "$type": "color" }
+        },
+        "error": {
+          "50":  { "$value": "#fef2f2", "$type": "color" },
+          "100": { "$value": "#fee2e2", "$type": "color" },
+          "200": { "$value": "#fecaca", "$type": "color" },
+          "300": { "$value": "#fca5a5", "$type": "color" },
+          "400": { "$value": "#f87171", "$type": "color" },
+          "500": { "$value": "#ef4444", "$type": "color", "$description": "Base error" },
+          "600": { "$value": "#dc2626", "$type": "color" },
+          "700": { "$value": "#b91c1c", "$type": "color" },
+          "800": { "$value": "#991b1b", "$type": "color" },
+          "900": { "$value": "#7f1d1d", "$type": "color" },
+          "950": { "$value": "#450a0a", "$type": "color" }
+        },
+        "info": {
+          "50":  { "$value": "#eff6ff", "$type": "color" },
+          "100": { "$value": "#dbeafe", "$type": "color" },
+          "200": { "$value": "#bfdbfe", "$type": "color" },
+          "300": { "$value": "#93c5fd", "$type": "color" },
+          "400": { "$value": "#60a5fa", "$type": "color" },
+          "500": { "$value": "#3b82f6", "$type": "color", "$description": "Base info" },
+          "600": { "$value": "#2563eb", "$type": "color" },
+          "700": { "$value": "#1d4ed8", "$type": "color" },
+          "800": { "$value": "#1e40af", "$type": "color" },
+          "900": { "$value": "#1e3a8a", "$type": "color" },
+          "950": { "$value": "#172554", "$type": "color" }
+        }
+      },
+      "neutral": {
+        "50":  { "$value": "#fafafa", "$type": "color" },
+        "100": { "$value": "#f4f4f5", "$type": "color" },
+        "200": { "$value": "#e4e4e7", "$type": "color" },
+        "300": { "$value": "#d4d4d8", "$type": "color" },
+        "400": { "$value": "#a1a1aa", "$type": "color" },
+        "500": { "$value": "#71717a", "$type": "color" },
+        "600": { "$value": "#52525b", "$type": "color" },
+        "700": { "$value": "#3f3f46", "$type": "color" },
+        "800": { "$value": "#27272a", "$type": "color" },
+        "900": { "$value": "#18181b", "$type": "color" },
+        "950": { "$value": "#09090b", "$type": "color" }
+      }
+    },
+
+    "fontFamily": {
+      "sans": {
+        "$value": "'Inter', 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        "$type": "fontFamily"
+      },
+      "mono": {
+        "$value": "'JetBrains Mono', 'Fira Code', 'SF Mono', monospace",
+        "$type": "fontFamily"
+      },
+      "display": {
+        "$value": "'Inter', 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        "$type": "fontFamily"
+      }
+    },
+
+    "fontSize": {
+      "xs":  { "$value": "0.75rem",  "$type": "fontSize", "$description": "12px" },
+      "sm":  { "$value": "0.875rem", "$type": "fontSize", "$description": "14px" },
+      "base": { "$value": "1rem",    "$type": "fontSize", "$description": "16px" },
+      "lg":  { "$value": "1.125rem", "$type": "fontSize", "$description": "18px" },
+      "xl":  { "$value": "1.25rem",  "$type": "fontSize", "$description": "20px" },
+      "2xl": { "$value": "1.5rem",   "$type": "fontSize", "$description": "24px" },
+      "3xl": { "$value": "1.875rem", "$type": "fontSize", "$description": "30px" },
+      "4xl": { "$value": "2.25rem",  "$type": "fontSize", "$description": "36px" },
+      "5xl": { "$value": "3rem",     "$type": "fontSize", "$description": "48px" },
+      "6xl": { "$value": "3.75rem",  "$type": "fontSize", "$description": "60px" }
+    },
+
+    "fontWeight": {
+      "normal":   { "$value": 400, "$type": "fontWeight" },
+      "medium":   { "$value": 500, "$type": "fontWeight" },
+      "semibold": { "$value": 600, "$type": "fontWeight" },
+      "bold":     { "$value": 700, "$type": "fontWeight" },
+      "extrabold": { "$value": 800, "$type": "fontWeight" }
+    },
+
+    "lineHeight": {
+      "none":    { "$value": 1,    "$type": "lineHeight" },
+      "tight":   { "$value": 1.25, "$type": "lineHeight" },
+      "snug":    { "$value": 1.375, "$type": "lineHeight" },
+      "normal":  { "$value": 1.5,  "$type": "lineHeight" },
+      "relaxed": { "$value": 1.625, "$type": "lineHeight" },
+      "loose":   { "$value": 2,    "$type": "lineHeight" }
+    },
+
+    "letterSpacing": {
+      "tight":  { "$value": "-0.025em", "$type": "letterSpacing" },
+      "normal": { "$value": "0",        "$type": "letterSpacing" },
+      "wide":   { "$value": "0.025em",  "$type": "letterSpacing" },
+      "wider":  { "$value": "0.05em",   "$type": "letterSpacing" },
+      "widest": { "$value": "0.1em",    "$type": "letterSpacing" }
+    },
+
+    "spacing": {
+      "0":   { "$value": "0",     "$type": "spacing" },
+      "1":   { "$value": "0.25rem", "$type": "spacing", "$description": "4px" },
+      "2":   { "$value": "0.5rem",  "$type": "spacing", "$description": "8px" },
+      "3":   { "$value": "0.75rem", "$type": "spacing", "$description": "12px" },
+      "4":   { "$value": "1rem",    "$type": "spacing", "$description": "16px" },
+      "5":   { "$value": "1.25rem", "$type": "spacing", "$description": "20px" },
+      "6":   { "$value": "1.5rem",  "$type": "spacing", "$description": "24px" },
+      "8":   { "$value": "2rem",    "$type": "spacing", "$description": "32px" },
+      "10":  { "$value": "2.5rem",  "$type": "spacing", "$description": "40px" },
+      "12":  { "$value": "3rem",    "$type": "spacing", "$description": "48px" },
+      "16":  { "$value": "4rem",    "$type": "spacing", "$description": "64px" },
+      "20":  { "$value": "5rem",    "$type": "spacing", "$description": "80px" },
+      "24":  { "$value": "6rem",    "$type": "spacing", "$description": "96px" },
+      "32":  { "$value": "8rem",    "$type": "spacing", "$description": "128px" }
+    },
+
+    "borderRadius": {
+      "none":  { "$value": "0",      "$type": "borderRadius" },
+      "sm":    { "$value": "0.25rem", "$type": "borderRadius", "$description": "4px" },
+      "md":    { "$value": "0.375rem", "$type": "borderRadius", "$description": "6px" },
+      "lg":    { "$value": "0.5rem",  "$type": "borderRadius", "$description": "8px" },
+      "xl":    { "$value": "0.75rem", "$type": "borderRadius", "$description": "12px" },
+      "2xl":   { "$value": "1rem",    "$type": "borderRadius", "$description": "16px" },
+      "full":  { "$value": "9999px",  "$type": "borderRadius" }
+    },
+
+    "shadow": {
+      "xs":   { "$value": "0 1px 2px rgba(0, 0, 0, 0.05)",                          "$type": "shadow" },
+      "sm":   { "$value": "0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06)", "$type": "shadow" },
+      "md":   { "$value": "0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)", "$type": "shadow" },
+      "lg":   { "$value": "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)", "$type": "shadow" },
+      "xl":   { "$value": "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)", "$type": "shadow" },
+      "2xl":  { "$value": "0 25px 50px -12px rgba(0, 0, 0, 0.25)",                   "$type": "shadow" },
+      "primary": { "$value": "0 4px 14px rgba(59, 84, 244, 0.25)", "$type": "shadow", "$description": "Blue/indigo glow" },
+      "accent":  { "$value": "0 4px 14px rgba(255, 201, 40, 0.35)", "$type": "shadow", "$description": "Gold glow for earnings" },
+      "success": { "$value": "0 4px 14px rgba(16, 185, 129, 0.25)", "$type": "shadow" },
+      "error":   { "$value": "0 4px 14px rgba(239, 68, 68, 0.25)", "$type": "shadow" }
+    },
+
+    "duration": {
+      "instant": { "$value": "75ms",  "$type": "duration" },
+      "fast":    { "$value": "150ms", "$type": "duration" },
+      "normal":  { "$value": "200ms", "$type": "duration" },
+      "slow":    { "$value": "300ms", "$type": "duration" },
+      "slower":  { "$value": "500ms", "$type": "duration" }
+    },
+
+    "easing": {
+      "default": { "$value": "cubic-bezier(0.4, 0, 0.2, 1)", "$type": "cubicBezier" },
+      "in":      { "$value": "cubic-bezier(0.4, 0, 1, 1)",   "$type": "cubicBezier" },
+      "out":     { "$value": "cubic-bezier(0, 0, 0.2, 1)",   "$type": "cubicBezier" },
+      "inOut":   { "$value": "cubic-bezier(0.4, 0, 0.2, 1)", "$type": "cubicBezier" },
+      "bounce":  { "$value": "cubic-bezier(0.34, 1.56, 0.64, 1)", "$type": "cubicBezier" }
+    },
+
+    "zIndex": {
+      "base":     { "$value": 0,    "$type": "number" },
+      "dropdown": { "$value": 100,  "$type": "number" },
+      "sticky":   { "$value": 200,  "$type": "number" },
+      "overlay":  { "$value": 300,  "$type": "number" },
+      "modal":    { "$value": 400,  "$type": "number" },
+      "toast":    { "$value": 500,  "$type": "number" },
+      "tooltip":  { "$value": 600,  "$type": "number" }
+    },
+
+    "breakpoint": {
+      "sm":  { "$value": "640px",  "$type": "dimension" },
+      "md":  { "$value": "768px",  "$type": "dimension" },
+      "lg":  { "$value": "1024px", "$type": "dimension" },
+      "xl":  { "$value": "1280px", "$type": "dimension" },
+      "2xl": { "$value": "1536px", "$type": "dimension" }
+    }
+  }
+}

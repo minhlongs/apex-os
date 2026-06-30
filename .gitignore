@@ -1,0 +1,44 @@
+# Dependencies
+node_modules
+/.next/
+/.open-next/
+
+# Cloudflare
+.wrangler/
+
+# Build outputs
+.out/
+dist/
+build
+
+# Environment
+.env.local
+.env.*.local
+
+# Allow .env.example files to be tracked
+!.env.example
+!.env.production.example
+!.env.staging.example
+
+# Database
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# Project specific
+backups/
+.cache/

@@ -1,0 +1,5 @@
+import { defineServerDocument } from 'sentry/nextjs';
+
+const serverDocument = defineServerDocument();
+
+export default serverDocument;

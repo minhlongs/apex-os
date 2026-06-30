@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ApexOS - Hero Banner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow: hidden;
+        }
+
+        .banner {
+            width: 1920px;
+            height: 600px;
+            background: #0F172A;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .glow-orb {
+            position: absolute;
+            border-radius: 50%;
+            filter: blur(120px);
+            opacity: 0.4;
+            animation: float 8s ease-in-out infinite;
+        }
+
+        .glow-orb--1 {
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, #6366F1 0%, transparent 70%);
+            top: -200px;
+            left: -100px;
+            animation-delay: 0s;
+        }
+
+        .glow-orb--2 {
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, #8B5CF6 0%, transparent 70%);
+            bottom: -200px;
+            right: -50px;
+            animation-delay: -3s;
+            animation-duration: 10s;
+        }
+
+        .glow-orb--3 {
+            width: 400px;
+            height: 400px;
+            background: radial-gradient(circle, #06B6D4 0%, transparent 70%);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            animation-delay: -5s;
+            animation-duration: 12s;
+            opacity: 0.2;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(30px, -20px) scale(1.05); }
+            50% { transform: translate(-20px, 20px) scale(0.95); }
+            75% { transform: translate(20px, 10px) scale(1.02); }
+        }
+
+        .grid-pattern {
+            position: absolute;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(99, 102, 241, 0.06) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(99, 102, 241, 0.06) 1px, transparent 1px);
+            background-size: 60px 60px;
+            mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 70%);
+            -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 50%, black 30%, transparent 70%);
+        }
+
+        .geo-shape {
+            position: absolute;
+            border: 1px solid rgba(99, 102, 241, 0.15);
+            animation: rotate 20s linear infinite;
+        }
+
+        .geo-shape--1 {
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            top: -80px;
+            right: 200px;
+            border-color: rgba(139, 92, 246, 0.12);
+        }
+
+        .geo-shape--2 {
+            width: 200px;
+            height: 200px;
+            bottom: -50px;
+            left: 300px;
+            transform: rotate(45deg);
+            border-color: rgba(6, 182, 212, 0.1);
+            animation-direction: reverse;
+            animation-duration: 25s;
+        }
+
+        .geo-shape--3 {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            top: 100px;
+            left: 150px;
+            border-color: rgba(99, 102, 241, 0.08);
+            animation-duration: 15s;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .accent-line {
+            position: absolute;
+            height: 2px;
+            width: 200px;
+            background: linear-gradient(90deg, transparent, #6366F1, #8B5CF6, transparent);
+            top: 50%;
+            left: 0;
+            animation: shimmer 3s ease-in-out infinite;
+        }
+
+        .accent-line--right {
+            left: auto;
+            right: 0;
+            animation-delay: -1.5s;
+        }
+
+        @keyframes shimmer {
+            0%, 100% { opacity: 0.3; width: 200px; }
+            50% { opacity: 0.8; width: 300px; }
+        }
+
+        .content {
+            position: relative;
+            z-index: 10;
+            text-align: center;
+            max-width: 900px;
+            padding: 0 40px;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 20px;
+            background: rgba(99, 102, 241, 0.1);
+            border: 1px solid rgba(99, 102, 241, 0.2);
+            border-radius: 100px;
+            color: #A5B4FC;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 32px;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            background: #6366F1;
+            border-radius: 50%;
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4); }
+            50% { opacity: 0.8; box-shadow: 0 0 0 6px rgba(99, 102, 241, 0); }
+        }
+
+        .headline {
+            font-size: 64px;
+            font-weight: 800;
+            line-height: 1.1;
+            margin-bottom: 24px;
+            background: linear-gradient(135deg, #FFFFFF 0%, #E2E8F0 40%, #A5B4FC 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            letter-spacing: -0.02em;
+        }
+
+        .headline-gradient {
+            background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 50%, #06B6D4 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .subheadline {
+            font-size: 20px;
+            color: #94A3B8;
+            line-height: 1.6;
+            margin-bottom: 48px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            font-weight: 400;
+        }
+
+        .cta-group {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+
+        .btn {
+            padding: 16px 36px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn--primary {
+            background: linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%);
+            color: #FFFFFF;
+            border: none;
+            box-shadow: 0 4px 24px rgba(99, 102, 241, 0.3), 0 0 0 0 rgba(99, 102, 241, 0.4);
+            animation: btn-glow 3s ease-in-out infinite;
+        }
+
+        .btn--primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 32px rgba(99, 102, 241, 0.4), 0 0 0 4px rgba(99, 102, 241, 0.1);
+        }
+
+        @keyframes btn-glow {
+            0%, 100% { box-shadow: 0 4px 24px rgba(99, 102, 241, 0.3), 0 0 0 0 rgba(99, 102, 241, 0.4); }
+            50% { box-shadow: 0 4px 32px rgba(99, 102, 241, 0.5), 0 0 0 8px rgba(99, 102, 241, 0); }
+        }
+
+        .btn--secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: #E2E8F0;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        .btn--secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-2px);
+        }
+
+        .btn-arrow {
+            transition: transform 0.3s ease;
+        }
+
+        .btn:hover .btn-arrow {
+            transform: translateX(4px);
+        }
+
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: rgba(99, 102, 241, 0.3);
+            border-radius: 50%;
+            animation: particle-float 6s ease-in-out infinite;
+        }
+
+        .particle:nth-child(1) { top: 20%; left: 10%; animation-delay: 0s; }
+        .particle:nth-child(2) { top: 60%; left: 85%; animation-delay: -1s; }
+        .particle:nth-child(3) { top: 80%; left: 20%; animation-delay: -2s; }
+        .particle:nth-child(4) { top: 30%; left: 75%; animation-delay: -3s; }
+        .particle:nth-child(5) { top: 70%; left: 50%; animation-delay: -4s; }
+        .particle:nth-child(6) { top: 15%; left: 60%; animation-delay: -5s; }
+        .particle:nth-child(7) { top: 45%; left: 30%; animation-delay: -2.5s; width: 6px; height: 6px; }
+        .particle:nth-child(8) { top: 85%; left: 70%; animation-delay: -1.5s; width: 3px; height: 3px; }
+
+        @keyframes particle-float {
+            0%, 100% { transform: translateY(0) translateX(0); opacity: 0.3; }
+            50% { transform: translateY(-20px) translateX(10px); opacity: 0.8; }
+        }
+
+        .bottom-fade {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 120px;
+            background: linear-gradient(to top, rgba(15, 23, 42, 0.8), transparent);
+        }
+
+        .logo-area {
+            position: absolute;
+            top: 40px;
+            left: 60px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            z-index: 10;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #6366F1, #8B5CF6);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            color: white;
+            font-size: 18px;
+            box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+        }
+
+        .logo-text {
+            color: #F1F5F9;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+        }
+
+        .stats-row {
+            display: flex;
+            justify-content: center;
+            gap: 60px;
+            margin-top: 48px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #F1F5F9;
+            letter-spacing: -0.01em;
+        }
+
+        .stat-value span {
+            background: linear-gradient(135deg, #6366F1, #8B5CF6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            font-size: 13px;
+            color: #64748B;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="banner">
+        <div class="glow-orb glow-orb--1"></div>
+        <div class="glow-orb glow-orb--2"></div>
+        <div class="glow-orb glow-orb--3"></div>
+        <div class="grid-pattern"></div>
+        <div class="geo-shape geo-shape--1"></div>
+        <div class="geo-shape geo-shape--2"></div>
+        <div class="geo-shape geo-shape--3"></div>
+        <div class="accent-line"></div>
+        <div class="accent-line accent-line--right"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="particle"></div>
+        <div class="bottom-fade"></div>
+
+        <div class="logo-area">
+            <div class="logo-icon">A</div>
+            <div class="logo-text">ApexOS</div>
+        </div>
+
+        <div class="content">
+            <div class="badge">
+                <div class="badge-dot"></div>
+                Now Live on Mainnet
+            </div>
+
+            <h1 class="headline">
+                Global Crypto Cashback<br>
+                <span class="headline-gradient">+ Affiliate Hub</span>
+            </h1>
+
+            <p class="subheadline">
+                Earn cashback on every trade. Build your affiliate network.
+                The all-in-one platform for crypto rewards and referral growth.
+            </p>
+
+            <div class="cta-group">
+                <a href="#" class="btn btn--primary">
+                    Get Started
+                    <svg class="btn-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
+                        <path d="M6 12L10 8L6 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </a>
+                <a href="#" class="btn btn--secondary">
+                    Learn More
+                </a>
+            </div>
+
+            <div class="stats-row">
+                <div class="stat-item">
+                    <div class="stat-value"><span>$2.4B+</span></div>
+                    <div class="stat-label">Total Volume</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value"><span>150K+</span></div>
+                    <div class="stat-label">Active Users</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value"><span>5.2%</span></div>
+                    <div class="stat-label">Avg Cashback</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

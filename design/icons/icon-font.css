@@ -1,0 +1,111 @@
+/* ==========================================================================
+   ApexOS Icon Font CSS Sprite System
+   ========================================================================== */
+
+/* Base icon class */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: middle;
+}
+
+/* Size variants */
+.icon--sm { width: 16px; height: 16px; }
+.icon--md { width: 24px; height: 24px; }
+.icon--lg { width: 32px; height: 32px; }
+.icon--xl { width: 48px; height: 48px; }
+
+/* Color variants (uses currentColor by default) */
+.icon--primary   { color: var(--color-primary, #6366F1); }
+.icon--secondary { color: var(--color-secondary, #8B5CF6); }
+.icon--accent    { color: var(--color-accent, #06B6D4); }
+.icon--success   { color: var(--color-success, #10B981); }
+.icon--warning   { color: var(--color-warning, #F59E0B); }
+.icon--error     { color: var(--color-error, #EF4444); }
+.icon--info      { color: var(--color-info, #3B82F6); }
+.icon--muted     { color: var(--color-text-tertiary, #64748B); }
+
+/* Navigation Icons (sprite positions) */
+.icon-dashboard   { background: url('navigation.svg') no-repeat 0   0;   width:24px;height:24px; }
+.icon-deals       { background: url('navigation.svg') no-repeat -24px 0;   width:24px;height:24px; }
+.icon-affiliates  { background: url('navigation.svg') no-repeat -48px 0;   width:24px;height:24px; }
+.icon-payouts     { background: url('navigation.svg') no-repeat -72px 0;   width:24px;height:24px; }
+.icon-profile     { background: url('navigation.svg') no-repeat -96px 0;   width:24px;height:24px; }
+.icon-settings    { background: url('navigation.svg') no-repeat -120px 0;  width:24px;height:24px; }
+.icon-analytics   { background: url('navigation.svg') no-repeat -144px 0;  width:24px;height:24px; }
+.icon-health      { background: url('navigation.svg') no-repeat -168px 0;  width:24px;height:24px; }
+.icon-alerts      { background: url('navigation.svg') no-repeat -192px 0;  width:24px;height:24px; }
+.icon-logout      { background: url('navigation.svg') no-repeat -216px 0;  width:24px;height:24px; }
+.icon-menu        { background: url('navigation.svg') no-repeat -240px 0;  width:24px;height:24px; }
+.icon-close       { background: url('navigation.svg') no-repeat -264px 0;  width:24px;height:24px; }
+
+/* Action Icons */
+.icon-plus            { background: url('actions.svg') no-repeat 0    0;   width:24px;height:24px; }
+.icon-edit            { background: url('actions.svg') no-repeat -24px 0;   width:24px;height:24px; }
+.icon-trash           { background: url('actions.svg') no-repeat -48px 0;   width:24px;height:24px; }
+.icon-save            { background: url('actions.svg') no-repeat -72px 0;   width:24px;height:24px; }
+.icon-x               { background: url('actions.svg') no-repeat -96px 0;   width:24px;height:24px; }
+.icon-check           { background: url('actions.svg') no-repeat -120px 0;  width:24px;height:24px; }
+.icon-refresh-cw      { background: url('actions.svg') no-repeat -144px 0;  width:24px;height:24px; }
+.icon-download        { background: url('actions.svg') no-repeat -168px 0;  width:24px;height:24px; }
+.icon-upload          { background: url('actions.svg') no-repeat -192px 0;  width:24px;height:24px; }
+.icon-share           { background: url('actions.svg') no-repeat -216px 0;  width:24px;height:24px; }
+.icon-copy            { background: url('actions.svg') no-repeat -240px 0;  width:24px;height:24px; }
+.icon-search          { background: url('actions.svg') no-repeat -264px 0;  width:24px;height:24px; }
+.icon-filter          { background: url('actions.svg') no-repeat -288px 0;  width:24px;height:24px; }
+.icon-sort            { background: url('actions.svg') no-repeat -312px 0;  width:24px;height:24px; }
+.icon-chevron-down    { background: url('actions.svg') no-repeat -336px 0;  width:24px;height:24px; }
+.icon-chevron-up      { background: url('actions.svg') no-repeat -360px 0;  width:24px;height:24px; }
+.icon-chevron-right   { background: url('actions.svg') no-repeat -384px 0;  width:24px;height:24px; }
+.icon-more-horizontal { background: url('actions.svg') no-repeat -408px 0;  width:24px;height:24px; }
+.icon-external-link   { background: url('actions.svg') no-repeat -432px 0;  width:24px;height:24px; }
+
+/* Status Icons */
+.icon-check-circle   { background: url('status.svg') no-repeat 0    0;   width:24px;height:24px; }
+.icon-alert-triangle { background: url('status.svg') no-repeat -24px 0;   width:24px;height:24px; }
+.icon-x-circle       { background: url('status.svg') no-repeat -48px 0;   width:24px;height:24px; }
+.icon-info           { background: url('status.svg') no-repeat -72px 0;   width:24px;height:24px; }
+.icon-loader         { background: url('status.svg') no-repeat -96px 0;   width:24px;height:24px; }
+.icon-clock          { background: url('status.svg') no-repeat -120px 0;  width:24px;height:24px; }
+.icon-activity       { background: url('status.svg') no-repeat -144px 0;  width:24px;height:24px; }
+.icon-shield         { background: url('status.svg') no-repeat -168px 0;  width:24px;height:24px; }
+
+/* Crypto Icons */
+.icon-wallet       { background: url('crypto.svg') no-repeat 0    0;   width:24px;height:24px; }
+.icon-coin         { background: url('crypto.svg') no-repeat -24px 0;   width:24px;height:24px; }
+.icon-trending-up  { background: url('crypto.svg') no-repeat -48px 0;   width:24px;height:24px; }
+.icon-arrow-up-right { background: url('crypto.svg') no-repeat -72px 0; width:24px;height:24px; }
+.icon-arrow-down-left { background: url('crypto.svg') no-repeat -96px 0; width:24px;height:24px; }
+.icon-repeat       { background: url('crypto.svg') no-repeat -120px 0;  width:24px;height:24px; }
+.icon-lock         { background: url('crypto.svg') no-repeat -144px 0;  width:24px;height:24px; }
+.icon-unlock       { background: url('crypto.svg') no-repeat -168px 0;  width:24px;height:24px; }
+.icon-key          { background: url('crypto.svg') no-repeat -192px 0;  width:24px;height:24px; }
+.icon-globe        { background: url('crypto.svg') no-repeat -216px 0;  width:24px;height:24px; }
+
+/* Communication Icons */
+.icon-mail           { background: url('communication.svg') no-repeat 0    0;   width:24px;height:24px; }
+.icon-message-square { background: url('communication.svg') no-repeat -24px 0;   width:24px;height:24px; }
+.icon-send           { background: url('communication.svg') no-repeat -48px 0;   width:24px;height:24px; }
+.icon-bell           { background: url('communication.svg') no-repeat -72px 0;   width:24px;height:24px; }
+.icon-bell-off       { background: url('communication.svg') no-repeat -96px 0;   width:24px;height:24px; }
+.icon-users          { background: url('communication.svg') no-repeat -120px 0;  width:24px;height:24px; }
+.icon-user-plus      { background: url('communication.svg') no-repeat -144px 0;  width:24px;height:24px; }
+.icon-link           { background: url('communication.svg') no-repeat -168px 0;  width:24px;height:24px; }
+
+/* Affiliate Icons */
+.icon-user            { background: url('affiliate.svg') no-repeat 0    0;   width:24px;height:24px; }
+.icon-user-plus       { background: url('affiliate.svg') no-repeat -24px 0;   width:24px;height:24px; }
+.icon-link-2          { background: url('affiliate.svg') no-repeat -48px 0;   width:24px;height:24px; }
+.icon-git-branch      { background: url('affiliate.svg') no-repeat -72px 0;   width:24px;height:24px; }
+.icon-dollar-sign     { background: url('affiliate.svg') no-repeat -96px 0;   width:24px;height:24px; }
+.icon-percent         { background: url('affiliate.svg') no-repeat -120px 0;  width:24px;height:24px; }
+.icon-award           { background: url('affiliate.svg') no-repeat -144px 0;  width:24px;height:24px; }
+.icon-target          { background: url('affiliate.svg') no-repeat -168px 0;  width:24px;height:24px; }

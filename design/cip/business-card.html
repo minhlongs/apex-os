@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ApexOS Business Card</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Inter:wght@400;500&display=swap');
+
+    :root {
+      --bg-dark: #0F172A;
+      --primary: #6366F1;
+      --primary-gradient: linear-gradient(135deg, #6366F1, #8B5CF6);
+      --accent: #06B6D4;
+      --text-light: #F8FAFC;
+      --text-muted: #94A3B8;
+    }
+
+    body {
+      background: #1a1a1a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 40px;
+      font-family: 'Inter', sans-serif;
+    }
+
+    .card {
+      width: 1050px;
+      height: 600px;
+      background: var(--bg-dark);
+      border-radius: 20px;
+      padding: 48px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5);
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; height: 6px;
+      background: var(--primary-gradient);
+    }
+
+    .logo-area {
+      margin-bottom: 40px;
+    }
+
+    .brand-name {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 48px;
+      font-weight: 700;
+      background: var(--primary-gradient);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -0.02em;
+    }
+
+    .tagline {
+      color: var(--text-muted);
+      font-size: 14px;
+      margin-top: 8px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .role {
+      color: var(--accent);
+      font-size: 16px;
+      font-weight: 500;
+      margin-top: 12px;
+    }
+
+    .divider {
+      width: 60px;
+      height: 3px;
+      background: var(--primary-gradient);
+      margin: 24px 0;
+      border-radius: 2px;
+    }
+
+    .contact-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 24px 48px;
+      margin-top: 20px;
+    }
+
+    .contact-item {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      color: var(--text-muted);
+      font-size: 15px;
+    }
+
+    .contact-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: rgba(99, 102, 241, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary);
+    }
+
+    .back-side {
+      display: none;
+    }
+
+    @media print {
+      body { background: white; padding: 0; }
+      .card { box-shadow: none; border: 1px solid #e5e7eb; }
+    }
+  </style>
+</head>
+<body>
+  <!-- FRONT SIDE -->
+  <div class="card">
+    <div class="logo-area">
+      <div class="brand-name">ApexOS</div>
+      <div class="tagline">Global Crypto Cashback + Affiliate Hub</div>
+    </div>
+
+    <div class="divider"></div>
+
+    <div class="role">Affiliate Partner</div>
+
+    <!-- QR placeholder area -->
+    <div style="position: absolute; right: 48px; bottom: 48px; text-align: center;">
+      <div style="width: 100px; height: 100px; border: 2px dashed var(--text-muted); border-radius: 12px; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 12px;">
+        QR Code
+      </div>
+    </div>
+  </div>
+</body>
+</html>

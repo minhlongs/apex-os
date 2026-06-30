@@ -1,0 +1,259 @@
+/* ============================================================
+   ApexOS Design System — Brand Color Palette
+   Brand: ApexOS | Industry: Fintech / Crypto Cashback
+   Primary: Indigo (#6366F1) | Secondary: Violet (#8B5CF6)
+   Accent: Cyan (#06B6D4)
+   ============================================================ */
+
+/* ----------------------------------------------------------
+   1. BRAND COLOR PALETTE
+   ---------------------------------------------------------- */
+
+/* Primary — Indigo (brand identity, CTAs, navigation) */
+:root {
+  --color-primary-50:  #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1; /* base primary */
+  --color-primary-600: #4f46e5; /* hover */
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --color-primary-950: #1e1b4b;
+}
+
+/* Secondary — Violet (supporting actions, badges) */
+:root {
+  --color-secondary-50:  #f5f3ff;
+  --color-secondary-100: #ede9fe;
+  --color-secondary-200: #ddd6fe;
+  --color-secondary-300: #c4b5fd;
+  --color-secondary-400: #a78bfa;
+  --color-secondary-500: #8b5cf6; /* base secondary */
+  --color-secondary-600: #7c3aed;
+  --color-secondary-700: #6d28d9;
+  --color-secondary-800: #5b21b6;
+  --color-secondary-900: #4c1d95;
+  --color-secondary-950: #2e1065;
+}
+
+/* Accent — Cyan (highlights, links, interactive elements) */
+:root {
+  --color-accent-50:  #ecfeff;
+  --color-accent-100: #cffafe;
+  --color-accent-200: #a5f3fc;
+  --color-accent-300: #67e8f9;
+  --color-accent-400: #22d3ee;
+  --color-accent-500: #06b6d4; /* base accent */
+  --color-accent-600: #0891b2;
+  --color-accent-700: #0e7490;
+  --color-accent-800: #155e75;
+  --color-accent-900: #164e63;
+  --color-accent-950: #083344;
+}
+
+/* ----------------------------------------------------------
+   2. SEMANTIC COLOR TOKENS
+   ---------------------------------------------------------- */
+
+/* Success — Emerald (positive earnings, completed transactions) */
+:root {
+  --color-success-50:  #ecfdf5;
+  --color-success-100: #d1fae5;
+  --color-success-200: #a7f3d0;
+  --color-success-300: #6ee7b7;
+  --color-success-400: #34d399;
+  --color-success-500: #10b981; /* base success */
+  --color-success-600: #059669;
+  --color-success-700: #047857;
+  --color-success-800: #065f46;
+  --color-success-900: #064e3b;
+  --color-success-950: #022c22;
+}
+
+/* Warning — Amber (pending status, alerts) */
+:root {
+  --color-warning-50:  #fffbeb;
+  --color-warning-100: #fef3c7;
+  --color-warning-200: #fde68a;
+  --color-warning-300: #fcd34d;
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b; /* base warning */
+  --color-warning-600: #d97706;
+  --color-warning-700: #b45309;
+  --color-warning-800: #92400e;
+  --color-warning-900: #78350f;
+  --color-warning-950: #451a03;
+}
+
+/* Error — Red (failed transactions, errors) */
+:root {
+  --color-error-50:  #fef2f2;
+  --color-error-100: #fee2e2;
+  --color-error-200: #fecaca;
+  --color-error-300: #fca5a5;
+  --color-error-400: #f87171;
+  --color-error-500: #ef4444; /* base error */
+  --color-error-600: #dc2626;
+  --color-error-700: #b91c1c;
+  --color-error-800: #991b1b;
+  --color-error-900: #7f1d1d;
+  --color-error-950: #450a0a;
+}
+
+/* Info — Blue (informational messages) */
+:root {
+  --color-info-50:  #eff6ff;
+  --color-info-100: #dbeafe;
+  --color-info-200: #bfdbfe;
+  --color-info-300: #93c5fd;
+  --color-info-400: #60a5fa;
+  --color-info-500: #3b82f6; /* base info */
+  --color-info-600: #2563eb;
+  --color-info-700: #1d4ed8;
+  --color-info-800: #1e40af;
+  --color-info-900: #1e3a8a;
+  --color-info-950: #172554;
+}
+
+/* ----------------------------------------------------------
+   3. NEUTRAL / GRAY SCALE
+   ---------------------------------------------------------- */
+:root {
+  --color-neutral-50:  #f8fafc;
+  --color-neutral-100: #f1f5f9;
+  --color-neutral-200: #e2e8f0;
+  --color-neutral-300: #cbd5e1;
+  --color-neutral-400: #94a3b8;
+  --color-neutral-500: #64748b;
+  --color-neutral-600: #475569;
+  --color-neutral-700: #334155;
+  --color-neutral-800: #1e293b;
+  --color-neutral-900: #0f172a;
+  --color-neutral-950: #020617;
+}
+
+/* ----------------------------------------------------------
+   4. SURFACE & BACKGROUND TOKENS (Light Mode)
+   ---------------------------------------------------------- */
+:root {
+  /* Background layers */
+  --color-bg-primary:   #ffffff;
+  --color-bg-secondary: #f8fafc;
+  --color-bg-tertiary:  #f1f5f9;
+  --color-bg-inverse:   #0f172a;
+  --color-bg-elevated:  #ffffff;
+  --color-bg-overlay:   rgba(15, 23, 42, 0.6);
+
+  /* Text layers */
+  --color-text-primary:   #0f172a;
+  --color-text-secondary: #475569;
+  --color-text-tertiary:  #94a3b8;
+  --color-text-inverse:   #f8fafc;
+  --color-text-on-primary:   #ffffff;
+  --color-text-on-accent:    #0f172a;
+
+  /* Border layers */
+  --color-border-default:  #e2e8f0;
+  --color-border-subtle:   #f1f5f9;
+  --color-border-strong:   #cbd5e1;
+  --color-border-focus:    #6366f1;
+  --color-ring-focus:      #c7d2fe;
+
+  /* Fintech-specific semantic tokens */
+  --color-earnings-positive: #10b981;
+  --color-earnings-negative: #ef4444;
+  --color-earnings-pending:  #f59e0b;
+  --color-cashback-highlight: #06b6d4;
+  --color-commission-tier1:  #6366f1;
+  --color-commission-tier2:  #8b5cf6;
+  --color-commission-tier3:  #a5b4fc;
+  --color-stellar-theme:     #14b8a6;
+  --color-usdc:              #2775ca;
+  --color-xlm:               #14b8a6;
+}
+
+/* ----------------------------------------------------------
+   5. DARK MODE OVERRIDES
+   ---------------------------------------------------------- */
+.dark {
+  --color-bg-primary:   #0f172a;
+  --color-bg-secondary: #1e293b;
+  --color-bg-tertiary:  #334155;
+  --color-bg-inverse:   #f8fafc;
+  --color-bg-elevated:  #1e293b;
+  --color-bg-overlay:   rgba(0, 0, 0, 0.7);
+
+  --color-text-primary:   #f8fafc;
+  --color-text-secondary: #94a3b8;
+  --color-text-tertiary:  #64748b;
+  --color-text-inverse:   #0f172a;
+  --color-text-on-primary:   #ffffff;
+  --color-text-on-accent:    #0f172a;
+
+  --color-border-default:  #334155;
+  --color-border-subtle:   #1e293b;
+  --color-border-strong:   #475569;
+  --color-border-focus:    #818cf8;
+  --color-ring-focus:      #4338ca;
+}
+
+/* ----------------------------------------------------------
+   6. GRADIENT DEFINITIONS
+   ---------------------------------------------------------- */
+:root {
+  /* Brand gradients */
+  --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  --gradient-primary-hover: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+  --gradient-accent: linear-gradient(135deg, #06b6d4 0%, #8b5cf6 100%);
+  --gradient-hero: linear-gradient(135deg, #6366f1 0%, #06b6d4 50%, #10b981 100%);
+  --gradient-dark: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+  --gradient-card-shine: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0) 50%
+  );
+
+  /* Status gradients */
+  --gradient-success: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+  --gradient-warning: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+  --gradient-error: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
+
+  /* Surface gradients */
+  --gradient-surface: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  --gradient-surface-dark: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+
+  /* Cashback / earnings highlight */
+  --gradient-earnings: linear-gradient(135deg, #06b6d4 0%, #6366f1 100%);
+  --gradient-gold: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+}
+
+.dark {
+  --gradient-surface: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+  --gradient-card-shine: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0) 50%
+  );
+}
+
+/* ----------------------------------------------------------
+   7. GLOW EFFECTS (Dark Mode Emphasis)
+   ---------------------------------------------------------- */
+:root {
+  --glow-primary: 0 0 20px rgba(99, 102, 241, 0.3);
+  --glow-accent:  0 0 20px rgba(6, 182, 212, 0.3);
+  --glow-success: 0 0 20px rgba(16, 185, 129, 0.3);
+  --glow-warning: 0 0 20px rgba(245, 158, 11, 0.3);
+  --glow-error:   0 0 20px rgba(239, 68, 68, 0.3);
+}
+
+.dark {
+  --glow-primary: 0 0 30px rgba(99, 102, 241, 0.5);
+  --glow-accent:  0 0 30px rgba(6, 182, 212, 0.5);
+  --glow-success: 0 0 30px rgba(16, 185, 129, 0.4);
+  --glow-warning: 0 0 30px rgba(245, 158, 11, 0.4);
+  --glow-error:   0 0 30px rgba(239, 68, 68, 0.4);
+}

@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Success -->
+  <g id="success" data-name="Success">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M9 12L11 14L15 10"/>
+  </g>
+
+  <!-- Warning -->
+  <g id="warning" data-name="Warning">
+    <path d="M10.29 3.86L1.82 18C1.64 18.3 1.552 18.65 1.552 19C1.552 20.12 2.421 21 3.553 21H20.45C21.583 21 22.45 20.12 22.45 19C22.45 18.65 22.36 18.3 22.18 18L13.71 3.86C13.53 3.56 13.28 3.32 13 3.16C12.73 3 12.45 3 12.18 3C11.91 3 11.64 3.03 11.38 3.1"/>
+    <path d="M12 9V13"/>
+    <path d="M12 17H12.01"/>
+  </g>
+
+  <!-- Error -->
+  <g id="error" data-name="Error">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M15 9L9 15"/>
+    <path d="M9 9L15 15"/>
+  </g>
+
+  <!-- Info -->
+  <g id="info" data-name="Info">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M12 16V12"/>
+    <path d="M12 8H12.01"/>
+  </g>
+
+  <!-- Loading -->
+  <g id="loading" data-name="Loading">
+    <path d="M12 2v4"/>
+    <path d="M12 18v4"/>
+    <path d="M4.93 4.93l2.83 2.83"/>
+    <path d="M16.24 16.24l2.83 2.83"/>
+    <path d="M2 12h4"/>
+    <path d="M18 12h4"/>
+    <path d="M4.93 19.07l2.83-2.83"/>
+    <path d="M16.24 7.76l2.83-2.83"/>
+  </g>
+
+  <!-- Pending -->
+  <g id="pending" data-name="Pending">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="M12 6v6l4 2"/>
+  </g>
+
+  <!-- Active -->
+  <g id="active" data-name="Active">
+    <path d="M18.36 7.64a9 9 0 0 0-12.73 0"/>
+    <line x1="12" y1="2" x2="12" y2="12"/>
+  </g>
+
+  <!-- Inactive -->
+  <g id="inactive" data-name="Inactive">
+    <rect x="3" y="3" width="18" height="18" rx="2"/>
+  </g>
+</svg>

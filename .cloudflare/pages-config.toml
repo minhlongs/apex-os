@@ -1,0 +1,22 @@
+# Cloudflare Pages Project Configuration
+# This file is used by wrangler pages deploy
+
+name = "apex-os"
+compatibility_date = "2026-01-01"
+
+[build]
+command = "pnpm build"
+output_directory = ".open-next"
+
+[build.environment]
+NODE_VERSION = "20"
+
+[[routes]]
+pattern = "/api/*"
+zone_name = "pages.dev"
+fallback = true
+
+[[routes]]
+pattern = "/admin/*"
+zone_name = "pages.dev"
+fallback = true

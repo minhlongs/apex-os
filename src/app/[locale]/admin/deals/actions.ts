@@ -1,0 +1,406 @@
+/**
+ * Admin Deals Server Actions
+ * Provides CRUD operations for admin users to manage affiliate deals
+ */
+
+'use server'
+
+import { createAuth } from '@/lib/auth/auth-factory'
+import type { AffiliateDeal, CreateDealDto, UpdateDealDto, PaginatedResponse } from '@/types/deal'
+import { revalidatePath } from 'next/cache'
+import { getDB } from '@/lib/db';
+
+// Helper to check if user is admin
+export async function requireAdmin(): Promise<{ userId: string; role: string } | null> {
+  const db = getDB();
+  const auth = createAuth({ DB: db })
+
+  // In Server Actions, get session from headers and cookies
+  const { headers: getHeaders, cookies } = await import('next/headers')
+  const readonlyHeaders = await getHeaders()
+  const cookieStore = await cookies()
+
+  // Convert ReadonlyHeaders to mutable Headers for auth API
+  const headers = new Headers()
+  readonlyHeaders.forEach((value, key) => headers.append(key, value))
+
+  // Build cookies object for auth
+  const cookiesObj: Record<string, string> = {}
+  const allCookies = cookieStore.getAll()
+  for (const cookie of allCookies) {
+    cookiesObj[cookie.name] = cookie.value
+  }
+
+  const sessionResult = await auth.api.getSession({
+    headers,
+    cookies: cookiesObj,
+  })
+
+  if (!sessionResult?.user) {
+    return null
+  }
+
+  // Get user profile to check role
+  const userId = (sessionResult.user as { id: string }).id
+  const profile = await db.prepare('SELECT role FROM profiles WHERE id = ?')
+    .bind(userId)
+    .first<{ role: string }>()
+
+  if (!profile || profile.role !== 'admin') {
+    return null
+  }
+
+  return { userId, role: profile.role }
+}
+
+/**
+ * GET all deals with optional filtering (Admin)
+ */
+export async function getAllDeals(
+  page: number = 1,
+  limit: number = 20,
+  dealType?: string,
+  isActive?: string,
+  exchange?: string,
+  category?: string,
+  riskLevel?: string,
+  search?: string
+): Promise<PaginatedResponse<AffiliateDeal>> {
+  try {
+    const admin = await requireAdmin()
+    if (!admin) {
+      return { data: [], total: 0, page, limit, totalPages: 0 }
+    }
+
+    const db = getDB()
+    const conditions: string[] = []
+    const values: unknown[] = []
+
+    if (dealType) {
+      conditions.push('deal_type = ?')
+      values.push(dealType)
+    }
+
+    if (isActive !== undefined && isActive !== '') {
+      const active = isActive === 'true' || isActive === '1'
+      conditions.push('is_active = ?')
+      values.push(active ? 1 : 0)
+    }
+
+    if (exchange) {
+      conditions.push('exchange = ?')
+      values.push(exchange)
+    }
+
+    if (category) {
+      conditions.push('category = ?')
+      values.push(category)
+    }
+
+    if (riskLevel) {
+      conditions.push('risk_level = ?')
+      values.push(riskLevel)
+    }
+
+    if (search) {
+      conditions.push('(name LIKE ? OR description LIKE ? OR url LIKE ?)')
+      const searchPattern = `%${search}%`
+      values.push(searchPattern, searchPattern, searchPattern)
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+
+    // Count total
+    const countQuery = `SELECT COUNT(*) as total FROM deals ${whereClause}`
+    let countStmt = db.prepare(countQuery)
+    for (const val of values) {
+      countStmt = countStmt.bind(val)
+    }
+    const countRow = await countStmt.first<{ total: number }>()
+    const total = countRow?.total || 0
+
+    // Get paginated data
+    const offset = (page - 1) * limit
+    const dataQuery = `
+      SELECT * FROM deals
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `
+    const allValues = [...values, limit, offset]
+    let dataStmt = db.prepare(dataQuery)
+    for (const val of allValues) {
+      dataStmt = dataStmt.bind(val)
+    }
+    const dataResult = await dataStmt.all<AffiliateDeal>()
+
+    return {
+      data: dataResult.results,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    }
+  } catch (error) {
+    console.error('Error fetching deals:', error)
+    return { data: [], total: 0, page, limit, totalPages: 0 }
+  }
+}
+
+/**
+ * GET a single deal by ID (Admin)
+ */
+export async function getDealById(id: string): Promise<{ data: AffiliateDeal | null; error?: string }> {
+  try {
+    const admin = await requireAdmin()
+    if (!admin) {
+      return { data: null, error: 'Unauthorized' }
+    }
+
+    const deal = await getDB().prepare('SELECT * FROM deals WHERE id = ?')
+      .bind(id)
+      .first<AffiliateDeal>()
+
+    return { data: deal || null }
+  } catch (error) {
+    console.error('Error fetching deal:', error)
+    return { data: null, error: 'Failed to fetch deal' }
+  }
+}
+
+/**
+ * CREATE a new deal (Admin only)
+ */
+export async function createDeal(formData: CreateDealDto): Promise<{ success: boolean; data?: AffiliateDeal; error?: string }> {
+  try {
+    const admin = await requireAdmin()
+    if (!admin) {
+      return { success: false, error: 'Unauthorized: Admin access required' }
+    }
+
+    if (!formData.name || !formData.url) {
+      return { success: false, error: 'Missing required fields: name, url' }
+    }
+
+    const dealId = crypto.randomUUID().replace(/-/g, '').slice(0, 32)
+
+    // Set defaults
+    const dealType = formData.deal_type || 'product'
+    const commissionRate = formData.default_commission_rate ?? 0.10
+    const commissionType = formData.default_commission_type || 'percentage'
+    const fixedAmount = formData.fixed_commission_amount || 0
+    const cookieDuration = formData.cookie_duration_days || 30
+    const isActive = formData.is_active !== undefined ? (formData.is_active ? 1 : 0) : 1
+    const description = formData.description || null
+    const productId = formData.product_id || null
+    const startsAt = formData.starts_at || null
+    const endsAt = formData.ends_at || null
+    const exchange = formData.exchange || null
+    const category = formData.category || null
+    const cashbackPercent = formData.cashback_percent ?? null
+    const riskLevel = formData.risk_level || null
+
+    const insertQuery = `
+      INSERT INTO deals (
+        id, name, description, deal_type, product_id, url,
+        default_commission_rate, default_commission_type, fixed_commission_amount,
+        cookie_duration_days, is_active, starts_at, ends_at, metadata,
+        created_by, created_at, updated_at,
+        exchange, category, cashback_percent, risk_level
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, ?, ?)
+    `
+
+    await getDB().prepare(insertQuery)
+      .bind(
+        dealId,
+        formData.name,
+        description,
+        dealType,
+        productId,
+        formData.url,
+        commissionRate,
+        commissionType,
+        fixedAmount,
+        cookieDuration,
+        isActive,
+        startsAt,
+        endsAt,
+        JSON.stringify(formData.metadata || {}),
+        admin.userId,
+        exchange,
+        category,
+        cashbackPercent,
+        riskLevel
+      )
+      .run()
+
+    const newDeal = await getDB().prepare('SELECT * FROM deals WHERE id = ?')
+      .bind(dealId)
+      .first<AffiliateDeal>()
+
+    if (!newDeal) {
+      return { success: false, error: 'Failed to create deal: could not retrieve record' }
+    }
+
+    revalidatePath('/admin/deals')
+    return { success: true, data: newDeal! }
+  } catch (error) {
+    console.error('Error creating deal:', error)
+    return { success: false, error: 'Failed to create deal' }
+  }
+}
+
+/**
+ * UPDATE a deal (Admin)
+ */
+export async function updateDeal(
+  id: string,
+  formData: Partial<UpdateDealDto>
+): Promise<{ success: boolean; data?: AffiliateDeal; error?: string }> {
+  try {
+    const admin = await requireAdmin()
+    if (!admin) {
+      return { success: false, error: 'Unauthorized' }
+    }
+
+    // Check if deal exists
+    const existing = await getDB().prepare('SELECT * FROM deals WHERE id = ?')
+      .bind(id)
+      .first<AffiliateDeal>()
+
+    if (!existing) {
+      return { success: false, error: 'Deal not found' }
+    }
+
+    const updates: string[] = []
+    const values: unknown[] = []
+
+    if (formData.name !== undefined) {
+      updates.push('name = ?')
+      values.push(formData.name)
+    }
+    if (formData.description !== undefined) {
+      updates.push('description = ?')
+      values.push(formData.description)
+    }
+    if (formData.deal_type !== undefined) {
+      updates.push('deal_type = ?')
+      values.push(formData.deal_type)
+    }
+    if (formData.product_id !== undefined) {
+      updates.push('product_id = ?')
+      values.push(formData.product_id)
+    }
+    if (formData.url !== undefined) {
+      updates.push('url = ?')
+      values.push(formData.url)
+    }
+    if (formData.default_commission_rate !== undefined) {
+      updates.push('default_commission_rate = ?')
+      values.push(formData.default_commission_rate)
+    }
+    if (formData.default_commission_type !== undefined) {
+      updates.push('default_commission_type = ?')
+      values.push(formData.default_commission_type)
+    }
+    if (formData.fixed_commission_amount !== undefined) {
+      updates.push('fixed_commission_amount = ?')
+      values.push(formData.fixed_commission_amount)
+    }
+    if (formData.cookie_duration_days !== undefined) {
+      updates.push('cookie_duration_days = ?')
+      values.push(formData.cookie_duration_days)
+    }
+    if (formData.is_active !== undefined) {
+      updates.push('is_active = ?')
+      values.push(formData.is_active ? 1 : 0)
+    }
+    if (formData.starts_at !== undefined) {
+      updates.push('starts_at = ?')
+      values.push(formData.starts_at)
+    }
+    if (formData.ends_at !== undefined) {
+      updates.push('ends_at = ?')
+      values.push(formData.ends_at)
+    }
+    if (formData.metadata !== undefined) {
+      updates.push('metadata = ?')
+      values.push(JSON.stringify(formData.metadata))
+    }
+    // Extended fields from 004
+    if (formData.exchange !== undefined) {
+      updates.push('exchange = ?')
+      values.push(formData.exchange)
+    }
+    if (formData.category !== undefined) {
+      updates.push('category = ?')
+      values.push(formData.category)
+    }
+    if (formData.cashback_percent !== undefined) {
+      updates.push('cashback_percent = ?')
+      values.push(formData.cashback_percent)
+    }
+    if (formData.risk_level !== undefined) {
+      updates.push('risk_level = ?')
+      values.push(formData.risk_level)
+    }
+
+    if (updates.length === 0) {
+      return { success: false, error: 'No fields to update' }
+    }
+
+    const updateQuery = `UPDATE deals SET ${updates.join(', ')} WHERE id = ?`
+    values.push(id)
+
+    await getDB().prepare(updateQuery)
+      .bind(...values)
+      .run()
+
+    const updatedDeal = await getDB().prepare('SELECT * FROM deals WHERE id = ?')
+      .bind(id)
+      .first<AffiliateDeal>()
+
+    if (!updatedDeal) {
+      return { success: false, error: 'Failed to update deal: could not retrieve record' }
+    }
+
+    revalidatePath('/admin/deals')
+    return { success: true, data: updatedDeal! }
+  } catch (error) {
+    console.error('Error updating deal:', error)
+    return { success: false, error: 'Failed to update deal' }
+  }
+}
+
+/**
+ * DELETE a deal - soft delete by setting is_active = 0 (Admin)
+ */
+export async function deleteDeal(id: string): Promise<{ success: boolean; error?: string; message?: string }> {
+  try {
+    const admin = await requireAdmin()
+    if (!admin) {
+      return { success: false, error: 'Unauthorized' }
+    }
+
+    // Check if deal exists
+    const existing = await getDB().prepare('SELECT * FROM deals WHERE id = ?')
+      .bind(id)
+      .first<AffiliateDeal>()
+
+    if (!existing) {
+      return { success: false, error: 'Deal not found' }
+    }
+
+    // Soft delete: set is_active = 0
+    await getDB().prepare('UPDATE deals SET is_active = 0, updated_at = datetime("now") WHERE id = ?')
+      .bind(id)
+      .run()
+
+    revalidatePath('/admin/deals')
+    return { success: true }
+  } catch (error) {
+    console.error('Error deleting deal:', error)
+    return { success: false, error: 'Failed to delete deal' }
+  }
+}

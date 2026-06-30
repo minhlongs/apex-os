@@ -1,0 +1,54 @@
+# robots.txt for ApexOS
+# https://www.apex-os.com
+
+User-agent: *
+Allow: /
+
+# Disallow admin and dashboard pages from indexing
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /auth/
+
+# Allow specific admin pages for Google verification if needed
+Allow: /admin/health
+
+# Sitemap location
+Sitemap: https://apex-os.com/sitemap.xml
+
+# Crawl delay for politeness
+Crawl-delay: 1
+
+# Specific bot rules
+User-agent: Googlebot
+Allow: /admin/health
+Disallow: /admin/
+
+User-agent: Bingbot
+Allow: /admin/health
+Disallow: /admin/
+
+User-agent: Yandex
+Disallow: /
+
+User-agent: GPTBot
+Disallow: /
+
+# AI training bots - block content scraping
+User-agent: CCBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Claude-Desktop
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: anthropic
+Disallow: /

@@ -1,0 +1,154 @@
+/* ============================================================
+   ApexOS Design System — Shadow & Elevation Tokens
+   Elevation system for light/dark themes
+   Glow effects for dark mode emphasis
+   ============================================================ */
+
+/* ----------------------------------------------------------
+   1. ELEVATION SHADOW SCALE (Light Mode)
+   ---------------------------------------------------------- */
+:root {
+  /* Level 0 — Flat / no elevation */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+
+  /* Level 1 — Subtle (inputs, small cards) */
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.06),
+               0 1px 2px rgba(15, 23, 42, 0.04);
+
+  /* Level 2 — Low (cards, dropdowns) */
+  --shadow-md: 0 4px 6px -1px rgba(15, 23, 42, 0.07),
+               0 2px 4px -2px rgba(15, 23, 42, 0.05);
+
+  /* Level 3 — Medium (modals, popovers) */
+  --shadow-lg: 0 10px 15px -3px rgba(15, 23, 42, 0.08),
+               0 4px 6px -4px rgba(15, 23, 42, 0.04);
+
+  /* Level 4 — High (floating panels, drawers) */
+  --shadow-xl: 0 20px 25px -5px rgba(15, 23, 42, 0.08),
+               0 8px 10px -6px rgba(15, 23, 42, 0.04);
+
+  /* Level 5 — Highest (sticky headers, full-screen modals) */
+  --shadow-2xl: 0 25px 50px -12px rgba(15, 23, 42, 0.15);
+}
+
+/* ----------------------------------------------------------
+   2. SEMANTIC SHADOW TOKENS (Light Mode)
+   Colored shadows for brand emphasis
+   ---------------------------------------------------------- */
+:root {
+  --shadow-primary: 0 4px 14px rgba(99, 102, 241, 0.2);
+  --shadow-primary-lg: 0 8px 30px rgba(99, 102, 241, 0.25);
+  --shadow-accent: 0 4px 14px rgba(6, 182, 212, 0.2);
+  --shadow-accent-lg: 0 8px 30px rgba(6, 182, 212, 0.25);
+  --shadow-success: 0 4px 14px rgba(16, 185, 129, 0.2);
+  --shadow-warning: 0 4px 14px rgba(245, 158, 11, 0.2);
+  --shadow-error: 0 4px 14px rgba(239, 68, 68, 0.2);
+  --shadow-inner: inset 0 2px 4px rgba(15, 23, 42, 0.06);
+}
+
+/* ----------------------------------------------------------
+   3. ELEVATION SHADOW SCALE (Dark Mode)
+   Adjusted opacity for dark backgrounds
+   ---------------------------------------------------------- */
+.dark {
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4),
+               0 1px 2px rgba(0, 0, 0, 0.3);
+
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4),
+               0 2px 4px -2px rgba(0, 0, 0, 0.3);
+
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5),
+               0 4px 6px -4px rgba(0, 0, 0, 0.4);
+
+  --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.5),
+               0 8px 10px -6px rgba(0, 0, 0, 0.4);
+
+  --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+}
+
+/* ----------------------------------------------------------
+   4. SEMANTIC SHADOWS (Dark Mode)
+   ---------------------------------------------------------- */
+.dark {
+  --shadow-primary: 0 4px 14px rgba(99, 102, 241, 0.35);
+  --shadow-primary-lg: 0 8px 30px rgba(99, 102, 241, 0.4);
+  --shadow-accent: 0 4px 14px rgba(6, 182, 212, 0.3);
+  --shadow-accent-lg: 0 8px 30px rgba(6, 182, 212, 0.35);
+  --shadow-success: 0 4px 14px rgba(16, 185, 129, 0.3);
+  --shadow-warning: 0 4px 14px rgba(245, 158, 11, 0.3);
+  --shadow-error: 0 4px 14px rgba(239, 68, 68, 0.3);
+  --shadow-inner: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* ----------------------------------------------------------
+   5. GLOW EFFECTS (Dark Mode Emphasis)
+   Used for active states, focus rings, highlights
+   ---------------------------------------------------------- */
+:root {
+  /* Subtle glows (light mode — barely visible) */
+  --glow-primary-sm:  0 0 8px rgba(99, 102, 241, 0.15);
+  --glow-accent-sm:   0 0 8px rgba(6, 182, 212, 0.15);
+  --glow-success-sm:  0 0 8px rgba(16, 185, 129, 0.15);
+  --glow-warning-sm:  0 0 8px rgba(245, 158, 11, 0.15);
+  --glow-error-sm:    0 0 8px rgba(239, 68, 68, 0.15);
+}
+
+.dark {
+  /* Full glows (dark mode — prominent) */
+  --glow-primary-sm:  0 0 10px rgba(129, 140, 248, 0.4);
+  --glow-primary:     0 0 20px rgba(99, 102, 241, 0.5);
+  --glow-primary-lg:  0 0 40px rgba(99, 102, 241, 0.4),
+                      0 0 80px rgba(99, 102, 241, 0.2);
+
+  --glow-accent-sm:   0 0 10px rgba(34, 211, 238, 0.4);
+  --glow-accent:      0 0 20px rgba(6, 182, 212, 0.5);
+  --glow-accent-lg:   0 0 40px rgba(6, 182, 212, 0.4),
+                      0 0 80px rgba(6, 182, 212, 0.2);
+
+  --glow-success-sm:  0 0 10px rgba(52, 211, 153, 0.4);
+  --glow-success:     0 0 20px rgba(16, 185, 129, 0.4);
+
+  --glow-warning-sm:  0 0 10px rgba(251, 191, 36, 0.4);
+  --glow-warning:     0 0 20px rgba(245, 158, 11, 0.4);
+
+  --glow-error-sm:    0 0 10px rgba(248, 113, 113, 0.4);
+  --glow-error:       0 0 20px rgba(239, 68, 68, 0.4);
+
+  /* Brand glow for hero / CTA sections */
+  --glow-brand:       0 0 60px rgba(99, 102, 241, 0.3),
+                      0 0 120px rgba(139, 92, 246, 0.2);
+}
+
+/* ----------------------------------------------------------
+   6. COMPONENT-SPECIFIC SHADOW TOKENS
+   Pre-composed shadows for common UI patterns
+   ---------------------------------------------------------- */
+:root {
+  --shadow-navbar: var(--shadow-sm);
+  --shadow-sidebar: var(--shadow-md);
+  --shadow-card: var(--shadow-sm);
+  --shadow-card-hover: var(--shadow-md);
+  --shadow-dropdown: var(--shadow-lg);
+  --shadow-modal-backdrop: 0 0 0 1px rgba(15, 23, 42, 0.05),
+                           0 20px 50px -12px rgba(15, 23, 42, 0.2);
+  --shadow-tooltip: var(--shadow-md);
+  --shadow-toast: var(--shadow-lg);
+  --shadow-button: none;
+  --shadow-button-hover: var(--shadow-sm);
+  --shadow-input: none;
+  --shadow-input-focus: 0 0 0 3px rgba(99, 102, 241, 0.2);
+  --shadow-stat-card: var(--shadow-sm);
+  --shadow-chart: none;
+}
+
+.dark {
+  --shadow-navbar: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-sidebar: var(--shadow-lg);
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-card-hover: var(--shadow-lg);
+  --shadow-modal-backdrop: 0 0 0 1px rgba(255, 255, 255, 0.05),
+                           0 20px 50px -12px rgba(0, 0, 0, 0.5);
+  --shadow-input-focus: 0 0 0 3px rgba(129, 140, 248, 0.3);
+}

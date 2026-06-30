@@ -1,0 +1,5 @@
+import { defineDocument, buildClientDocumentRequest } from '@sentry/nextjs';
+
+const document = defineDocument((buildClientDocumentRequest as any) || buildClientDocumentRequest);
+
+export default document;

@@ -1,0 +1,436 @@
+/**
+ * Exchange Webhook Endpoint
+ * Handles trade notifications from Binance and Bybit with enhanced security
+ *
+ * POST /api/webhooks/exchange
+ *
+ * SUPPORTED EXCHANGES:
+ * -------------------
+ * 1. Binance
+ *    - Signature: HMAC-SHA256 of raw request body
+ *    - Header: X-Binance-Signature
+ *    - Event types: executionReport (for filled trades)
+ *    - Docs: https://binance-docs.github.io/apidocs/spot/en/#payload-hashing
+ *
+ * 2. Bybit
+ *    - Signature: HMAC-SHA256 of timestamp+method+path+body
+ *    - Headers: X-Bybit-HMAC-Signature, X-Bybit-Signature-Timestamp
+ *    - Event types: Transaction records with execType=Trade/Fill
+ *    - Docs: https://bybit-exchange.github.io/docs/v5/account/transaction
+ *
+ * SECURITY:
+ * ---------
+ * - HMAC signature verification (required)
+ * - Timestamp validation (5-minute window)
+ * - Replay protection (KV-backed, 24h TTL)
+ * - Structured error responses with error codes
+ *
+ * PROCESSING FLOW:
+ * ----------------
+ * 1. Detect exchange
+ * 2. Verify HMAC signature exists
+ * 3. Verify HMAC signature validity
+ * 4. Validate timestamp (5min window)
+ * 5. Parse and standardize trade data
+ * 6. Check replay protection
+ * 7. Find matching active deal
+ * 8. Check idempotency
+ * 9. Match user by wallet/email
+ * 10. Find associated deal click
+ * 11. Create conversion record
+ * 12. Generate tiered earnings (30/10/5%)
+ *
+ * ENVIRONMENT VARIABLES:
+ * ---------------------
+ * BINANCE_WEBHOOK_SECRET
+ * BYBIT_WEBHOOK_SECRET
+ *
+ * HEALTH CHECK:
+ * -------------
+ * GET /api/webhooks/exchange returns security status
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyBinanceSignature, verifyBybitSignature, verifyOkxSignature, verifyKuCoinSignature, WebhookCrypto, DEFAULT_TIMESTAMP_WINDOW_MS } from '@/lib/webhooks/crypto';
+import { parseWebhookPayload } from '@/lib/webhooks/parsers';
+import { isWebhookReplay, markWebhookProcessed, REPLAY_PROTECTION_TTL } from '@/lib/webhooks/replay-protection';
+import { invalidateAffiliateCache } from '@/lib/cache/cache-invalidation';
+import { track } from '@/lib/analytics-http';
+import { extractIpAddress, withRateLimit } from '@/lib/ratelimit/middleware';
+import {
+  WebhookErrorCode,
+  type Exchange,
+  type StandardizedTrade,
+} from '@/lib/webhooks/types';
+import {
+  WebhookErrorResponses,
+  getHttpStatusCode,
+} from '@/lib/webhooks/error-responses';
+import { getDB } from '@/lib/db';
+import type { D1Database } from '@/lib/db';
+
+const EXCHANGE_SECRETS: Record<Exchange, string | undefined> = {
+  binance: process.env.BINANCE_WEBHOOK_SECRET,
+  bybit: process.env.BYBIT_WEBHOOK_SECRET,
+  okx: process.env.OKX_WEBHOOK_SECRET,
+  kucoin: process.env.KUCOIN_WEBHOOK_SECRET,
+};
+
+function validateTimestampOrError(
+  exchange: Exchange,
+  headers: Record<string, string>,
+  body: Record<string, unknown>,
+  requestId: string
+): { valid: true } | { valid: false; response: Response } {
+  const timestamp = WebhookCrypto.extractTimestamp(exchange, headers, body);
+  if (timestamp === null) {
+    return {
+      valid: false,
+      response: NextResponse.json(
+        WebhookErrorResponses.missingTimestamp(requestId),
+        { status: getHttpStatusCode(WebhookErrorCode.MISSING_TIMESTAMP) }
+      ),
+    };
+  }
+  const validation = WebhookCrypto.validateTimestamp(timestamp, undefined, DEFAULT_TIMESTAMP_WINDOW_MS);
+  if (!validation.valid) {
+    return {
+      valid: false,
+      response: NextResponse.json(
+        WebhookErrorResponses.timestampOutsideWindow(validation.ageMs, DEFAULT_TIMESTAMP_WINDOW_MS, requestId),
+        { status: getHttpStatusCode(WebhookErrorCode.TIMESTAMP_OUTSIDE_WINDOW) }
+      ),
+    };
+  }
+  return { valid: true };
+}
+
+function detectExchange(
+  headers: Record<string, string>,
+  body: Record<string, unknown>
+): Exchange | null {
+  if (headers['x-binance-signature'] || headers['signature']) return 'binance';
+  if (headers['x-bybit-hmac-signature']) return 'bybit';
+  if (headers['ok-access-sign'] || headers['ok-access-signature']) return 'okx';
+  if (headers['kc-api-sign']) return 'kucoin';
+  if (body.e === 'executionReport' && body.o) return 'binance';
+  if (body.category && (body.execType === 'Trade' || body.execType === 'Fill')) return 'bybit';
+  if (body.instId && body.ordId) return 'okx';
+  if (body.topic && body.data) return 'kucoin';
+  return null;
+}
+
+async function verifyWebhookSignature(
+  exchange: Exchange,
+  payload: string,
+  headers: Record<string, string>,
+  rawBody: string
+): Promise<{ valid: boolean; error?: string }> {
+  const secret = EXCHANGE_SECRETS[exchange];
+  if (!secret) {
+    return { valid: false, error: `Webhook secret not configured for exchange: ${exchange}` };
+  }
+  try {
+    let isValid: boolean;
+    switch (exchange) {
+      case 'binance':
+        isValid = await verifyBinanceSignature(rawBody, headers['x-binance-signature'] || headers['signature'] || null, secret);
+        break;
+      case 'bybit':
+        isValid = await verifyBybitSignature(rawBody, headers['x-bybit-hmac-signature'] || null, secret, headers['x-bybit-signature-timestamp'] || headers['timestamp'] || null);
+        break;
+      case 'okx':
+        isValid = await verifyOkxSignature(rawBody, headers['ok-access-sign'] || null, secret, headers['ok-access-timestamp'] || null, 'POST', '/api/webhooks/exchange/okx');
+        break;
+      case 'kucoin':
+        isValid = await verifyKuCoinSignature(rawBody, headers['kc-api-sign'] || null, secret, headers['kc-api-timestamp'] || null, 'POST', '/api/webhooks/exchange/kucoin');
+        break;
+      default:
+        return { valid: false, error: `Unsupported exchange: ${exchange}` };
+    }
+    return { valid: isValid };
+  } catch (error) {
+    return { valid: false, error: `Signature verification error: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+async function conversionExists(db: D1Database, orderId: string, exchange: Exchange): Promise<boolean> {
+  const result = await db.prepare('SELECT id FROM conversions WHERE exchange_trade_id = ? AND exchange_name = ? LIMIT 1').bind(orderId, exchange).first<{ id: string }>();
+  return !!result;
+}
+
+async function findProfileByIdentifier(
+  db: D1Database,
+  identifier: string | undefined
+): Promise<{ id: string; email: string; wallet_address?: string } | null> {
+  if (!identifier) return null;
+  const byWallet = await db.prepare('SELECT id, email, wallet_address FROM profiles WHERE wallet_address = ? AND role IN ("shopper", "affiliate") LIMIT 1').bind(identifier).first<{ id: string; email: string; wallet_address?: string }>();
+  if (byWallet) return byWallet;
+  const byEmail = await db.prepare('SELECT id, email, wallet_address FROM profiles WHERE email = ? AND role IN ("shopper", "affiliate") LIMIT 1').bind(identifier).first<{ id: string; email: string; wallet_address?: string }>();
+  return byEmail || null;
+}
+
+async function findDeal(
+  db: D1Database,
+  exchange: Exchange,
+  symbol: string
+): Promise<{ id: string; name: string; cashback_percent: number | null; default_commission_rate: number } | null> {
+  const result = await db.prepare(
+    `SELECT id, name, cashback_percent, default_commission_rate
+     FROM deals
+     WHERE exchange = ? AND is_active = 1
+       AND (starts_at IS NULL OR starts_at <= datetime('now'))
+       AND (ends_at IS NULL OR ends_at >= datetime('now'))
+     LIMIT 1`
+  ).bind(exchange).first<{ id: string; name: string; cashback_percent: number | null; default_commission_rate: number }>();
+  return result || null;
+}
+
+async function createConversion(
+  db: D1Database,
+  trade: StandardizedTrade,
+  dealId: string,
+  affiliateId: string,
+  affiliateCode?: string,
+  dealClickId?: string
+): Promise<string> {
+  const conversionId = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+  const deal = await findDeal(db, trade.exchange, trade.symbol);
+  const cashbackPercent = deal?.cashback_percent ?? 0;
+  const commissionAmount = trade.totalValue * (cashbackPercent / 100);
+  await db.prepare(`
+    INSERT INTO conversions (
+      id, deal_id, deal_click_id, affiliate_code, affiliate_id,
+      customer_id, order_id, exchange_trade_id, exchange_name,
+      revenue, currency, commission_amount,
+      commission_type, conversion_type, status, conversion_data,
+      converted_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).bind(
+    conversionId,
+    dealId,
+    dealClickId || null,
+    affiliateCode || null,
+    affiliateId,
+    null,
+    trade.orderId,
+    trade.orderId,
+    trade.exchange,
+    trade.totalValue,
+    trade.currency,
+    commissionAmount,
+    'percentage',
+    'sale',
+    'approved',
+    JSON.stringify({
+      exchange: trade.exchange,
+      symbol: trade.symbol,
+      side: trade.side,
+      quantity: trade.quantity,
+      price: trade.price,
+      fee: trade.fee,
+      feeCurrency: trade.feeCurrency,
+      userId: trade.userId,
+      executedAt: trade.executedAt.toISOString(),
+    })
+  ).run();
+  return conversionId;
+}
+
+async function createEarnings(
+  db: D1Database,
+  conversionId: string,
+  affiliateId: string,
+  dealId: string,
+  commissionAmount: number
+): Promise<string[]> {
+  const earningsIds: string[] = [];
+  const tree = await db.prepare(
+    `SELECT id, parent_id, level, path
+     FROM referral_tree
+     WHERE affiliate_id = ?
+     LIMIT 1`
+  ).bind(affiliateId).first<{ id: string; parent_id?: string; level: number; path?: string }>();
+  if (!tree) return earningsIds;
+
+  const level1Rate = 0.30;
+  const level1Amount = commissionAmount * level1Rate;
+  const earnings1Id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+  await db.prepare(`
+    INSERT INTO earnings (id, conversion_id, affiliate_id, referral_tree_id, amount, commission_type, commission_rate, level, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).bind(earnings1Id, conversionId, affiliateId, tree.id, level1Amount, 'percentage', level1Rate, 1).run();
+  earningsIds.push(earnings1Id);
+
+  if (tree.parent_id) {
+    const parent = await db.prepare(
+      `SELECT rt.id, p.id as affiliate_id
+       FROM referral_tree rt
+       JOIN profiles p ON rt.affiliate_id = p.id
+       WHERE rt.id = ? AND p.role IN ("affiliate", "master_trader")
+       LIMIT 1`
+    ).bind(tree.parent_id).first<{ id: string; affiliate_id: string }>();
+    if (parent) {
+      const level2Rate = 0.10;
+      const level2Amount = commissionAmount * level2Rate;
+      const earnings2Id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+      await db.prepare(`
+        INSERT INTO earnings (id, conversion_id, affiliate_id, referral_tree_id, amount, commission_type, commission_rate, level, parent_earnings_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+      `).bind(earnings2Id, conversionId, parent.affiliate_id, parent.id, level2Amount, 'percentage', level2Rate, 2, earnings1Id).run();
+      earningsIds.push(earnings2Id);
+
+      if (tree.level >= 3) {
+        const grandparent = await db.prepare(
+          `SELECT rt.id, p.id as affiliate_id
+           FROM referral_tree rt
+           JOIN profiles p ON rt.affiliate_id = p.id
+           WHERE rt.id = (SELECT parent_id FROM referral_tree WHERE id = ?)
+             AND p.role IN ("affiliate", "master_trader")
+           LIMIT 1`
+        ).bind(tree.parent_id).first<{ id: string; affiliate_id: string }>();
+        if (grandparent) {
+          const level3Rate = 0.05;
+          const level3Amount = commissionAmount * level3Rate;
+          const earnings3Id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+          await db.prepare(`
+            INSERT INTO earnings (id, conversion_id, affiliate_id, referral_tree_id, amount, commission_type, commission_rate, level, parent_earnings_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+          `).bind(earnings3Id, conversionId, grandparent.affiliate_id, grandparent.id, level3Amount, 'percentage', level3Rate, 3, earnings2Id).run();
+          earningsIds.push(earnings3Id);
+        }
+      }
+    }
+  }
+  return earningsIds;
+}
+
+export const POST = withRateLimit(async (request: NextRequest): Promise<Response> => {
+  const startTime = Date.now();
+  const requestId = `req_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+  const db = getDB();
+
+  if (!db) {
+    return NextResponse.json(WebhookErrorResponses.databaseError('Database not initialized', requestId), { status: 500 });
+  }
+
+  try {
+    const body = (await request.json()) as Record<string, unknown>;
+    const headers: Record<string, string> = {};
+    request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
+    const rawBody = await request.text();
+
+    const exchange = detectExchange(headers, body);
+    if (!exchange) {
+      return NextResponse.json(WebhookErrorResponses.unsupportedExchange('unknown', requestId), { status: getHttpStatusCode(WebhookErrorCode.UNSUPPORTED_EXCHANGE) });
+    }
+
+    const signatureHeader = headers['x-binance-signature'] || headers['signature'] || headers['x-bybit-hmac-signature'] || headers['ok-access-sign'] || headers['kc-api-sign'];
+    if (!signatureHeader) {
+      return NextResponse.json(WebhookErrorResponses.missingSignature(requestId), { status: getHttpStatusCode(WebhookErrorCode.MISSING_SIGNATURE) });
+    }
+
+    const verification = await verifyWebhookSignature(exchange, rawBody, headers, rawBody);
+    if (!verification.valid) {
+      console.warn(`[Webhook] ${exchange} signature verification failed:`, verification.error);
+      return NextResponse.json(WebhookErrorResponses.invalidSignature(verification.error, requestId), { status: getHttpStatusCode(WebhookErrorCode.INVALID_SIGNATURE) });
+    }
+
+    const timestampCheck = validateTimestampOrError(exchange, headers, body, requestId);
+    if (timestampCheck.valid) {
+      // Continue
+    } else {
+      console.warn(`[Webhook] ${exchange} timestamp validation failed`);
+      return (timestampCheck as { valid: false; response: Response }).response;
+    }
+
+    const trade = await parseWebhookPayload(exchange, body, headers);
+    if (!trade) {
+      return NextResponse.json(WebhookErrorResponses.invalidPayload('Could not parse webhook payload', requestId), { status: getHttpStatusCode(WebhookErrorCode.INVALID_PAYLOAD) });
+    }
+
+    const isReplay = await isWebhookReplay(exchange, trade.orderId, trade.symbol);
+    if (isReplay) {
+      console.warn(`[Webhook] Replay attack detected: ${exchange} order ${trade.orderId} for ${trade.symbol}`);
+      return NextResponse.json(WebhookErrorResponses.potentialReplayAttack(requestId), { status: getHttpStatusCode(WebhookErrorCode.POTENTIAL_REPLAY_ATTACK) });
+    }
+
+    const deal = await findDeal(db, exchange, trade.symbol);
+    if (!deal) {
+      console.info(`[Webhook] No active ${exchange} deal found for symbol: ${trade.symbol}`);
+      return NextResponse.json({ success: true, skipped: true, reason: 'No matching deal' }, { status: 200 });
+    }
+
+    const exists = await conversionExists(db, trade.orderId, exchange);
+    if (exists) {
+      console.info(`[Webhook] Duplicate conversion detected: ${exchange} order ${trade.orderId}`);
+      return NextResponse.json(WebhookErrorResponses.duplicateWebhook(trade.orderId, requestId), { status: getHttpStatusCode(WebhookErrorCode.DUPLICATE_WEBHOOK) });
+    }
+
+    const identifier = trade.walletAddress || trade.email || trade.userId;
+    const profile = identifier ? await findProfileByIdentifier(db, identifier) : null;
+    if (!profile) {
+      console.info(`[Webhook] No matching user found for identifier: ${identifier}`);
+      return NextResponse.json({ success: true, skipped: true, reason: 'User not found or account not linked' }, { status: 200 });
+    }
+
+    const click = await db.prepare(
+      `SELECT dc.id, dc.affiliate_code, dc.affiliate_id
+       FROM deal_clicks dc
+       WHERE dc.deal_id = ? AND dc.affiliate_id = ? AND dc.created_at >= datetime('now', '-30 days')
+       ORDER BY dc.created_at DESC LIMIT 1`
+    ).bind(deal.id, profile.id).first<{ id: string; affiliate_code?: string; affiliate_id: string }>();
+
+    const conversionId = await createConversion(db, trade, deal.id, profile.id, click?.affiliate_code, click?.id);
+
+    const commissionAmount = trade.totalValue * ((deal?.cashback_percent ?? 0) / 100);
+    const earningsIds = await createEarnings(db, conversionId, profile.id, deal.id, commissionAmount);
+
+    // Track analytics (fire-and-forget)
+    const clientIP = extractIpAddress(request.headers);
+    track('conversion', profile.id, {
+      conversion_id: conversionId,
+      deal_id: deal.id,
+      deal_name: deal.name,
+      exchange: exchange,
+      symbol: trade.symbol,
+      volume: trade.totalValue,
+      commission: commissionAmount,
+      currency: trade.currency,
+      affiliate_code: click?.affiliate_code,
+      click_id: click?.id,
+      earnings_count: earningsIds.length,
+    }, clientIP).catch(() => {});
+
+    const duration = Date.now() - startTime;
+
+    await markWebhookProcessed(exchange, trade.orderId, trade.symbol);
+
+    // Invalidate cache for the affiliate (async, don't block response)
+    // Invalidates dashboard and conversions cache
+    void invalidateAffiliateCache(profile.id, ['affiliate-dashboard', 'affiliate-conversions']).catch(err =>
+      console.error('[Webhook] Cache invalidation error:', err)
+    );
+
+ return NextResponse.json({ success: true, conversionId, earningsIds, message: 'Trade recorded and earnings calculated' }, { status: 200 });
+  } catch (error) {
+    console.error('[Webhook] Processing error:', error);
+    return NextResponse.json(WebhookErrorResponses.processingError(error instanceof Error ? error.message : String(error), `req_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`), { status: 500 });
+  }
+}, {
+ endpointType: 'webhook'
+});
+export async function GET(): Promise<Response> {
+  const exchanges = ['binance', 'bybit', 'okx', 'kucoin'].filter((ex) => EXCHANGE_SECRETS[ex as Exchange]).map((ex) => ({ exchange: ex, configured: true }));
+  return NextResponse.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    exchanges,
+    security: {
+      signatureVerification: true,
+      timestampValidation: { enabled: true, windowSeconds: DEFAULT_TIMESTAMP_WINDOW_MS / 1000 },
+      replayProtection: { enabled: true, ttlSeconds: REPLAY_PROTECTION_TTL, method: 'kv' },
+      structuredErrors: true,
+    },
+  });
+}

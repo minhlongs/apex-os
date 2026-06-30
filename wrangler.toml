@@ -1,0 +1,41 @@
+name = "apex-os"
+main = "worker-wrapper.js"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+# D1 Database — run: wrangler d1 create apex-os-db
+# Then replace PLACEHOLDER with actual database_id from output
+[[d1_databases]]
+binding = "DB"
+database_name = "apex-os-db"
+database_id = "3436aa7d-3065-4103-96e1-ddbd8b372246"
+
+[[d1_databases]]
+binding = "apex_os_staging_db"
+database_name = "apex-os-staging-db"
+database_id = "be4ed659-c877-4820-ae6e-9747bc7ee316"
+
+[[kv_namespaces]]
+binding = "KV"
+id = "5628adf57f1548b5af615de4e9021893"
+
+# R2 Bucket — run: wrangler r2 bucket create apex-os-uploads
+[[r2_buckets]]
+binding = "STORAGE"
+bucket_name = "apex-os-uploads"
+
+# Edge Caching Configuration
+# Note: Route caching in wrangler.toml uses a simplified format.
+# For advanced caching, use Cache-Control headers in the route handler.
+# See: https://developers.cloudflare.com/workers/wrangler/configuration/#routes
+
+# Cron Triggers
+# - Weekly payouts (Sunday midnight)
+# - D1 metrics monitoring every 30 minutes
+# - Alert engine every 5 minutes
+[triggers]
+crons = ["0 0 * * 0", "*/30 * * * *", "*/5 * * * *"]
+
+# Route cron requests to the dedicated cron handler
+# Cloudflare Workers will call the root path, we'll route to /api/cron via middleware
+# Alternatively, add direct route mapping if needed

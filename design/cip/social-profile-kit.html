@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>ApexOS Social Media Profile Kit</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap');
+
+    :root {
+      --primary: #6366F1;
+      --secondary: #8B5CF6;
+      --accent: #06B6D4;
+      --dark: #0F172A;
+      --light: #F8FAFC;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: #f1f5f9;
+      padding: 60px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 60px;
+    }
+
+    .header h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 36px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .header p {
+      color: #64748b;
+      margin-top: 8px;
+    }
+
+    .templates-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 40px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .template-card {
+      background: white;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    }
+
+    .preview {
+      height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      color: #64748b;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .preview.profile {
+      width: 200px;
+      height: 200px;
+      margin: 20px auto;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+    }
+
+    .preview.cover {
+      width: 100%;
+      height: 200px;
+      background: linear-gradient(135deg, var(--dark), #1e293b);
+    }
+
+    .specs {
+      padding: 24px;
+      background: #f8fafc;
+    }
+
+    .specs h3 {
+      font-size: 14px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #64748b;
+      margin-bottom: 12px;
+    }
+
+    .specs ul {
+      list-style: none;
+      font-size: 13px;
+      color: #475569;
+    }
+
+    .specs li {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .color-swatches {
+      display: flex;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .swatch {
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      border: 2px solid white;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .logo-placement {
+      margin-top: 20px;
+      padding: 30px;
+      background: white;
+      text-align: center;
+      border-top: 1px solid #e2e8f0;
+    }
+
+    .logo-placement h4 {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: #64748b;
+      margin-bottom: 16px;
+    }
+
+    .logo-example {
+      display: inline-block;
+      padding: 12px 24px;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      color: white;
+      font-family: 'Space Grotesk', sans-serif;
+      font-weight: 700;
+      font-size: 18px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>ApexOS Social Profile Kit</h1>
+    <p>Brand assets for social media platforms</p>
+  </div>
+
+  <div class="templates-grid">
+    <!-- Profile Picture Template -->
+    <div class="template-card">
+      <div class="preview profile">
+        <svg width="100" height="100" viewBox="0 0 100 100">
+          <text x="50" y="60" text-anchor="middle" font-family="Space Grotesk" font-size="28" font-weight="700" fill="white">AO</text>
+        </svg>
+      </div>
+      <div class="specs">
+        <h3>Profile Picture</h3>
+        <ul>
+          <li><span>Size</span><span>400 × 400 px</span></li>
+          <li><span>Format</span><span>PNG (transparent)</span></li>
+          <li><span>Background</span><span>Gradient logo on dark or transparent</span></li>
+        </ul>
+        <div class="color-swatches">
+          <div class="swatch" style="background: linear-gradient(135deg, #6366F1, #8B5CF6);"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cover Photo Template -->
+    <div class="template-card">
+      <div class="preview cover">
+        <div style="position: absolute; bottom: 20px; left: 30px; color: white;">
+          <div style="font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 700; margin-bottom: 4px;">APEXOS</div>
+          <div style="font-size: 12px; opacity: 0.8;">Global Crypto Cashback + Affiliate Hub</div>
+        </div>
+      </div>
+      <div class="specs">
+        <h3>Cover Photo</h3>
+        <ul>
+          <li><span>Size</span><span>1500 × 500 px (LinkedIn)</span></li>
+          <li><span>Size</span><span>1200 × 400 px (Facebook)</span></li>
+          <li><span>Size</span><span>1500 × 500 px (Twitter/X)</span></li>
+          <li><span>Format</span><span>PNG or JPG</span></li>
+          <li><span>Safe Zone</span><span>Keep text/logo in center 80%</span></li>
+        </ul>
+        <div class="color-swatches">
+          <div class="swatch" style="background: #0F172A;"></div>
+          <div class="swatch" style="background: linear-gradient(135deg, #6366F1, #8B5CF6);"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Brand Colors -->
+    <div class="template-card">
+      <div class="preview" style="background: white;">
+        <div class="color-swatches">
+          <div class="swatch" style="background: #6366F1;"></div>
+          <div class="swatch" style="background: #8B5CF6;"></div>
+          <div class="swatch" style="background: #06B6D4;"></div>
+          <div class="swatch" style="background: #0F172A;"></div>
+          <div class="swatch" style="background: #F8FAFC; border-color: #e2e8f0;"></div>
+        </div>
+      </div>
+      <div class="specs">
+        <h3>Brand Colors</h3>
+        <ul>
+          <li><span>Primary</span><span>#6366F1 (Indigo 500)</span></li>
+          <li><span>Secondary</span><span>#8B5CF6 (Violet 500)</span></li>
+          <li><span>Accent</span><span>#06B6D4 (Cyan 500)</span></li>
+          <li><span>Dark</span><span>#0F172A (Slate 900)</span></li>
+          <li><span>Light</span><span>#F8FAFC (Slate 50)</span></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Logo Usage -->
+    <div class="template-card">
+      <div class="preview" style="background: white; display: block; padding: 40px;">
+        <div class="logo-placement">
+          <h4>Logo Placement Guidelines</h4>
+          <div class="logo-example">APEXOS</div>
+          <ul style="margin-top: 16px; font-size: 12px; color: #64748b; text-align: left; display: inline-block;">
+            <li>✓ Minimum 400px width on covers</li>
+            <li>✓ Clear space = x-height of A</li>
+            <li>✓ Use dark version on light backgrounds</li>
+            <li>✓ Use light version on dark backgrounds</li>
+            <li>✗ Don't rotate, stretch, or modify</li>
+          </ul>
+        </div>
+      </div>
+      <div class="specs">
+        <h3>Implementation Notes</h3>
+        <ul>
+          <li><span>Dark Background</span><span>Use white/light logo</span></li>
+          <li><span>Light Background</span><span>Use dark logo</span></li>
+          <li><span>Avatar Crop</span><span>Center the logo, leave padding</span></li>
+          <li><span>File Format</span><span>PNG with transparency</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

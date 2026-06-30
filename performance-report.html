@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ApexOS Performance Audit Report</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 p-8">
+  <div class="max-w-5xl mx-auto">
+    <h1 class="text-3xl font-bold mb-2">🚀 ApexOS Performance Audit Report</h1>
+    <p class="text-gray-600 mb-2">Target: https://apex-os.pages.dev</p>
+    <p class="text-gray-600 mb-8">Generated: June 22, 2026</p>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div class="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
+        <p class="text-gray-500 text-sm">Lighthouse Avg</p>
+        <p class="text-3xl font-bold">93</p>
+        <p class="text-sm text-green-600">Target: ≥90</p>
+      </div>
+      <div class="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
+        <p class="text-gray-500 text-sm">LCP Avg</p>
+        <p class="text-3xl font-bold">2395ms</p>
+        <p class="text-sm text-green-600">Target: ≤2500ms</p>
+      </div>
+      <div class="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
+        <p class="text-gray-500 text-sm">FID Avg</p>
+        <p class="text-3xl font-bold">65ms</p>
+        <p class="text-sm text-green-600">Target: ≤100ms</p>
+      </div>
+      <div class="bg-white rounded-lg shadow p-6 border-l-4 border-green-500">
+        <p class="text-gray-500 text-sm">CLS Avg</p>
+        <p class="text-3xl font-bold">0.000</p>
+        <p class="text-sm text-green-600">Target: ≤0.1</p>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-lg shadow mb-8 overflow-hidden">
+      <div class="bg-gray-800 text-white px-6 py-4">
+        <h2 class="text-xl font-semibold">API Response Times (200ms target)</h2>
+      </div>
+      <table class="w-full">
+        <thead class="bg-gray-100">
+          <tr>
+            <th class="px-6 py-3 text-left text-sm font-semibold text-gray-600">Endpoint</th>
+            <th class="px-6 py-3 text-left text-sm font-semibold text-gray-600">Average</th>
+            <th class="px-6 py-3 text-left text-sm font-semibold text-gray-600">Min</th>
+            <th class="px-6 py-3 text-left text-sm font-semibold text-gray-600">Max</th>
+            <th class="px-6 py-3 text-left text-sm font-semibold text-gray-600">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-t">
+            <td class="px-6 py-4 font-mono text-sm">/api/health</td>
+            <td class="px-6 py-4 font-bold text-red-600">317ms</td>
+            <td class="px-6 py-4">243ms</td>
+            <td class="px-6 py-4">366ms</td>
+            <td class="px-6 py-4"><span class="px-3 py-1 rounded-full text-sm font-semibold bg-red-100 text-red-800">FAIL</span></td>
+          </tr>
+          <tr class="border-t">
+            <td class="px-6 py-4 font-mono text-sm">/api/public/deals</td>
+            <td class="px-6 py-4 font-bold text-red-600">288ms</td>
+            <td class="px-6 py-4">242ms</td>
+            <td class="px-6 py-4">336ms</td>
+            <td class="px-6 py-4"><span class="px-3 py-1 rounded-full text-sm font-semibold bg-red-100 text-red-800">FAIL</span></td>
+          </tr>
+          <tr class="border-t">
+            <td class="px-6 py-4 font-mono text-sm">/api/deals</td>
+            <td class="px-6 py-4 font-bold text-red-600">301ms</td>
+            <td class="px-6 py-4">242ms</td>
+            <td class="px-6 py-4">337ms</td>
+            <td class="px-6 py-4"><span class="px-3 py-1 rounded-full text-sm font-semibold bg-red-100 text-red-800">FAIL</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="bg-green-50 border border-green-200 rounded-lg p-6 mb-8">
+      <h3 class="font-semibold text-green-800 mb-2">✓ Passed Targets</h3>
+      <ul class="space-y-2 text-green-700 text-sm">
+        <li>✓ Lighthouse Performance score: 93 (target ≥90)</li>
+        <li>✓ LCP (Largest Contentful Paint): 2395ms (target ≤2500ms)</li>
+        <li>✓ FID (First Input Delay): 65ms (target ≤100ms)</li>
+        <li>✓ CLS (Cumulative Layout Shift): 0.0002 (target ≤0.1)</li>
+        <li>✓ Total Blocking Time: 7.5ms (target ≤200ms)</li>
+      </ul>
+    </div>
+
+    <div class="bg-red-50 border border-red-200 rounded-lg p-6 mb-8">
+      <h3 class="font-semibold text-red-800 mb-2">✗ Failed Targets</h3>
+      <ul class="space-y-2 text-red-700 text-sm">
+        <li>✗ API average response time: ~302ms (target ≤200ms)</li>
+        <li>✗ SEO score: 82/100 (target ≥90)</li>
+      </ul>
+    </div>
+
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 mb-8">
+      <h3 class="font-semibold text-blue-800 mb-2">📋 Recommendations</h3>
+      <ul class="space-y-3 text-blue-700 text-sm">
+        <li><strong>API Performance (Priority: HIGH):</strong>
+          <ul class="ml-4 mt-1 space-y-1">
+            <li>- Add Cloudflare KV caching for deal listings (TTL 5min)</li>
+            <li>- Implement database indexes on (wallet_address, created_at), (deal_id, created_at)</li>
+            <li>- Migrate API routes to edge runtime: export const runtime = 'edge'</li>
+          </ul>
+        </li>
+        <li><strong>Images (Priority: MEDIUM):</strong>
+          <ul class="ml-4 mt-1 space-y-1">
+            <li>- Convert images to WebP format</li>
+            <li>- Use responsive images with srcset</li>
+            <li>- Lazy load below-fold images</li>
+          </ul>
+        </li>
+        <li><strong>SEO (Priority: MEDIUM):</strong>
+          <ul class="ml-4 mt-1 space-y-1">
+            <li>- Add JSON-LD structured data</li>
+            <li>- Improve meta descriptions</li>
+            <li>- Add Open Graph tags</li>
+          </ul>
+        </li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

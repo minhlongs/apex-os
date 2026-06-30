@@ -1,0 +1,63 @@
+{
+  "$schema": "https://api.cloudflare.com/client/v4/schemas/workers/cron.schema.json",
+  "name": "apex-os-payout-cron",
+  "description": "Weekly payout cron configuration for ApexOS affiliate system",
+  "version": "1.0.0",
+  "schedules": [
+    {
+      "id": "weekly_payouts",
+      "name": "Weekly Payouts",
+      "description": "Execute weekly Stellar USDC payouts for eligible affiliates",
+      "cron": "0 0 * * 0",
+      "cron_comment": "Every Sunday at 00:00 UTC",
+      "timezone": "UTC",
+      "endpoint": "/api/payouts/run",
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ${ADMIN_TOKEN}"
+      },
+      "body": {
+        "dry_run": false,
+        "notify_recipients": true
+      },
+      "retry_policy": {
+        "max_attempts": 3,
+        "backoff_ms": 60000
+      },
+      "timeout_ms": 300000,
+      "notifications": {
+        "on_success": {
+          "email": "${ADMIN_EMAIL}",
+          "subject": "Payout Run Complete - ApexOS"
+        },
+        "on_failure": {
+          "email": "${ADMIN_EMAIL}",
+          "subject": "Payout Run FAILED - ApexOS - Immediate Action Required"
+        }
+      },
+      "alert_thresholds": {
+        "payout_count_min": 0,
+        "payout_amount_min_usd": 0,
+        "failure_alert_recipients": ["${ADMIN_EMAIL}"]
+      }
+    }
+  ],
+  "metadata": {
+    "created": "2025-06-21",
+    "maintainer": "ApexOS Team",
+    "documentation": "docs/deployment-runbook.md#cron-job-configuration",
+    "related_endpoints": [
+      "/api/payouts/run",
+      "/api/payouts/status",
+      "/api/payouts/history"
+    ]
+  },
+  "environment_variables_required": [
+    "ADMIN_TOKEN",
+    "ADMIN_EMAIL",
+    "STELLAR_SECRET_KEY",
+    "STELLAR_NETWORK",
+    "STELLAR_USDC_ISSUER"
+  ]
+}
