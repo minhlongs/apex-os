@@ -69,43 +69,51 @@ export async function fetchClickToConversionDaily(
   params: FunnelQueryParams
 ): Promise<ClickToConversionDaily[]> {
   const { start_date, end_date, deal_type, exchange } = params;
+  const endDateTime = `${end_date}T23:59:59.999Z`;
 
-  // Build deal filter subquery
-  const dealFilter = deal_type || exchange
-    ? `AND d.deal_type = '${deal_type || '___'}' AND d.exchange = '${exchange || '___'}'`
-    : '';
+  // Build deal filter with parameterized bindings (prevent SQL injection)
+  const conditions: string[] = [];
+  const bindValues: unknown[] = [start_date, endDateTime];
+  if (deal_type) {
+    conditions.push('d.deal_type = ?');
+    bindValues.push(deal_type);
+  }
+  if (exchange) {
+    conditions.push('d.exchange = ?');
+    bindValues.push(exchange);
+  }
+  const dealFilter = conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : '';
 
   const sql = `
-    SELECT
-      DATE(dc.created_at) as date,
-      COUNT(DISTINCT dc.id) as total_clicks,
-      COUNT(DISTINCT dc.session_id) as unique_clicks,
-      COUNT(DISTINCT c.id) as total_conversions,
-      COUNT(DISTINCT c.customer_id) as unique_converters,
-      (CASE
-        WHEN COUNT(DISTINCT dc.id) > 0
-        THEN ROUND((COUNT(DISTINCT c.id) * 100.0 / COUNT(DISTINCT dc.id)), 2)
-        ELSE 0
-      END) as click_to_conversion_rate,
-      COALESCE(AVG(
-        (julianday(c.converted_at) - julianday(dc.created_at)) * 86400
-      ), 0) as avg_time_to_conversion_seconds
-    FROM deal_clicks dc
-    JOIN deals d ON d.id = dc.deal_id
-    LEFT JOIN conversions c ON c.deal_id = dc.deal_id
-      AND c.status = 'approved'
-      AND c.converted_at >= dc.created_at
-      AND c.converted_at <= datetime(dc.created_at, '+30 days')
-    WHERE dc.created_at >= ?
-      AND dc.created_at <= ?
-      ${dealFilter}
-    GROUP BY DATE(dc.created_at)
-    ORDER BY date DESC
+  SELECT
+    DATE(dc.created_at) as date,
+    COUNT(DISTINCT dc.id) as total_clicks,
+    COUNT(DISTINCT dc.session_id) as unique_clicks,
+    COUNT(DISTINCT c.id) as total_conversions,
+    COUNT(DISTINCT c.customer_id) as unique_converters,
+    (CASE
+      WHEN COUNT(DISTINCT dc.id) > 0
+      THEN ROUND((COUNT(DISTINCT c.id) * 100.0 / COUNT(DISTINCT dc.id)), 2)
+      ELSE 0
+    END) as click_to_conversion_rate,
+    COALESCE(AVG(
+      (julianday(c.converted_at) - julianday(dc.created_at)) * 86400
+    ), 0) as avg_time_to_conversion_seconds
+  FROM deal_clicks dc
+  JOIN deals d ON d.id = dc.deal_id
+  LEFT JOIN conversions c ON c.deal_id = dc.deal_id
+    AND c.status = 'approved'
+    AND c.converted_at >= dc.created_at
+    AND c.converted_at <= datetime(dc.created_at, '+30 days')
+  WHERE dc.created_at >= ?
+    AND dc.created_at <= ?
+    ${dealFilter}
+  GROUP BY DATE(dc.created_at)
+  ORDER BY date DESC
   `;
 
-  const endDateTime = `${end_date}T23:59:59.999Z`;
   const result = await DB.prepare(sql)
-    .bind(start_date, endDateTime)
+    .bind(...bindValues)
     .all<{
       date: string;
       total_clicks: number;
@@ -158,7 +166,7 @@ export async function fetchActivationMetrics(
     SELECT COUNT(*) as total_signups
     FROM profiles
     WHERE created_at >= ? AND created_at <= ?
-      AND role IN ('shopper', 'affiliate', 'admin', 'master_trader')
+    AND role IN ('shopper', 'affiliate', 'admin', 'master_trader')
   `).bind(startDateTime, endDateTime).first<{ total_signups: number }>();
 
   // Activated = users who signed up in period AND had a deal click or conversion
@@ -166,21 +174,21 @@ export async function fetchActivationMetrics(
     SELECT COUNT(DISTINCT p.id) as total_activations
     FROM profiles p
     WHERE p.created_at >= ? AND p.created_at <= ?
-      AND p.role IN ('shopper', 'affiliate', 'admin', 'master_trader')
-      AND (
-        EXISTS (
-          SELECT 1 FROM deal_clicks dc
-          WHERE dc.affiliate_id = p.id
-            AND dc.created_at >= p.created_at
-            AND dc.created_at <= ?
-        )
-        OR EXISTS (
-          SELECT 1 FROM conversions c
-          WHERE c.affiliate_id = p.id
-            AND c.converted_at >= p.created_at
-            AND c.converted_at <= ?
-        )
+    AND p.role IN ('shopper', 'affiliate', 'admin', 'master_trader')
+    AND (
+      EXISTS (
+        SELECT 1 FROM deal_clicks dc
+        WHERE dc.affiliate_id = p.id
+          AND dc.created_at >= p.created_at
+          AND dc.created_at <= ?
       )
+      OR EXISTS (
+        SELECT 1 FROM conversions c
+        WHERE c.affiliate_id = p.id
+          AND c.converted_at >= p.created_at
+          AND c.converted_at <= ?
+      )
+    )
   `).bind(startDateTime, endDateTime, endDateTime, endDateTime)
     .first<{ total_activations: number }>();
 
@@ -240,7 +248,7 @@ export async function fetchFunnelMetrics(
     SELECT COUNT(*) as signups
     FROM profiles
     WHERE created_at >= ? AND created_at <= ?
-      AND role IN ('shopper', 'affiliate', 'admin', 'master_trader')
+    AND role IN ('shopper', 'affiliate', 'admin', 'master_trader')
   `).bind(startDateTime, endDateTime).first<{ signups: number }>();
 
   // Activations: signups with activity
@@ -248,19 +256,21 @@ export async function fetchFunnelMetrics(
     SELECT COUNT(DISTINCT p.id) as activations
     FROM profiles p
     WHERE p.created_at >= ? AND p.created_at <= ?
-      AND p.role IN ('shopper', 'affiliate', 'admin', 'master_trader')
-      AND (
-        EXISTS (
-          SELECT 1 FROM deal_clicks dc
-          WHERE dc.affiliate_id = p.id
-            AND dc.created_at >= p.created_at AND dc.created_at <= ?
-        )
-        OR EXISTS (
-          SELECT 1 FROM conversions c
-          WHERE c.affiliate_id = p.id
-            AND c.converted_at >= p.created_at AND c.converted_at <= ?
-        )
+    AND p.role IN ('shopper', 'affiliate', 'admin', 'master_trader')
+    AND (
+      EXISTS (
+        SELECT 1 FROM deal_clicks dc
+        WHERE dc.affiliate_id = p.id
+          AND dc.created_at >= p.created_at
+          AND dc.created_at <= ?
       )
+      OR EXISTS (
+        SELECT 1 FROM conversions c
+        WHERE c.affiliate_id = p.id
+          AND c.converted_at >= p.created_at
+          AND c.converted_at <= ?
+      )
+    )
   `).bind(startDateTime, endDateTime, endDateTime, endDateTime)
     .first<{ activations: number }>();
 
