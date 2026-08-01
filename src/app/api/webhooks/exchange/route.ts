@@ -68,6 +68,7 @@ import {
 } from '@/lib/webhooks/error-responses';
 import { getDB } from '@/lib/db';
 import type { D1Database } from '@/lib/db';
+import { error as logError, info as logInfo, warn as logWarn } from '@/lib/logger';
 
 const EXCHANGE_SECRETS: Record<Exchange, string | undefined> = {
   binance: process.env.BINANCE_WEBHOOK_SECRET,
@@ -332,7 +333,7 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
 
     const verification = await verifyWebhookSignature(exchange, rawBody, headers, rawBody);
     if (!verification.valid) {
-      console.warn(`[Webhook] ${exchange} signature verification failed:`, verification.error);
+      logWarn(`[Webhook] ${exchange} signature verification failed:`, verification.error);
       return NextResponse.json(WebhookErrorResponses.invalidSignature(verification.error, requestId), { status: getHttpStatusCode(WebhookErrorCode.INVALID_SIGNATURE) });
     }
 
@@ -340,7 +341,7 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
     if (timestampCheck.valid) {
       // Continue
     } else {
-      console.warn(`[Webhook] ${exchange} timestamp validation failed`);
+      logWarn(`[Webhook] ${exchange} timestamp validation failed`);
       return (timestampCheck as { valid: false; response: Response }).response;
     }
 
@@ -351,26 +352,26 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
 
     const isReplay = await isWebhookReplay(exchange, trade.orderId, trade.symbol);
     if (isReplay) {
-      console.warn(`[Webhook] Replay attack detected: ${exchange} order ${trade.orderId} for ${trade.symbol}`);
+      logWarn(`[Webhook] Replay attack detected: ${exchange} order ${trade.orderId} for ${trade.symbol}`);
       return NextResponse.json(WebhookErrorResponses.potentialReplayAttack(requestId), { status: getHttpStatusCode(WebhookErrorCode.POTENTIAL_REPLAY_ATTACK) });
     }
 
     const deal = await findDeal(db, exchange, trade.symbol);
     if (!deal) {
-      console.info(`[Webhook] No active ${exchange} deal found for symbol: ${trade.symbol}`);
+      logInfo(`[Webhook] No active ${exchange} deal found for symbol: ${trade.symbol}`);
       return NextResponse.json({ success: true, skipped: true, reason: 'No matching deal' }, { status: 200 });
     }
 
     const exists = await conversionExists(db, trade.orderId, exchange);
     if (exists) {
-      console.info(`[Webhook] Duplicate conversion detected: ${exchange} order ${trade.orderId}`);
+      logInfo(`[Webhook] Duplicate conversion detected: ${exchange} order ${trade.orderId}`);
       return NextResponse.json(WebhookErrorResponses.duplicateWebhook(trade.orderId, requestId), { status: getHttpStatusCode(WebhookErrorCode.DUPLICATE_WEBHOOK) });
     }
 
     const identifier = trade.walletAddress || trade.email || trade.userId;
     const profile = identifier ? await findProfileByIdentifier(db, identifier) : null;
     if (!profile) {
-      console.info(`[Webhook] No matching user found for identifier: ${identifier}`);
+      logInfo(`[Webhook] No matching user found for identifier: ${identifier}`);
       return NextResponse.json({ success: true, skipped: true, reason: 'User not found or account not linked' }, { status: 200 });
     }
 
@@ -409,12 +410,12 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
     // Invalidate cache for the affiliate (async, don't block response)
     // Invalidates dashboard and conversions cache
     void invalidateAffiliateCache(profile.id, ['affiliate-dashboard', 'affiliate-conversions']).catch(err =>
-      console.error('[Webhook] Cache invalidation error:', err)
+      logError('[Webhook] Cache invalidation error:', err)
     );
 
  return NextResponse.json({ success: true, conversionId, earningsIds, message: 'Trade recorded and earnings calculated' }, { status: 200 });
   } catch (error) {
-    console.error('[Webhook] Processing error:', error);
+    logError('[Webhook] Processing error:', error);
     return NextResponse.json(WebhookErrorResponses.processingError(error instanceof Error ? error.message : String(error), `req_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`), { status: 500 });
   }
 }, {

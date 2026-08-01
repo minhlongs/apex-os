@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/nextjs';
+import { info as logInfo } from '@/lib/logger';
 
 /**
  * Sentry Configuration
@@ -14,7 +15,7 @@ export function initializeSentry() {
   const environment = process.env.SENTRY_ENVIRONMENT || 'development';
 
   if (!dsn || !enabled) {
-    console.log('[Sentry] Disabled: DSN not configured or disabled');
+    logInfo('[Sentry] Disabled: DSN not configured or disabled');
     return null;
   }
 

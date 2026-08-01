@@ -105,7 +105,7 @@ export function generateBinancePayload(volume: number, symbol: string): Record<s
       sp: '0',
       x: 'TRADE',
       X: 'FILLED',
-      i: Math.floor(Math.random() * 1000000),
+      i: Math.floor(Math.random() * 900000) + 100000,
       l: quantity.toFixed(6),
       z: quantity.toFixed(6),
       L: price.toFixed(2),

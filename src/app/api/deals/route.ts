@@ -12,6 +12,7 @@ import { createAuth } from '@/lib/auth/auth-factory';
 import { withRateLimit, extractIpAddress, getUserIdFromSession } from '@/lib/ratelimit/middleware';
 import { getDB } from '@/lib/db';
 import type { AffiliateDeal, CreateDealDto, UpdateDealDto, PaginatedResponse } from '@/types/deal';
+import { error as logError } from '@/lib/logger';
 import type { D1Database } from '@/lib/db';
 
 /**
@@ -142,7 +143,7 @@ export const GET = withRateLimit(async (request: NextRequest): Promise<Response>
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Error listing deals:', error);
+    logError('Error listing deals:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }
@@ -262,7 +263,7 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
 
     return NextResponse.json(newDeal, { status: 201 });
   } catch (error) {
-    console.error('Error creating deal:', error);
+    logError('Error creating deal:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

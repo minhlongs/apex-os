@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getStellarSettings, requireAdmin } from '@/lib/admin/stellar-actions';
+import { error as logError } from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -20,7 +21,7 @@ export async function GET(request: NextRequest) {
       data: { config, health },
     });
   } catch (error) {
-    console.error('Stellar settings GET error:', error);
+logError('Stellar settings GET error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -48,7 +49,7 @@ export async function PUT(request: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Stellar settings PUT error:', error);
+logError('Stellar settings PUT error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

@@ -11,6 +11,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAuth } from '@/lib/auth/auth-factory';
 import { withRateLimit, extractIpAddress, getUserIdFromSession } from '@/lib/ratelimit/middleware';
 import { track } from '@/lib/analytics-http';
+import { error as logError } from '@/lib/logger';
 
 /**
  * GET /api/tracking/click
@@ -143,7 +144,7 @@ export const GET = withRateLimit(async (request: NextRequest): Promise<Response>
 
     return response;
   } catch (error) {
-    console.error('Error tracking click:', error);
+    logError('Error tracking click:', error);
     const url = new URL(request.url);
     const dealId = url.searchParams.get('deal_id');
     const locale = url.pathname.split('/')[1] || 'en';

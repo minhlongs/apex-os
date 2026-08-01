@@ -11,6 +11,7 @@
 
 import { QueryMonitor, initializeQueryMonitor, wrapDatabase } from './query-monitor';
 import type { D1Database as D1DatabaseBase } from '@/lib/auth/adapters/d1-adapter';
+import { warn as logWarn, info as logInfo } from '@/lib/logger';
 
 /**
  * Extended D1 Database interface with close() method
@@ -49,7 +50,7 @@ export function initializeDB(config?: {
   enableConsoleLog?: boolean;
 }): D1Database {
   if (isInitialized && wrappedDb) {
-    console.warn('[db] Already initialized, returning existing instance');
+    logWarn('[db] Already initialized, returning existing instance');
     return wrappedDb;
   }
 
@@ -79,7 +80,7 @@ export function initializeDB(config?: {
 
   isInitialized = true;
 
-  console.log('[db] Database initialized with query monitoring', {
+  logInfo('[db] Database initialized with query monitoring', {
     slowQueryThresholdMs: slowThreshold,
     highRowScanThreshold: highScanThreshold,
   });
@@ -99,7 +100,7 @@ export function getDB(): D1Database {
     // Try to auto-initialize from globalThis.DB
     const originalDb = (globalThis as unknown as { DB: D1Database }).DB;
     if (originalDb) {
-      console.log('[db] Auto-initializing database with default monitoring config');
+      logInfo('[db] Auto-initializing database with default monitoring config');
       return initializeDB();
     }
 

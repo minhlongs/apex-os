@@ -15,6 +15,7 @@
  */
 
 import cache from './kv-cache';
+import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
 
 // ============================================================================
 // Types
@@ -67,7 +68,7 @@ export async function invalidateAffiliateCache(
         // Invalidate all paginated conversions for this user
         // Note: In production, you'd maintain a key index for efficient deletion
         // For now, we rely on TTL expiry
-        console.log(`[Invalidation] conversions for affiliate ${affiliateId} (relying on TTL)`);
+        logInfo(`[Invalidation] conversions for affiliate ${affiliateId} (relying on TTL)`);
         break;
       case 'affiliate-payouts':
         keysToDelete.push(`affiliate-payouts:user:${affiliateId}:v1`);
@@ -83,7 +84,7 @@ export async function invalidateAffiliateCache(
         try {
           return kv.delete(key);
         } catch (error) {
-          console.error(`[Invalidation] Error deleting key ${key}:`, error);
+          logError(`[Invalidation] Error deleting key ${key}:`, error);
           return false;
         }
       })
@@ -91,7 +92,7 @@ export async function invalidateAffiliateCache(
   }
 
   if (keysToDelete.length > 0) {
-    console.log(`[Invalidation] Invalidated ${keysToDelete.length} cache entries for affiliate ${affiliateId}`);
+    logInfo(`[Invalidation] Invalidated ${keysToDelete.length} cache entries for affiliate ${affiliateId}`);
   }
 }
 
@@ -106,7 +107,7 @@ export async function invalidatePublicDealsCache(): Promise<void> {
   // The public deals cache uses query-based keys, so we need to delete all keys with the prefix
   // Note: Cloudflare KV doesn't support prefix deletion natively
   // For production, maintain a key index or use a version-based approach
-  console.log('[Invalidation] Public deals cache - relying on TTL expiry');
+  logInfo('[Invalidation] Public deals cache - relying on TTL expiry');
   // Alternative: use versioned cache keys by incrementing a global version token
 }
 
@@ -129,7 +130,7 @@ export async function invalidateAnalyticsCache(
     'admin-analytics-devices',
   ];
 
-  console.log(`[Invalidation] Analytics cache types: ${typesToInvalidate.join(', ')} (relying on TTL)`);
+  logInfo(`[Invalidation] Analytics cache types: ${typesToInvalidate.join(', ')} (relying on TTL)`);
   // Analytics data is frequently updated from external sources
   // For now, rely on TTL (60s) for freshness
 }
@@ -154,7 +155,7 @@ export async function invalidateAllCache(): Promise<void> {
   const kvAvailable = cache.isKVAvailable();
   if (!kvAvailable) return;
 
-  console.warn('[Invalidation] Global cache invalidation requested (KV prefix deletion not natively supported)');
+  logWarn('[Invalidation] Global cache invalidation requested (KV prefix deletion not natively supported)');
   // In production, implement a version-based approach:
   // 1. Store a global version number in KV
   // 2. Include version in all cache keys
@@ -191,7 +192,7 @@ export async function getCacheVersion(): Promise<number> {
     versionFetchTime = now;
     return cachedVersion;
   } catch (error) {
-    console.error('[Cache] Error fetching version:', error);
+    logError('[Cache] Error fetching version:', error);
     return 1;
   }
 }
@@ -209,10 +210,10 @@ export async function incrementCacheVersion(): Promise<number> {
     const next = current + 1;
     await kv.put('cache:version', String(next), { expirationTtl: 3600 * 24 * 30 }); // 30 days
     cachedVersion = next;
-    console.log(`[Invalidation] Cache version incremented to ${next}`);
+    logInfo(`[Invalidation] Cache version incremented to ${next}`);
     return next;
   } catch (error) {
-    console.error('[Cache] Error incrementing version:', error);
+    logError('[Cache] Error incrementing version:', error);
     return 1;
   }
 }

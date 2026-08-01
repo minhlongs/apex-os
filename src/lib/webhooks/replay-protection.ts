@@ -1,3 +1,4 @@
+import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
 /**
  * Replay Protection for Webhooks
  * Uses Cloudflare KV to track processed webhook events with 24h TTL
@@ -58,7 +59,7 @@ export async function isWebhookReplay(
 ): Promise<boolean> {
   const kv = getReplayProtectionKV();
   if (!kv) {
-    console.warn('[ReplayProtection] KV not available, skipping replay check');
+    logWarn('[ReplayProtection] KV not available, skipping replay check');
     return false; // Fail open - allow if KV unavailable
   }
 
@@ -68,7 +69,7 @@ export async function isWebhookReplay(
     const existing = await kv.get(key);
     return existing === 'processed';
   } catch (error) {
-    console.error('[ReplayProtection] Error checking replay:', error);
+    logError('[ReplayProtection] Error checking replay:', error);
     return false; // Fail open on errors
   }
 }
@@ -92,7 +93,7 @@ export async function markWebhookProcessed(
 ): Promise<void> {
   const kv = getReplayProtectionKV();
   if (!kv) {
-    console.warn('[ReplayProtection] KV not available, cannot mark webhook as processed');
+    logWarn('[ReplayProtection] KV not available, cannot mark webhook as processed');
     return;
   }
 
@@ -102,12 +103,12 @@ export async function markWebhookProcessed(
     // Use add to avoid race conditions - only succeeds if key doesn't exist
     const added = await kv.add(key, 'processed', { expirationTtl: REPLAY_PROTECTION_TTL });
     if (added) {
-      console.log(`[ReplayProtection] Marked webhook as processed: ${exchange} ${symbol} ${orderId}`);
+      logInfo(`[ReplayProtection] Marked webhook as processed: ${exchange} ${symbol} ${orderId}`);
     } else {
-      console.warn(`[ReplayProtection] Key already exists during mark (race): ${exchange} ${symbol} ${orderId}`);
+      logWarn(`[ReplayProtection] Key already exists during mark (race): ${exchange} ${symbol} ${orderId}`);
     }
   } catch (error) {
-    console.error('[ReplayProtection] Error marking webhook as processed:', error);
+    logError('[ReplayProtection] Error marking webhook as processed:', error);
   }
 }
 
@@ -122,7 +123,7 @@ export async function checkAndMarkWebhook(
 ): Promise<boolean> {
   const kv = getReplayProtectionKV();
   if (!kv) {
-    console.warn('[ReplayProtection] KV not available, skipping replay check');
+    logWarn('[ReplayProtection] KV not available, skipping replay check');
     return true; // Fail open - allow if KV unavailable
   }
 
@@ -132,14 +133,14 @@ export async function checkAndMarkWebhook(
     // Try to add the key - if it succeeds, this is the first time processing
     const added = await kv.add(key, 'processed', { expirationTtl: REPLAY_PROTECTION_TTL });
     if (added) {
-      console.log(`[ReplayProtection] First processing: ${exchange} ${symbol} ${orderId}`);
+      logInfo(`[ReplayProtection] First processing: ${exchange} ${symbol} ${orderId}`);
       return true;
     } else {
-      console.warn(`[ReplayProtection] Replay detected: ${exchange} ${symbol} ${orderId}`);
+      logWarn(`[ReplayProtection] Replay detected: ${exchange} ${symbol} ${orderId}`);
       return false;
     }
   } catch (error) {
-    console.error('[ReplayProtection] Error in check-and-mark:', error);
+    logError('[ReplayProtection] Error in check-and-mark:', error);
     return true; // Fail open on errors
   }
 }

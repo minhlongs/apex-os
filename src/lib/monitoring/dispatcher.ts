@@ -13,6 +13,7 @@
 
 import { withRetry, DEFAULT_RETRY_CONFIG, RetryResult } from '@/lib/notifications/retry';
 import type { D1Database } from '@/types/d1';
+import { error as logError, info as logInfo } from '@/lib/logger';
 
 /**
  * Retryable error patterns - same as in retry.ts
@@ -250,7 +251,7 @@ export class NotificationDispatcher {
       } else {
         failed++;
         this.stats.totalFailed++;
-        console.error('[Dispatcher] Job failed:', result.reason);
+        logError('[Dispatcher] Job failed:', result.reason);
       }
     }
 
@@ -313,13 +314,13 @@ export class NotificationDispatcher {
 
         // Success!
         job.status = 'completed';
-        console.log(`[Dispatcher] Job ${job.id} completed successfully (channel: ${job.channel}, attempts: ${job.attempts})`);
+        logInfo(`[Dispatcher] Job ${job.id} completed successfully (channel: ${job.channel}, attempts: ${job.attempts})`);
         return { deadLetterCreated: false };
 
       } catch (error: any) {
         lastError = error;
         const errorMessage = error?.message || String(error);
-        console.error(`[Dispatcher] Job ${job.id} failed (attempt ${job.attempts}/${job.maxAttempts}):`, errorMessage);
+        logError(`[Dispatcher] Job ${job.id} failed (attempt ${job.attempts}/${job.maxAttempts}):`, errorMessage);
 
         // Check if error is retryable
         const retryable = isRetryableError(error as Error);
@@ -333,7 +334,7 @@ export class NotificationDispatcher {
             await this.sendToDeadLetterQueue(job, errorMessage, db);
           }
 
-          console.error(`[Dispatcher] Job ${job.id} non-retryable error, sent to dead letter queue immediately`);
+          logError(`[Dispatcher] Job ${job.id} non-retryable error, sent to dead letter queue immediately`);
           return { deadLetterCreated };
         }
 
@@ -346,7 +347,7 @@ export class NotificationDispatcher {
             await this.sendToDeadLetterQueue(job, errorMessage, db);
           }
 
-          console.error(`[Dispatcher] Job ${job.id} sent to dead letter queue after ${job.attempts} attempts`);
+          logError(`[Dispatcher] Job ${job.id} sent to dead letter queue after ${job.attempts} attempts`);
           break;
         }
 
@@ -362,7 +363,7 @@ export class NotificationDispatcher {
     }
 
     const duration = Date.now() - startTime;
-    console.log(`[Dispatcher] Job ${job.id} processed in ${duration}ms, final status: ${job.status}`);
+    logInfo(`[Dispatcher] Job ${job.id} processed in ${duration}ms, final status: ${job.status}`);
 
     return { deadLetterCreated };
   }
@@ -415,7 +416,7 @@ export class NotificationDispatcher {
         )
         .run();
     } catch (e) {
-      console.error('[Dispatcher] Failed to write to dead letter queue:', e);
+      logError('[Dispatcher] Failed to write to dead letter queue:', e);
     }
   }
 

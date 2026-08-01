@@ -7,6 +7,7 @@
 
 import { emailNotifier } from './index';
 import type { EmailNotification } from './types';
+import { info as logInfo } from '@/lib/logger';
 
 // ============================================================================
 // Basic Usage: Send a simple email
@@ -20,7 +21,7 @@ async function exampleSimpleEmail() {
     text: 'Hello! This is a test email.',
   });
 
-  console.log('Send result:', result);
+  logInfo('Send result:', result);
 }
 
 // ============================================================================
@@ -45,7 +46,7 @@ async function exampleCommissionEarned() {
   };
 
   const result = await emailNotifier.sendNotification(notification);
-  console.log('Commission email sent:', result);
+  logInfo('Commission email sent:', result);
 }
 
 // ============================================================================
@@ -70,7 +71,7 @@ async function examplePayoutCompleted() {
   };
 
   const result = await emailNotifier.sendNotification(notification);
-  console.log('Payout email sent:', result);
+  logInfo('Payout email sent:', result);
 }
 
 // ============================================================================
@@ -96,7 +97,7 @@ async function exampleWeeklySummary() {
   };
 
   const result = await emailNotifier.sendNotification(notification);
-  console.log('Weekly summary sent:', result);
+  logInfo('Weekly summary sent:', result);
 }
 
 // ============================================================================
@@ -118,7 +119,7 @@ async function exampleWelcome() {
   };
 
   const result = await emailNotifier.sendNotification(notification);
-  console.log('Welcome email sent:', result);
+  logInfo('Welcome email sent:', result);
 }
 
 // ============================================================================
@@ -139,7 +140,7 @@ async function examplePasswordReset() {
   };
 
   const result = await emailNotifier.sendNotification(notification);
-  console.log('Password reset email sent:', result);
+  logInfo('Password reset email sent:', result);
 }
 
 // ============================================================================
@@ -160,7 +161,7 @@ async function exampleEmailVerification() {
   };
 
   const result = await emailNotifier.sendNotification(notification);
-  console.log('Verification email sent:', result);
+  logInfo('Verification email sent:', result);
 }
 
 // ============================================================================

@@ -4,6 +4,7 @@
  */
 
 import { ConsoleConfig, NotificationMessage, SendResult } from '../config';
+import { error as logError } from '@/lib/logger';
 
 /**
  * Console channel sender
@@ -41,7 +42,7 @@ export class ConsoleNotifier {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[ConsoleNotifier] Error:', errorMessage);
+      logError('[ConsoleNotifier] Error:', errorMessage);
 
       return {
         success: false,

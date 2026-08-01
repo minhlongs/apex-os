@@ -122,7 +122,7 @@ describe('Replay Protection', () => {
       // @ts-ignore
       delete globalThis.KV;
       await markWebhookProcessed('binance', 'order-123', 'BTCUSDT');
-      expect(consoleSpy).toHaveBeenCalledWith('[ReplayProtection] KV not available, cannot mark webhook as processed');
+      expect(consoleSpy).toHaveBeenCalledWith('[ApexOS]', '[ReplayProtection] KV not available, cannot mark webhook as processed');
       consoleSpy.mockRestore();
     });
 
@@ -130,7 +130,7 @@ describe('Replay Protection', () => {
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       mockKV.add = jest.fn().mockRejectedValue(new Error('KV error'));
       await markWebhookProcessed('binance', 'order-123', 'BTCUSDT');
-      expect(consoleSpy).toHaveBeenCalledWith('[ReplayProtection] Error marking webhook as processed:', expect.any(Error));
+      expect(consoleSpy).toHaveBeenCalledWith('[ApexOS]', '[ReplayProtection] Error marking webhook as processed:', expect.any(Error));
       consoleSpy.mockRestore();
     });
   });

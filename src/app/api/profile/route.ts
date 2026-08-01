@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings, type UpdateProfileInput } from '@/types/profile';
+import { error as logError } from '@/lib/logger';
 
 /**
  * Validation schema for notification settings update
@@ -78,7 +79,7 @@ export async function GET(request: NextRequest) {
         // Merge with defaults to ensure all fields exist
         notificationSettings = { ...DEFAULT_NOTIFICATION_SETTINGS, ...parsed };
       } catch (e) {
-        console.error('Failed to parse notification_settings:', e);
+        logError('Failed to parse notification_settings:', e);
       }
     }
 
@@ -98,7 +99,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Profile fetch error:', error);
+    logError('Profile fetch error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -186,7 +187,7 @@ export async function PATCH(request: NextRequest) {
     const result = await db.prepare(query).bind(...bindValues).run();
 
     if (!result.success) {
-      console.error('Profile update failed:', result);
+      logError('Profile update failed:', result);
       return NextResponse.json(
         { success: false, error: 'Failed to update profile' },
         { status: 500 }
@@ -210,7 +211,7 @@ export async function PATCH(request: NextRequest) {
         const parsed = JSON.parse(updatedProfile.notification_settings);
         notificationSettings = { ...DEFAULT_NOTIFICATION_SETTINGS, ...parsed };
       } catch (e) {
-        console.error('Failed to parse notification_settings:', e);
+        logError('Failed to parse notification_settings:', e);
       }
     }
 
@@ -230,7 +231,7 @@ export async function PATCH(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Profile update error:', error);
+    logError('Profile update error:', error);
     if (error instanceof z.ZodError) {
       return NextResponse.json(
         { success: false, error: 'Validation failed', details: error.errors },

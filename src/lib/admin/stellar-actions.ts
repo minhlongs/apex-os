@@ -6,6 +6,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { error as logError } from '@/lib/logger';
 import { StellarService, StellarNetwork } from '@/lib/payouts/stellar-service'
 
 // KV storage key for Stellar config
@@ -99,7 +100,7 @@ export async function getStellarSettings(): Promise<{
         config.senderAccountId = parsed.senderAccountId || null
         config.updatedAt = parsed.updatedAt || new Date().toISOString()
       } catch (parseError) {
-        console.error('Failed to parse Stellar config:', parseError)
+        logError('Failed to parse Stellar config:', parseError)
       }
     }
   }
@@ -203,7 +204,7 @@ export async function updateStellarConfig(
 
     return { success: true }
   } catch (error) {
-    console.error('Failed to update Stellar config:', error)
+    logError('Failed to update Stellar config:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }

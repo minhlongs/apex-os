@@ -4,6 +4,7 @@
  */
 
 import { EmailConfig, NotificationMessage, SendResult, NotificationContext } from '../config';
+import { error as logError } from '@/lib/logger';
 import { EmailNotifier, createEmailNotifier } from '@/lib/emails/notifier';
 import { EmailNotification } from '@/lib/emails/types';
 import { withRetry, DEFAULT_RETRY_CONFIG } from '../retry';
@@ -114,7 +115,7 @@ export class EmailNotifierChannel {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[EmailNotifierChannel] Unexpected error:', errorMessage);
+      logError('[EmailNotifierChannel] Unexpected error:', errorMessage);
 
       return {
         success: false,

@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/admin-guard';
 import { getDB } from '@/lib/db';
+import { error as logError } from '@/lib/logger';
 
 export interface UnpaidEarning {
   earning_id: string;
@@ -107,7 +108,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       queryTime: Date.now() - startTime,
     });
   } catch (error) {
-    console.error('Error fetching unpaid earnings:', error);
+logError('Error fetching unpaid earnings:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

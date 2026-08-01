@@ -10,6 +10,7 @@ export const runtime = 'edge';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db';
+import { error as logError } from '@/lib/logger';
 
 interface WebVitalMetric {
   name: string;
@@ -104,7 +105,7 @@ export const POST = async (request: NextRequest): Promise<Response> => {
       }
     );
   } catch (error) {
-    console.error('[WebVitals] Error processing metrics:', error);
+    logError('[WebVitals] Error processing metrics:', error);
     return NextResponse.json(
       {
         error: 'Failed to process metrics',
@@ -231,7 +232,7 @@ export const GET = async (request: NextRequest): Promise<Response> => {
       }
     );
   } catch (error) {
-    console.error('[WebVitals] Error fetching metrics:', error);
+    logError('[WebVitals] Error fetching metrics:', error);
     return NextResponse.json(
       {
         error: 'Failed to fetch metrics',

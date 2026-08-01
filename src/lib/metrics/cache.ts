@@ -4,6 +4,7 @@
  */
 
 import type { BusinessMetricsResponse, MetricsCacheConfig } from '@/types/metrics';
+import { warn as logWarn } from '@/lib/logger';
 
 const METRICS_CACHE_CONFIG: MetricsCacheConfig = {
   ttl: 300, // 5 minutes
@@ -57,7 +58,7 @@ export async function getCachedMetrics(cacheKey: string): Promise<BusinessMetric
       }
     }
   } catch (error) {
-    console.warn('Cache read failed:', error);
+    logWarn('Cache read failed:', error);
   }
 
   return null;
@@ -86,7 +87,7 @@ export async function setCachedMetrics(cacheKey: string, data: BusinessMetricsRe
       });
     }
   } catch (error) {
-    console.warn('Cache write failed:', error);
+    logWarn('Cache write failed:', error);
   }
 }
 
@@ -120,7 +121,7 @@ export async function invalidateCache(cacheKeyOrPattern: string): Promise<number
       }
     }
   } catch (error) {
-    console.warn('Cache invalidation failed:', error);
+    logWarn('Cache invalidation failed:', error);
   }
 
   return invalidated;

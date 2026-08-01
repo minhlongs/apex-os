@@ -11,6 +11,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuth } from '@/lib/auth/auth-factory';
 import { getUserIdCacheKey, getCached, setCache, isKVAvailable } from '@/lib/cache/kv-cache';
+import { error as logError } from '@/lib/logger';
 
 interface ConversionWithDeal {
   id: string;
@@ -168,7 +169,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       try {
         await setCache(cacheKey, responseData, 15);
       } catch (cacheError) {
-        console.error('[ConversionsCache] Cache store error:', cacheError);
+        logError('[ConversionsCache] Cache store error:', cacheError);
       }
     }
 
@@ -183,7 +184,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       },
     });
   } catch (error) {
-    console.error('Error fetching conversions:', error);
+    logError('Error fetching conversions:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

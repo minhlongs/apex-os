@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDispatcher } from '@/lib/monitoring/dispatcher';
 import { getAlertStorage } from '@/lib/alerts';
 import { withAuth } from '@/lib/auth/adapters/d1-adapter';
+import { error as logError } from '@/lib/logger';
 
 /**
  * GET /api/monitoring/dispatcher
@@ -38,7 +39,7 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[Dispatcher API] Error getting stats:', error);
+    logError('[Dispatcher API] Error getting stats:', error);
     return NextResponse.json(
       { error: 'Failed to get dispatcher stats' },
       { status: 500 }
@@ -123,7 +124,7 @@ export async function GET_DEAD_LETTERS(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[Dispatcher API] Error getting dead letters:', error);
+    logError('[Dispatcher API] Error getting dead letters:', error);
     return NextResponse.json(
       { error: 'Failed to get dead letter queue' },
       { status: 500 }
@@ -203,7 +204,7 @@ export async function POST_RETRY(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[Dispatcher API] Error retrying dead letter:', error);
+    logError('[Dispatcher API] Error retrying dead letter:', error);
     return NextResponse.json(
       { error: 'Failed to retry dead letter' },
       { status: 500 }
@@ -260,7 +261,7 @@ export async function POST_CLEANUP(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[Dispatcher API] Error cleaning up dead letters:', error);
+    logError('[Dispatcher API] Error cleaning up dead letters:', error);
     return NextResponse.json(
       { error: 'Failed to cleanup dead letters' },
       { status: 500 }
@@ -307,7 +308,7 @@ export async function DELETE_DEAD_LETTER(
       data: { deleted: result.meta.changes },
     });
   } catch (error) {
-    console.error('[Dispatcher API] Error deleting dead letter:', error);
+    logError('[Dispatcher API] Error deleting dead letter:', error);
     return NextResponse.json(
       { error: 'Failed to delete dead letter' },
       { status: 500 }

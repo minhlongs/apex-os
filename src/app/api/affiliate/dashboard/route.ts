@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createAuth } from '@/lib/auth/auth-factory';
 import { withRateLimit, extractIpAddress } from '@/lib/ratelimit/middleware';
 import { getUserIdCacheKey, getCached, setCache, isKVAvailable } from '@/lib/cache/kv-cache';
+import { error as logError } from '@/lib/logger';
 
 // Minimal Database interface for D1
 interface Database {
@@ -377,7 +378,7 @@ export const GET = withRateLimit(async (request: NextRequest): Promise<Response>
         const cacheKey = getUserIdCacheKey('affiliate-dashboard', userId, 'v1');
         await setCache(cacheKey, responseData, 30); // 30 second TTL
       } catch (cacheError) {
-        console.error('[DashboardCache] Cache store error:', cacheError);
+        logError('[DashboardCache] Cache store error:', cacheError);
       }
     }
 
@@ -392,7 +393,7 @@ export const GET = withRateLimit(async (request: NextRequest): Promise<Response>
       },
     });
   } catch (error) {
-    console.error('Error fetching affiliate dashboard:', error);
+    logError('Error fetching affiliate dashboard:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

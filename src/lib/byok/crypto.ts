@@ -1,3 +1,4 @@
+import { error as logError } from '@/lib/logger';
 /**
  * BYOK (Bring Your Own Key) Crypto Utilities
  * Sử dụng Web Crypto API với AES-GCM để mã hóa/giải mã API keys
@@ -98,7 +99,7 @@ export async function encryptApiKey(plain: string): Promise<string> {
     // Encode thành base64 string
     return Buffer.from(packed).toString('base64');
   } catch (error) {
-    console.error('[BYOK Crypto] Encryption failed:', error);
+    logError('[BYOK Crypto] Encryption failed:', error);
     if (error instanceof Error) {
       throw new Error(`[BYOK Crypto] Mã hóa thất bại: ${error.message}`);
     }
@@ -151,7 +152,7 @@ export async function decryptApiKey(encryptedBase64: string): Promise<string> {
 
     return plaintext;
   } catch (error) {
-    console.error('[BYOK Crypto] Decryption failed:', error);
+    logError('[BYOK Crypto] Decryption failed:', error);
     if (error instanceof Error) {
       throw new Error(`[BYOK Crypto] Giải mã thất bại: ${error.message}`);
     }

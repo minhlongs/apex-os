@@ -7,7 +7,11 @@
  * provides progress tracking for long-running jobs.
  */
 
+import { info as logInfo } from '@/lib/logger';
 import {
+  DEFAULT_TIER_RATES,
+} from './types';
+import type {
   Conversion,
   ReferralNode,
   AffiliateProfile,
@@ -22,7 +26,6 @@ import {
   ReferralLookup,
   EarningsRecord,
   EarningsDatabase,
-  DEFAULT_TIER_RATES,
 } from './types';
 
 /**
@@ -514,7 +517,7 @@ export class EarningsCalculator {
   private log(message: string, job?: BatchJobProgress): void {
     if (this.config.verbose) {
       const prefix = job ? `[${job.job_id}] ` : '';
-      console.log(`${prefix}${message}`);
+      logInfo(`${prefix}${message}`);
     }
   }
 

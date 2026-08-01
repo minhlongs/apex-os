@@ -1,3 +1,4 @@
+import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
 /**
  * Server-Side Analytics Service
  * Gửi events đến Mixpanel và Amplitude từ server (Cloudflare Workers)
@@ -43,7 +44,7 @@ export class AnalyticsHTTPService {
     this.enabled = process.env.NEXT_PUBLIC_ANALYTICS_ENABLED !== 'false';
 
     if (!this.mixpanelToken && !this.amplitudeKey) {
-      console.warn('[AnalyticsHTTP] No analytics tokens configured');
+      logWarn('[AnalyticsHTTP] No analytics tokens configured');
       this.enabled = false;
     }
   }
@@ -98,10 +99,10 @@ export class AnalyticsHTTPService {
           // Cloudflare-specific: keepalive for background tracking
           keepalive: true,
         }).catch((err) => {
-          console.error('[AnalyticsHTTP] Mixpanel track failed:', err);
+          logError('[AnalyticsHTTP] Mixpanel track failed:', err);
         });
       } catch (error) {
-        console.error('[AnalyticsHTTP] Mixpanel error:', error);
+        logError('[AnalyticsHTTP] Mixpanel error:', error);
       }
     }
 
@@ -129,15 +130,15 @@ export class AnalyticsHTTPService {
           },
           keepalive: true,
         }).catch((err) => {
-          console.error('[AnalyticsHTTP] Amplitude track failed:', err);
+          logError('[AnalyticsHTTP] Amplitude track failed:', err);
         });
       } catch (error) {
-        console.error('[AnalyticsHTTP] Amplitude error:', error);
+        logError('[AnalyticsHTTP] Amplitude error:', error);
       }
     }
 
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[AnalyticsHTTP] Tracked: ${eventName}`, enriched);
+      logInfo(`[AnalyticsHTTP] Tracked: ${eventName}`, enriched);
     }
   }
 
@@ -165,7 +166,7 @@ export class AnalyticsHTTPService {
           keepalive: true,
         }).catch(console.error);
       } catch (error) {
-        console.error('[AnalyticsHTTP] Mixpanel identify failed:', error);
+        logError('[AnalyticsHTTP] Mixpanel identify failed:', error);
       }
     }
 
@@ -183,7 +184,7 @@ export class AnalyticsHTTPService {
           keepalive: true,
         }).catch(console.error);
       } catch (error) {
-        console.error('[AnalyticsHTTP] Amplitude identify failed:', error);
+        logError('[AnalyticsHTTP] Amplitude identify failed:', error);
       }
     }
   }

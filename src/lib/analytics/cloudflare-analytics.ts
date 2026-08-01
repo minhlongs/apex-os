@@ -3,8 +3,8 @@
  * Fetches analytics data from Cloudflare API
  */
 
-import type {
-  AnalyticsResponse,
+import { error as logError } from '@/lib/logger';
+import type {  AnalyticsResponse,
   AnalyticsOverview,
   AnalyticsTimeSeriesData,
   AnalyticsTopPages,
@@ -97,14 +97,14 @@ export async function getAnalyticsOverview(
 
     if (!response.ok) {
       const error = await response.json();
-      console.error('Cloudflare Analytics API error:', error);
+      logError('Cloudflare Analytics API error:', error);
       return null;
     }
 
     const data: AnalyticsResponse = await response.json();
 
     if (!data.success) {
-      console.error('Cloudflare Analytics API error:', data);
+      logError('Cloudflare Analytics API error:', data);
       return null;
     }
 
@@ -116,7 +116,7 @@ export async function getAnalyticsOverview(
 
     return overview;
   } catch (error) {
-    console.error('Failed to fetch analytics overview:', error);
+    logError('Failed to fetch analytics overview:', error);
     return null;
   }
 }
@@ -150,14 +150,14 @@ export async function getAnalyticsTimeSeries(
 
     if (!response.ok) {
       const error = await response.json();
-      console.error('Cloudflare Analytics API error:', error);
+      logError('Cloudflare Analytics API error:', error);
       return [];
     }
 
     const data: AnalyticsResponse = await response.json();
 
     if (!data.success) {
-      console.error('Cloudflare Analytics API error:', data);
+      logError('Cloudflare Analytics API error:', data);
       return [];
     }
 
@@ -169,7 +169,7 @@ export async function getAnalyticsTimeSeries(
 
     return timeseries;
   } catch (error) {
-    console.error('Failed to fetch analytics time series:', error);
+    logError('Failed to fetch analytics time series:', error);
     return [];
   }
 }
@@ -202,14 +202,14 @@ export async function getTopPages(
 
     if (!response.ok) {
       const error = await response.json();
-      console.error('Cloudflare Analytics API error:', error);
+      logError('Cloudflare Analytics API error:', error);
       return [];
     }
 
     const data: AnalyticsResponse = await response.json();
 
     if (!data.success) {
-      console.error('Cloudflare Analytics API error:', data);
+      logError('Cloudflare Analytics API error:', data);
       return [];
     }
 
@@ -221,7 +221,7 @@ export async function getTopPages(
 
     return topPages;
   } catch (error) {
-    console.error('Failed to fetch top pages:', error);
+    logError('Failed to fetch top pages:', error);
     return [];
   }
 }
@@ -253,14 +253,14 @@ export async function getReferrers(
 
     if (!response.ok) {
       const error = await response.json();
-      console.error('Cloudflare Analytics API error:', error);
+      logError('Cloudflare Analytics API error:', error);
       return [];
     }
 
     const data: AnalyticsResponse = await response.json();
 
     if (!data.success) {
-      console.error('Cloudflare Analytics API error:', data);
+      logError('Cloudflare Analytics API error:', data);
       return [];
     }
 
@@ -272,7 +272,7 @@ export async function getReferrers(
 
     return referrers;
   } catch (error) {
-    console.error('Failed to fetch referrers:', error);
+    logError('Failed to fetch referrers:', error);
     return [];
   }
 }
@@ -305,14 +305,14 @@ export async function getCountries(
 
     if (!response.ok) {
       const error = await response.json();
-      console.error('Cloudflare Analytics API error:', error);
+      logError('Cloudflare Analytics API error:', error);
       return [];
     }
 
     const data: AnalyticsResponse = await response.json();
 
     if (!data.success) {
-      console.error('Cloudflare Analytics API error:', data);
+      logError('Cloudflare Analytics API error:', data);
       return [];
     }
 
@@ -324,7 +324,7 @@ export async function getCountries(
 
     return countries;
   } catch (error) {
-    console.error('Failed to fetch countries:', error);
+    logError('Failed to fetch countries:', error);
     return [];
   }
 }
@@ -354,14 +354,14 @@ export async function getDevices(
 
     if (!response.ok) {
       const error = await response.json();
-      console.error('Cloudflare Analytics API error:', error);
+      logError('Cloudflare Analytics API error:', error);
       return [];
     }
 
     const data: AnalyticsResponse = await response.json();
 
     if (!data.success) {
-      console.error('Cloudflare Analytics API error:', data);
+      logError('Cloudflare Analytics API error:', data);
       return [];
     }
 
@@ -373,7 +373,7 @@ export async function getDevices(
 
     return devices;
   } catch (error) {
-    console.error('Failed to fetch devices:', error);
+    logError('Failed to fetch devices:', error);
     return [];
   }
 }
@@ -405,14 +405,14 @@ export async function getBrowsers(
 
     if (!response.ok) {
       const error = await response.json();
-      console.error('Cloudflare Analytics API error:', error);
+      logError('Cloudflare Analytics API error:', error);
       return [];
     }
 
     const data: AnalyticsResponse = await response.json();
 
     if (!data.success) {
-      console.error('Cloudflare Analytics API error:', data);
+      logError('Cloudflare Analytics API error:', data);
       return [];
     }
 
@@ -424,7 +424,7 @@ export async function getBrowsers(
 
     return browsers;
   } catch (error) {
-    console.error('Failed to fetch browsers:', error);
+    logError('Failed to fetch browsers:', error);
     return [];
   }
 }

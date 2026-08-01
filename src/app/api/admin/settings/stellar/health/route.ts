@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { StellarService } from '@/lib/payouts/stellar-service';
 import { getStellarSettings, requireAdmin } from '@/lib/admin/stellar-actions';
+import { error as logError } from '@/lib/logger';
 
 export async function GET(request: NextRequest) {
   try {
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(health);
   } catch (error) {
-    console.error('Stellar health check error:', error);
+logError('Stellar health check error:', error);
     return NextResponse.json(
       {
         healthy: false,

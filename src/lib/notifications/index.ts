@@ -3,6 +3,7 @@
  * Unified interface for sending notifications via Slack, Email (Resend), and Telegram
  */
 
+import { warn as logWarn } from '@/lib/logger';
 import {
   NotificationConfig,
   NotificationChannel,
@@ -195,7 +196,7 @@ export class NotificationService {
 
 for (const channel of targetChannels) {
   if (!this.isChannelEnabled(channel)) {
-    console.warn(`Notification channel '${channel}' is not configured`);
+    logWarn(`Notification channel '${channel}' is not configured`);
     continue;
   }
 

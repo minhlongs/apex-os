@@ -11,6 +11,7 @@
 
 import { randomUUID } from 'crypto';
 import type { D1Database } from '@/types/d1';
+import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
 import { getAlertStorage } from '@/lib/alerts';
 import type { CreateAlertInput } from '@/lib/alerts';
 import { withRetry, DEFAULT_RETRY_CONFIG } from '@/lib/notifications/retry';
@@ -344,7 +345,7 @@ export class AlertEngine {
       await this.initializeCircuitBreakers();
     }
 
-    console.log('[AlertEngine] Initialized with notification dispatcher and evaluation state storage');
+    logInfo('[AlertEngine] Initialized with notification dispatcher and evaluation state storage');
   }
 
   /**
@@ -359,7 +360,7 @@ export class AlertEngine {
       this.circuitBreakers.set(name, breaker);
     }
 
-    console.log('[AlertEngine] Circuit breakers initialized');
+    logInfo('[AlertEngine] Circuit breakers initialized');
   }
 
   /**
@@ -383,7 +384,7 @@ export class AlertEngine {
         this.rules = ALL_DEFAULT_RULES;
       }
     } catch (error) {
-      console.warn('Failed to load rules from database, using defaults:', error);
+      logWarn('Failed to load rules from database, using defaults:', error);
       this.rules = ALL_DEFAULT_RULES;
     }
   }
@@ -415,7 +416,7 @@ export class AlertEngine {
     // Check if metrics API circuit breaker is closed
     const metricsBreaker = this.circuitBreakers.get('metrics-api');
     if (metricsBreaker && !(await metricsBreaker.isAvailable())) {
-      console.warn('[AlertEngine] Metrics API circuit breaker is OPEN - skipping evaluation cycle');
+      logWarn('[AlertEngine] Metrics API circuit breaker is OPEN - skipping evaluation cycle');
       await this.recordEvaluationError({
         error_type: 'circuit_breaker_open',
         error_message: 'Metrics API circuit breaker is OPEN - evaluation skipped',
@@ -447,7 +448,7 @@ export class AlertEngine {
         } catch (error: any) {
           rulesFailed++;
           const errorMessage = error?.message || String(error);
-          console.error(`Failed to evaluate rule ${rule.id}:`, error);
+          logError(`Failed to evaluate rule ${rule.id}:`, error);
 
           ruleError = {
             rule_id: rule.id,
@@ -485,7 +486,7 @@ export class AlertEngine {
         rulesEvaluated++;
       }
     } catch (cycleError: any) {
-      console.error('[AlertEngine] Evaluation cycle failed:', cycleError);
+      logError('[AlertEngine] Evaluation cycle failed:', cycleError);
       await this.recordEvaluationError({
         error_type: 'cycle_failure',
         error_message: cycleError?.message || String(cycleError),
@@ -601,7 +602,7 @@ export class AlertEngine {
       }
     }
 
-    console.log(`[AlertEngine] Evaluation run ${runId} completed: ${rulesEvaluated} rules, ${alertsTriggered} alerts, ${errorsCount} errors in ${duration}ms`);
+    logInfo(`[AlertEngine] Evaluation run ${runId} completed: ${rulesEvaluated} rules, ${alertsTriggered} alerts, ${errorsCount} errors in ${duration}ms`);
   }
 
   /**
@@ -827,13 +828,13 @@ export class AlertEngine {
           currentValue = snapshot.stellarBalance;
           break;
         default:
-          console.warn(`Unknown business metric: ${rule.metric}`);
+          logWarn(`Unknown business metric: ${rule.metric}`);
           throw new Error(`Unknown business metric: ${rule.metric}`);
       }
 
       return { currentValue, baselineValue };
     } catch (error) {
-      console.error(`Error fetching business metric ${rule.metric}:`, error);
+      logError(`Error fetching business metric ${rule.metric}:`, error);
       // Re-throw with context for circuit breaker classification
       throw new Error(`metrics_api_error: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -856,7 +857,7 @@ export class AlertEngine {
         return await this.fetchMetricValue(rule);
       });
     } catch (error: any) {
-      console.error(`[AlertEngine] Circuit breaker '${breaker.getState().name}' blocked operation:`, error.message);
+      logError(`[AlertEngine] Circuit breaker '${breaker.getState().name}' blocked operation:`, error.message);
       throw error;
     }
   }
@@ -927,7 +928,7 @@ export class AlertEngine {
           throw new Error(`Unknown D1 metric: ${rule.metric}`);
       }
     } catch (error) {
-      console.error(`Error fetching D1 metric ${rule.metric}:`, error);
+      logError(`Error fetching D1 metric ${rule.metric}:`, error);
       throw new Error(`d1_database_error: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -1039,7 +1040,7 @@ export class AlertEngine {
     // Process the batch with dispatcher
     const result = await this.dispatcher.processBatch(jobs, sendFn, this.db);
 
-    console.log(`[AlertEngine] Alert ${alert.id} dispatched: ${result.completed} succeeded, ${result.failed} failed, ${result.deadLetters} dead letters`);
+    logInfo(`[AlertEngine] Alert ${alert.id} dispatched: ${result.completed} succeeded, ${result.failed} failed, ${result.deadLetters} dead letters`);
 
     // Record alert as sent if at least one channel succeeded
     if (result.completed > 0) {
@@ -1055,7 +1056,7 @@ export class AlertEngine {
     const alertEmail = process.env.ALERT_EMAIL || process.env.ADMIN_EMAIL;
 
     if (!resendApiKey || !alertEmail) {
-      console.warn('Email alerts not configured: RESEND_API_KEY or ALERT_EMAIL missing');
+      logWarn('Email alerts not configured: RESEND_API_KEY or ALERT_EMAIL missing');
     return;
     }
 
@@ -1180,7 +1181,7 @@ This alert was generated by the ${appName} monitoring system.
       },
       retryConfig,
       (attempt, error, delayMs) => {
-        console.log(`[AlertEngine] Email retry attempt ${attempt} after ${delayMs}ms:`, error.message);
+        logInfo(`[AlertEngine] Email retry attempt ${attempt} after ${delayMs}ms:`, error.message);
       }
     );
   }
@@ -1191,7 +1192,7 @@ This alert was generated by the ${appName} monitoring system.
   private async sendWebhookInternal(alert: AlertResult): Promise<void> {
     const webhookUrl = process.env.ALERT_WEBHOOK_URL;
     if (!webhookUrl) {
-      console.warn('Webhook alerts not configured: ALERT_WEBHOOK_URL missing');
+      logWarn('Webhook alerts not configured: ALERT_WEBHOOK_URL missing');
     return;
     }
 
@@ -1231,7 +1232,7 @@ This alert was generated by the ${appName} monitoring system.
       },
       retryConfig,
       (attempt, error, delayMs) => {
-        console.log(`[AlertEngine] Webhook retry attempt ${attempt} after ${delayMs}ms:`, error.message);
+        logInfo(`[AlertEngine] Webhook retry attempt ${attempt} after ${delayMs}ms:`, error.message);
       }
     );
   }
@@ -1242,7 +1243,7 @@ This alert was generated by the ${appName} monitoring system.
   private async sendSlackInternal(alert: AlertResult): Promise<void> {
     const slackWebhook = process.env.SLACK_WEBHOOK_URL;
     if (!slackWebhook) {
-      console.warn('Slack alerts not configured: SLACK_WEBHOOK_URL missing');
+      logWarn('Slack alerts not configured: SLACK_WEBHOOK_URL missing');
     return;
     }
 
@@ -1317,7 +1318,7 @@ This alert was generated by the ${appName} monitoring system.
       },
       retryConfig,
       (attempt, error, delayMs) => {
-        console.log(`[AlertEngine] Slack retry attempt ${attempt} after ${delayMs}ms:`, error.message);
+        logInfo(`[AlertEngine] Slack retry attempt ${attempt} after ${delayMs}ms:`, error.message);
       }
     );
   }
@@ -1327,14 +1328,14 @@ This alert was generated by the ${appName} monitoring system.
    */
   private logToConsole(alert: AlertResult): void {
     const emoji = this.getSeverityEmoji(alert.severity);
-    console.log(
+    logInfo(
       `%c${emoji} ALERT: ${alert.ruleName}`,
       'font-weight: bold; color: ' + this.getSeverityColor(alert.severity)
     );
-    console.log(`  Metric: ${alert.metric}`);
-    console.log(`  Current: ${this.formatMetricValue(alert.metric, alert.currentValue)}`);
-    console.log(`  Threshold: ${this.formatComparison(alert.details.thresholdType as string | undefined)} ${this.formatMetricValue(alert.metric, alert.thresholdValue)}`);
-    console.log(`  Triggered: ${new Date(alert.triggeredAt).toLocaleString()}`);
+    logInfo(`  Metric: ${alert.metric}`);
+    logInfo(`  Current: ${this.formatMetricValue(alert.metric, alert.currentValue)}`);
+    logInfo(`  Threshold: ${this.formatComparison(alert.details.thresholdType as string | undefined)} ${this.formatMetricValue(alert.metric, alert.thresholdValue)}`);
+    logInfo(`  Triggered: ${new Date(alert.triggeredAt).toLocaleString()}`);
   }
 
   /**
@@ -1359,7 +1360,7 @@ This alert was generated by the ${appName} monitoring system.
         },
       });
     } catch (error) {
-      console.error('Failed to record alert in storage:', error);
+      logError('Failed to record alert in storage:', error);
     }
   }
 

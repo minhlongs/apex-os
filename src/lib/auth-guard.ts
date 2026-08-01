@@ -11,6 +11,7 @@
 */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError } from '@/lib/logger';
 import { createAuth } from '@/lib/auth/auth-factory';
 import { getDB } from '@/lib/db';
 
@@ -88,7 +89,7 @@ return null;
 
 return { userId, role: profile.role, email: profile.email };
 } catch (error) {
-console.error('requireAdminRole error:', error);
+logError('requireAdminRole error:', error);
 return null;
 }
 }

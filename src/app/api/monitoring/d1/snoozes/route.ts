@@ -5,6 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError } from '@/lib/logger';
+
 import {
   getActiveSnoozes,
   createSnooze,
@@ -41,7 +43,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       })),
     });
   } catch (error) {
-    console.error('Get snoozes error:', error);
+    logError('Get snoozes error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -137,7 +139,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (error) {
-    console.error('Create snooze error:', error);
+    logError('Create snooze error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

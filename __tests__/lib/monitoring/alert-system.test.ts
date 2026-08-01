@@ -553,7 +553,7 @@ describe('AlertEngine', () => {
         await engine['sendEmailInternal'](alert);
 
         // Should log warning but not throw
-        expect(console.warn).toHaveBeenCalledWith('Email alerts not configured: RESEND_API_KEY or ALERT_EMAIL missing')
+        expect(console.warn).toHaveBeenCalledWith('[ApexOS]', 'Email alerts not configured: RESEND_API_KEY or ALERT_EMAIL missing')
 
     warnSpy.mockRestore();
  });
@@ -700,7 +700,7 @@ describe('AlertEngine', () => {
 
   // console.log uses CSS styling: console.log('%cALERT: ...', 'font-weight: bold; color: ...')
   const calls = (console.log as jest.Mock).mock.calls;
-  const firstArg = calls[0][0] as string;
+  const firstArg = calls[0][1] as string;
   expect(firstArg).toContain('ALERT');
   expect(firstArg).toContain(alert.ruleName);
     });

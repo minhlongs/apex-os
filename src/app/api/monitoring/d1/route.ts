@@ -15,6 +15,7 @@ import {
   getActiveSnoozes,
 } from '@/lib/monitoring/d1-monitor';
 import type { D1MetricsHistoryRow, D1SlowQueryRow } from '@/types/d1';
+import { error as logError } from '@/lib/logger';
 
 // ============================================================================
 // Types
@@ -131,7 +132,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<Monitoring
       snoozes: activeSnoozes,
     });
   } catch (error) {
-    console.error('Monitoring API error:', error);
+    logError('Monitoring API error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -211,7 +212,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Monitorin
       })),
     });
   } catch (error) {
-    console.error('Monitoring API error:', error);
+    logError('Monitoring API error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -246,7 +247,7 @@ export async function GET_CONFIG(request: NextRequest): Promise<NextResponse> {
       defaultConfigs: DEFAULT_ALERT_CONFIGS,
     });
   } catch (error) {
-    console.error('Get config error:', error);
+    logError('Get config error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -311,7 +312,7 @@ export async function POST_CONFIG(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Update config error:', error);
+    logError('Update config error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -369,7 +370,7 @@ export async function GET_HISTORY(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ success: true, data });
   } catch (error) {
-    console.error('History error:', error);
+    logError('History error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -421,7 +422,7 @@ export async function GET_SLOW_QUERIES(request: NextRequest): Promise<NextRespon
 
     return NextResponse.json({ success: true, data });
   } catch (error) {
-    console.error('Slow queries error:', error);
+    logError('Slow queries error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

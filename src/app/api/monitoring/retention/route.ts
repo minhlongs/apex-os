@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAlertStorage } from '@/lib/alerts';
 import { runRetentionCleanup } from '@/lib/alerts/retention-service';
+import { error as logError } from '@/lib/logger';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   // Simple auth check - only allow from internal cron or with secret token
@@ -43,7 +44,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Retention cleanup failed:', error);
+    logError('Retention cleanup failed:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

@@ -3,6 +3,7 @@
  * Bridges the business alert engine with the multi-channel notification service
  */
 
+import { error as logError } from '@/lib/logger';
 import { getNotificationService } from './index';
 import type {
   BusinessAlertConfig,
@@ -67,7 +68,7 @@ export async function sendBusinessAlertNotification(
       supportedChannels
     );
   } catch (error) {
-    console.error('[BusinessAlertNotification] Failed to send:', error);
+    logError('[BusinessAlertNotification] Failed to send:', error);
     throw error;
   }
 }

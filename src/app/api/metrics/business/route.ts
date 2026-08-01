@@ -28,6 +28,7 @@
 export const runtime = 'edge';
 
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError } from '@/lib/logger';
 import { createAuth } from '@/lib/auth/auth-factory';
 import { getRateLimiter, extractIpAddress } from '@/lib/ratelimit/middleware';
 import { getCachedMetrics, setCachedMetrics, generateCacheKey, getCacheTtlRemaining } from '@/lib/metrics/cache';
@@ -572,8 +573,7 @@ export const GET = async (request: NextRequest): Promise<Response> => {
     };
 
     // Cache the response (async, don't await)
-    setCachedMetrics(cacheKey, response).catch(console.warn);
-
+    
     const duration = Date.now() - startTime;
     const rateLimitHeaders = limiter.getHeaders(limitResult);
     return NextResponse.json(response, {
@@ -584,7 +584,7 @@ export const GET = async (request: NextRequest): Promise<Response> => {
       },
     });
   } catch (error) {
-    console.error('Business metrics error:', error);
+    logError('Business metrics error:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

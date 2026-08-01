@@ -4,6 +4,7 @@
  */
 
 import { TelegramConfig, NotificationMessage, SendResult } from '../config';
+import { error as logError } from '@/lib/logger';
 import { withRetry, DEFAULT_RETRY_CONFIG } from '../retry';
 
 /**
@@ -123,7 +124,7 @@ export class TelegramNotifier {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[TelegramNotifier] Unexpected error:', errorMessage);
+      logError('[TelegramNotifier] Unexpected error:', errorMessage);
 
       return {
         success: false,

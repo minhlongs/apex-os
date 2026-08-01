@@ -88,6 +88,7 @@ import {
 } from '@/lib/webhooks/error-responses';
 import { getDB } from '@/lib/db';
 import type { D1Database } from '@/lib/db';
+import { error as logError, info as logInfo, warn as logWarn } from '@/lib/logger';
 
 const KUCOIN_WEBHOOK_SECRET = process.env.KUCOIN_WEBHOOK_SECRET;
 
@@ -329,7 +330,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Verify signature
     const signatureCheck = await verifyKuCoinSignatureInternal(rawBody, headers, rawBody);
     if (!signatureCheck.valid) {
-      console.warn(`[KuCoin Webhook] Signature verification failed:`, signatureCheck.error);
+      logWarn(`[KuCoin Webhook] Signature verification failed:`, signatureCheck.error);
       return NextResponse.json(
         WebhookErrorResponses.invalidSignature(signatureCheck.error, requestId),
         { status: getHttpStatusCode(WebhookErrorCode.INVALID_SIGNATURE) }
@@ -339,7 +340,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Validate timestamp
     const timestampCheck = validateTimestampOrError(headers, body, requestId);
     if (!timestampCheck.valid) {
-      console.warn(`[KuCoin Webhook] Timestamp validation failed`);
+      logWarn(`[KuCoin Webhook] Timestamp validation failed`);
       return (timestampCheck as { valid: false; response: Response }).response;
     }
 
@@ -355,7 +356,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Replay protection
     const isReplay = await isWebhookReplay('kucoin', trade.orderId, trade.symbol);
     if (isReplay) {
-      console.warn(`[KuCoin Webhook] Replay attack detected: order ${trade.orderId} for ${trade.symbol}`);
+      logWarn(`[KuCoin Webhook] Replay attack detected: order ${trade.orderId} for ${trade.symbol}`);
       return NextResponse.json(
         WebhookErrorResponses.potentialReplayAttack(requestId),
         { status: getHttpStatusCode(WebhookErrorCode.POTENTIAL_REPLAY_ATTACK) }
@@ -365,7 +366,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Find matching deal
     const deal = await findDeal(db, 'kucoin', trade.symbol);
     if (!deal) {
-      console.info(`[KuCoin Webhook] No active KuCoin deal found for symbol: ${trade.symbol}`);
+      logInfo(`[KuCoin Webhook] No active KuCoin deal found for symbol: ${trade.symbol}`);
       return NextResponse.json(
         { success: true, skipped: true, reason: 'No matching deal' },
         { status: 200 }
@@ -375,7 +376,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Check idempotency
     const exists = await conversionExists(db, trade.orderId);
     if (exists) {
-      console.info(`[KuCoin Webhook] Duplicate conversion detected: order ${trade.orderId}`);
+      logInfo(`[KuCoin Webhook] Duplicate conversion detected: order ${trade.orderId}`);
       return NextResponse.json(
         WebhookErrorResponses.duplicateWebhook(trade.orderId, requestId),
         { status: getHttpStatusCode(WebhookErrorCode.DUPLICATE_WEBHOOK) }
@@ -386,7 +387,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const apiKey = headers['kc-api-key'];
     const profile = await findProfileByKuCoinApiKey(db, apiKey);
     if (!profile) {
-      console.info(`[KuCoin Webhook] No matching user found for API key: ${apiKey?.slice(0, 8)}...`);
+      logInfo(`[KuCoin Webhook] No matching user found for API key: ${apiKey?.slice(0, 8)}...`);
       return NextResponse.json(
         { success: true, skipped: true, reason: 'User not found or API key not linked' },
         { status: 200 }
@@ -427,7 +428,7 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     // Invalidate cache for the affiliate
     void invalidateAffiliateCache(profile.id, ['affiliate-dashboard', 'affiliate-conversions']).catch(err =>
-      console.error('[KuCoin Webhook] Cache invalidation error:', err)
+      logError('[KuCoin Webhook] Cache invalidation error:', err)
     );
 
     return NextResponse.json(
@@ -435,7 +436,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: 200 }
     );
   } catch (error) {
-    console.error('[KuCoin Webhook] Processing error:', error);
+    logError('[KuCoin Webhook] Processing error:', error);
     return NextResponse.json(
       WebhookErrorResponses.processingError(error instanceof Error ? error.message : String(error), `req_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`),
       { status: 500 }

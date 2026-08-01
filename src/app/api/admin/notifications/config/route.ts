@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError } from '@/lib/logger';
 import { requireAdmin } from '../../actions';
 
 // KV storage keys
@@ -61,7 +62,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
             updatedAt: config.updatedAt ?? null,
           });
         } catch (parseError) {
-          console.error(`Failed to parse config for ${channelType}:`, parseError);
+          logError(`Failed to parse config for ${channelType}:`, parseError);
         }
       }
     }
@@ -71,7 +72,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       data: { channels },
     });
   } catch (error) {
-    console.error('Error fetching notification configs:', error);
+    logError('Error fetching notification configs:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to fetch configurations' },
       { status: 500 }
@@ -133,7 +134,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       data: { channelType, enabled: storedConfig.enabled, config: storedConfig },
     });
   } catch (error) {
-    console.error('Error updating notification config:', error);
+    logError('Error updating notification config:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to update configuration' },
       { status: 500 }

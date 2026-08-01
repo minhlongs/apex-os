@@ -11,6 +11,7 @@ export const runtime = 'edge';
 
 import { NextRequest, NextResponse } from 'next/server';
 import type { PublicDeal, DealListQuery, PaginatedResponse } from '@/types/deal';
+import { error as logError } from '@/lib/logger';
 import { withRateLimit } from '@/lib/ratelimit/middleware';
 import { extractIpAddress } from '@/lib/ratelimit/rate-limiter';
 
@@ -219,14 +220,14 @@ export const GET = withRateLimit(async (request: NextRequest): Promise<Response>
       try {
         await kv.put(cacheKey, JSON.stringify(response), { expirationTtl: DEALS_CACHE_TTL });
       } catch (cacheError) {
-        console.error('[DealsCache] Cache store error:', cacheError);
+        logError('[DealsCache] Cache store error:', cacheError);
         // Continue without caching - don't fail the request
       }
     }
 
     return NextResponse.json(response, { headers });
   } catch (error) {
-    console.error('Error listing public deals:', error);
+    logError('Error listing public deals:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error), data: [], total: 0, page: 1, limit: 0, totalPages: 0 },
       { status: 500 }

@@ -11,6 +11,7 @@
 
 import { randomUUID } from 'crypto';
 import type { D1Database, D1QueryResult, D1MetricsHistoryRow, D1SlowQueryRow, D1AlertConfigRow, D1AlertWithConfigRow, D1AlertHistoryRow, D1AlertSnoozeRow } from '@/types/d1';
+import { error as logError, warn as logWarn } from '@/lib/logger';
 
 // ============================================================================
 // Configuration
@@ -170,7 +171,7 @@ export async function collectStorageMetrics(db: D1Database): Promise<D1StorageMe
       walSizeBytes,
     };
   } catch (error) {
-    console.error('Failed to collect storage metrics:', error);
+    logError('Failed to collect storage metrics:', error);
     throw error;
   }
 }
@@ -345,7 +346,7 @@ async function sendEmailAlert(config: AlertConfig, alert: Alert): Promise<void> 
   const alertEmail = process.env.ALERT_EMAIL || process.env.ADMIN_EMAIL;
 
   if (!resendApiKey || !alertEmail) {
-    console.warn('Email alerts not configured: RESEND_API_KEY or ALERT_EMAIL missing');
+    logWarn('Email alerts not configured: RESEND_API_KEY or ALERT_EMAIL missing');
     return;
   }
 
@@ -433,10 +434,10 @@ View dashboard: https://apex-os.pages.dev/admin/monitoring
 
     if (!response.ok) {
       const error = await response.text();
-      console.error('Failed to send email alert:', error);
+      logError('Failed to send email alert:', error);
     }
   } catch (error) {
-    console.error('Error sending email alert:', error);
+    logError('Error sending email alert:', error);
   }
 }
 
@@ -462,7 +463,7 @@ async function sendWebhookAlert(config: AlertConfig, alert: Alert): Promise<void
       }),
     });
   } catch (error) {
-    console.error('Error sending webhook alert:', error);
+    logError('Error sending webhook alert:', error);
   }
 }
 
@@ -502,7 +503,7 @@ async function sendSlackAlert(config: AlertConfig, alert: Alert): Promise<void> 
       }),
     });
   } catch (error) {
-    console.error('Error sending Slack alert:', error);
+    logError('Error sending Slack alert:', error);
   }
 }
 
@@ -543,7 +544,7 @@ export async function runMonitoringCycle(
   try {
     await cleanupExpiredSnoozes(db);
   } catch (error) {
-    console.warn('Snooze cleanup failed (non-critical):', error);
+    logWarn('Snooze cleanup failed (non-critical):', error);
   }
 
   // Collect storage metrics
@@ -655,7 +656,7 @@ export async function executeMonitoredQuery<T>(
         )
         .run();
     } catch (err) {
-      console.error('Failed to log slow query:', err);
+      logError('Failed to log slow query:', err);
     }
   }
 

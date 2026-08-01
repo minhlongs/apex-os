@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuth } from '@/lib/auth/auth-factory';
 import type { AffiliateDeal, UpdateDealDto } from '@/types/deal';
+import { error as logError } from '@/lib/logger';
 
 /**
  * Check if user is admin
@@ -90,7 +91,7 @@ export async function GET(
 
     return NextResponse.json(deal);
   } catch (error) {
-    console.error('Error fetching deal:', error);
+    logError('Error fetching deal:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }
@@ -215,7 +216,7 @@ export async function PATCH(
 
     return NextResponse.json(updatedDeal);
   } catch (error) {
-    console.error('Error updating deal:', error);
+    logError('Error updating deal:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }
@@ -259,7 +260,7 @@ export async function DELETE(
       message: 'Deal deactivated successfully',
     });
   } catch (error) {
-    console.error('Error deleting deal:', error);
+    logError('Error deleting deal:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

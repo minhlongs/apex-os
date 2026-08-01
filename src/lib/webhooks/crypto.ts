@@ -4,6 +4,7 @@
  */
 
 import { subtle } from 'crypto';
+import { error as logError } from '@/lib/logger';
 import { TextDecoder } from 'util';
 
 // Default timestamp tolerance window (5 minutes in milliseconds)
@@ -294,12 +295,12 @@ export async function verifyKuCoinSignature(
     // Convert base64 signature to hex for verification
     const signatureHex = base64ToHex(signatureHeader);
     if (!signatureHex) {
-      console.error('[KuCoin] Failed to decode base64 signature');
+      logError('[KuCoin] Failed to decode base64 signature');
       return false;
     }
     return WebhookCrypto.verifyHmacSha256(signString, signatureHex, secret);
   } catch (error) {
-    console.error('[KuCoin] Signature verification error:', error);
+    logError('[KuCoin] Signature verification error:', error);
     return false;
   }
 }
@@ -319,7 +320,7 @@ function base64ToHex(base64: string): string | null {
     }
     return hex;
   } catch (error) {
-    console.error('[Crypto] Base64 to hex conversion failed:', error);
+    logError('[Crypto] Base64 to hex conversion failed:', error);
     return null;
   }
 }

@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { cleanupExpiredSnoozes } from '@/lib/monitoring/d1-monitor';
+import { error as logError } from '@/lib/logger';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
@@ -25,7 +26,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       data: { deletedCount },
     });
   } catch (error) {
-    console.error('Snooze cleanup error:', error);
+    logError('Snooze cleanup error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

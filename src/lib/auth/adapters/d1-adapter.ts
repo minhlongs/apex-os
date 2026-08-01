@@ -5,6 +5,7 @@
  */
 
 import { NextRequest } from 'next/server'
+import { error as logError } from '@/lib/logger';
 
 export interface D1Database {
   prepare(query: string): D1PreparedStatement
@@ -236,7 +237,7 @@ export async function withAuth(request: NextRequest): Promise<AuthResult> {
       db,
     }
   } catch (error) {
-    console.error('[withAuth] Auth error:', error)
+    logError('[withAuth] Auth error:', error)
     return { success: false }
   }
 }

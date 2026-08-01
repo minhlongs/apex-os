@@ -19,6 +19,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runAlertEngine, getAlertRules, getAlertEngine } from '@/lib/monitoring/alert-engine';
 import type { EvaluationStats, CircuitBreakerEntry } from '@/types/evaluation-state';
+import { error as logError } from '@/lib/logger';
 
 // ============================================================================
 // GET /api/monitoring/alert-engine
@@ -116,7 +117,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Alert Engine API error:', error);
+    logError('Alert Engine API error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -210,7 +211,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 400 }
     );
   } catch (error) {
-    console.error('Alert Engine API error:', error);
+    logError('Alert Engine API error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

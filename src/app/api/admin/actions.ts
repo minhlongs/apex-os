@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db';
 import { createAuth } from '@/lib/auth/auth-factory';
+import { error as logError } from '@/lib/logger';
 
 // Helper to get DB connection for API routes (with query monitoring)
 export { getDB };
@@ -61,7 +62,7 @@ export async function requireAdmin(request: NextRequest): Promise<{ userId: stri
 
     return { userId, role: profile.role, email: profile.email };
   } catch (error) {
-    console.error('requireAdmin error:', error);
+logError('requireAdmin error:', error);
     return null;
   }
 }

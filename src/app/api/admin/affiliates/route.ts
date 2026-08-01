@@ -9,6 +9,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError } from '@/lib/logger';
 import { createAuth } from '@/lib/auth/auth-factory';
 import { getCached, setCache, isKVAvailable } from '@/lib/cache/kv-cache';
 import { getDB } from '@/lib/db';
@@ -184,7 +185,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       try {
         await setCache(cacheKey, responseData, 300); // 5 minute TTL
       } catch (cacheError) {
-        console.error('[TopAffiliatesCache] Cache store error:', cacheError);
+        logError('[TopAffiliatesCache] Cache store error:', cacheError);
       }
     }
 
@@ -197,7 +198,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       },
     });
   } catch (error) {
-    console.error('Error fetching top affiliates:', error);
+    logError('Error fetching top affiliates:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

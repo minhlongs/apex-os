@@ -558,7 +558,7 @@ describe('StellarService', () => {
     it('should warn when secret key is missing', () => {
       const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       createStellarService();
-      expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('STELLAR_SECRET_KEY'));
+      expect(consoleSpy).toHaveBeenCalledWith('[ApexOS]', expect.stringContaining('STELLAR_SECRET_KEY'));
       consoleSpy.mockRestore();
     });
   });

@@ -21,6 +21,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getAlertEngine } from '@/lib/monitoring/alert-engine';
+import { error as logError } from '@/lib/logger';
 
 // ============================================================================
 // GET /api/monitoring/evaluation
@@ -99,7 +100,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json(response);
   } catch (error) {
-    console.error('Evaluation Metrics API error:', error);
+    logError('Evaluation Metrics API error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -170,7 +171,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 400 }
     );
   } catch (error) {
-    console.error('Evaluation Metrics API error:', error);
+    logError('Evaluation Metrics API error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

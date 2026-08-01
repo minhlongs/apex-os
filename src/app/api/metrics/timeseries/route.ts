@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTimeSeriesData, validateTimeSeriesParams } from '@/lib/metrics/time-series';
 import type { TimeSeriesQueryParams } from '@/types/metrics';
+import { error as logError } from '@/lib/logger';
 
 // ============================================================================
 // GET Handler
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       ...data,
     });
   } catch (error) {
-    console.error('Time-series metrics API error:', error);
+    logError('Time-series metrics API error:', error);
 
     const message = error instanceof Error ? error.message : 'Unknown error';
     const status = message.includes('date') || message.includes('range') ? 400 : 500;

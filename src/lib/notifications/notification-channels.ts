@@ -7,6 +7,7 @@
 
 import { getNotificationService } from './index';
 import type { NotificationChannel } from './config';
+import { error as logError } from '@/lib/logger';
 import type { BusinessAlert, AlertEvaluationContext, BusinessAlertConfig } from '@/types/business-alerting';
 
 // ============================================================================
@@ -336,7 +337,7 @@ export async function sendBusinessAlertNotification(
     try {
       await notifier.send(messagePayload, [channel]);
     } catch (error) {
-      console.error(`[BusinessAlertNotification] Channel ${channel} failed:`, error);
+      logError(`[BusinessAlertNotification] Channel ${channel} failed:`, error);
       // continue to next channel
     }
   }

@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuth } from '@/lib/auth/auth-factory';
 import { getUserIdCacheKey, getCached, setCache, isKVAvailable } from '@/lib/cache/kv-cache';
+import { error as logError } from '@/lib/logger';
 
 interface PayoutRecord {
   id: string;
@@ -191,7 +192,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       try {
         await setCache(cacheKey, responseData, 30); // 30 second TTL
       } catch (cacheError) {
-        console.error('[PayoutsCache] Cache store error:', cacheError);
+        logError('[PayoutsCache] Cache store error:', cacheError);
       }
     }
 
@@ -205,7 +206,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       },
     });
   } catch (error) {
-    console.error('Error fetching payouts:', error);
+    logError('Error fetching payouts:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

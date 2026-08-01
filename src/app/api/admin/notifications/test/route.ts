@@ -3,6 +3,7 @@
  * Test connection for a specific notification channel
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError } from '@/lib/logger';
 import { requireAdmin } from '../../actions';
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -32,7 +33,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const result = await testNotificationConnection(channelType, config as any);
     return NextResponse.json(result);
   } catch (error) {
-    console.error('Notification test failed:', error);
+    logError('Notification test failed:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

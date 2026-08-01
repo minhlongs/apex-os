@@ -7,6 +7,7 @@
  */
 
 import * as StellarSdk from 'stellar-sdk';
+import { error as logError, warn as logWarn } from '@/lib/logger';
 import { track } from '@/lib/analytics-http';
 
 /**
@@ -302,7 +303,7 @@ export class StellarService {
       try {
         this.senderKeypair = StellarSdk.Keypair.fromSecret(this.config.secretKey);
       } catch (error) {
-        console.error('Failed to parse Stellar secret key:', error);
+        logError('Failed to parse Stellar secret key:', error);
         this.senderKeypair = undefined;
       }
     }
@@ -984,7 +985,7 @@ export function createStellarService(): StellarService {
   const horizonUrl = process.env.STELLAR_HORIZON_URL;
 
   if (!secretKey) {
-    console.warn('STELLAR_SECRET_KEY not set. Payout operations requiring signing will fail.');
+    logWarn('STELLAR_SECRET_KEY not set. Payout operations requiring signing will fail.');
   }
 
   return new StellarService({

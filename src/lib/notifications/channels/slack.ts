@@ -4,6 +4,7 @@
  */
 
 import { SlackConfig, NotificationMessage, SendResult } from '../config';
+import { error as logError } from '@/lib/logger';
 import { withRetry, DEFAULT_RETRY_CONFIG } from '../retry';
 
 /**
@@ -108,7 +109,7 @@ export class SlackNotifier {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[SlackNotifier] Unexpected error:', errorMessage);
+      logError('[SlackNotifier] Unexpected error:', errorMessage);
 
       return {
         success: false,

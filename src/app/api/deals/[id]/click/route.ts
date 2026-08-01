@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { error as logError } from '@/lib/logger';
 import { createAuth } from '@/lib/auth/auth-factory'
 import { getDB } from '@/lib/db';
 
@@ -100,7 +101,7 @@ export async function POST(
 
     return response
   } catch (error) {
-    console.error('Affiliate click tracking error:', error)
+    logError('Affiliate click tracking error:', error)
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -190,7 +191,7 @@ export async function GET(
 
     return response
   } catch (error) {
-    console.error('Affiliate redirect error:', error)
+    logError('Affiliate redirect error:', error)
     return NextResponse.redirect(new URL('/deals', request.url), 302)
   }
 }

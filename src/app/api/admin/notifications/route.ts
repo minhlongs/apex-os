@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/admin-guard';
 import { getNotificationService } from '@/lib/notifications';
 import type { NotificationChannel } from '@/lib/notifications/config';
+import { error as logError } from '@/lib/logger';
 
 /**
  * POST /api/admin/notifications
@@ -174,7 +175,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     });
   } catch (error) {
-    console.error('[Notifications API] Error:', error);
+    logError('[Notifications API] Error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

@@ -3,6 +3,7 @@
  * Delete notification channel configuration
  */
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError } from '@/lib/logger';
 import { requireAdmin } from '../../actions';
 
 export async function DELETE(
@@ -44,7 +45,7 @@ export async function DELETE(
       data: { channelType, deleted: true },
     });
   } catch (error) {
-    console.error('Error deleting notification config:', error);
+    logError('Error deleting notification config:', error);
     return NextResponse.json(
       { success: false, error: 'Failed to delete configuration' },
       { status: 500 }

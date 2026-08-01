@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '../actions';
+import { error as logError } from '@/lib/logger';
 
 export interface Alert {
   id: string;
@@ -219,7 +220,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       summary,
     });
   } catch (error) {
-    console.error('Alerts API error:', error);
+logError('Alerts API error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
@@ -400,7 +401,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     return NextResponse.json({ success: false, error: 'Invalid action or missing parameters' }, { status: 400 });
   } catch (error) {
-    console.error('Alerts API POST error:', error);
+logError('Alerts API POST error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

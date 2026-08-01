@@ -26,6 +26,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
 
 // ============================================================================
 // Types
@@ -207,7 +208,7 @@ export async function getCached<T>(key: string): Promise<T | null> {
     stats.misses++;
     return null;
   } catch (error) {
-    console.error('[Cache] Get error:', error);
+    logError('[Cache] Get error:', error);
     stats.errors++;
     return null;
   }
@@ -227,7 +228,7 @@ export async function setCache<T>(key: string, data: T, ttl: number): Promise<bo
     await kv.put(key, JSON.stringify(data), { expirationTtl: ttl });
     return true;
   } catch (error) {
-    console.error('[Cache] Set error:', error);
+    logError('[Cache] Set error:', error);
     stats.errors++;
     return false;
   }
@@ -246,7 +247,7 @@ export async function invalidateCache(key: string): Promise<boolean> {
   try {
     return await kv.delete(key);
   } catch (error) {
-    console.error('[Cache] Invalidate error:', error);
+    logError('[Cache] Invalidate error:', error);
     return false;
   }
 }
@@ -265,7 +266,7 @@ export async function invalidateCachePrefix(prefix: string): Promise<number> {
   // NOTE: Cloudflare KV does not support listing keys by prefix natively.
   // For production, you would need to maintain a key index or use a different approach.
   // This is a placeholder that logs a warning.
-  console.warn('[Cache] invalidateCachePrefix not implemented - requires key index tracking');
+  logWarn('[Cache] invalidateCachePrefix not implemented - requires key index tracking');
   return 0;
 }
 
@@ -374,7 +375,7 @@ export function withCache<T extends (...args: any[]) => Promise<any>>(
       if (cached) {
         stats.hits++;
         const queryTime = Date.now() - startTime;
-        console.log(`[Cache] HIT ${cacheKey} (${queryTime}ms)`);
+        logInfo(`[Cache] HIT ${cacheKey} (${queryTime}ms)`);
 
         return NextResponse.json(cached, {
           headers: {
@@ -401,9 +402,9 @@ export function withCache<T extends (...args: any[]) => Promise<any>>(
       try {
         const body = await response.clone().json();
         await kv.put(cacheKey, JSON.stringify(body), { expirationTtl: config.ttl });
-        console.log(`[Cache] CACHED ${cacheKey} (TTL: ${config.ttl}s, query: ${queryTime}ms)`);
+        logInfo(`[Cache] CACHED ${cacheKey} (TTL: ${config.ttl}s, query: ${queryTime}ms)`);
       } catch (error) {
-        console.error('[Cache] Store error:', error);
+        logError('[Cache] Store error:', error);
         stats.errors++;
       }
     }

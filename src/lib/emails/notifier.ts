@@ -4,6 +4,7 @@
  */
 
 import { Resend } from 'resend';
+import { error as logError, info as logInfo } from '@/lib/logger';
 import {
   EmailOptions,
   EmailNotification,
@@ -17,7 +18,7 @@ import {
 } from './types';
 
 if (process.env.NODE_ENV === 'test') {
-  console.log('[EmailNotifier] Resend class loaded:', Resend);
+  logInfo('[EmailNotifier] Resend class loaded:', Resend);
 }
 import {
   commissionEarnedTemplate,
@@ -111,7 +112,7 @@ export class EmailNotifier {
     if (!this.isEnabled()) {
       const msg = 'Email sending is disabled or RESEND_API_KEY is not set';
       if (this.config.dryRun) {
-        console.log('[EmailNotifier] DRY RUN - would send:', { subject: options.subject, to: options.to });
+        logInfo('[EmailNotifier] DRY RUN - would send:', { subject: options.subject, to: options.to });
         return { success: true, id: 'dry-run-' + Date.now() };
       }
       return { success: false, error: msg };
@@ -139,18 +140,18 @@ export class EmailNotifier {
       }
 
       if (process.env.NODE_ENV === 'test') {
-        console.log('[EmailNotifier] resend object:', resend);
-        console.log('[EmailNotifier] resend.emails:', resend.emails);
+        logInfo('[EmailNotifier] resend object:', resend);
+        logInfo('[EmailNotifier] resend.emails:', resend.emails);
       }
 
       const result = await resend.emails.send(payload);
 
-      console.log(`[EmailNotifier] Sent: ${options.subject} → ${options.to}`);
+      logInfo(`[EmailNotifier] Sent: ${options.subject} → ${options.to}`);
       const emailId = (result as any)?.data?.id;
       return { success: true, id: emailId };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`[EmailNotifier] Failed to send: ${options.subject}`, error);
+      logError(`[EmailNotifier] Failed to send: ${options.subject}`, error);
       return { success: false, error: errorMessage };
     }
   }

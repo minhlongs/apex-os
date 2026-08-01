@@ -14,6 +14,7 @@
  */
 
 import type { DB } from '@/lib/db/client';
+import { error as logError, info as logInfo } from '@/lib/logger';
 import { encryptApiKey, decryptApiKey } from './crypto';
 
 /**
@@ -67,9 +68,9 @@ export async function setUserApiKey(
     const encrypted = await encryptApiKey(plainKey);
     const sql = `INSERT OR REPLACE INTO user_api_keys (user_id, provider, encrypted_key, updated_at) VALUES (?, ?, ?, datetime('now'))`;
     getDb().prepare(sql).bind(userId, provider, encrypted).run();
-    console.log('[BYOK] API key stored', { userId, provider });
+    logInfo('[BYOK] API key stored', { userId, provider });
   } catch (error) {
-    console.error('[BYOK] setUserApiKey error:', error, { userId, provider });
+    logError('[BYOK] setUserApiKey error:', error, { userId, provider });
     throw new ByokStoreError(`Failed to store API key: ${error instanceof Error ? error.message : 'unknown error'}`, provider, userId);
   }
 }
@@ -90,7 +91,7 @@ export async function getUserApiKey(
     if (!row) return null;
     return await decryptApiKey(row.encrypted_key);
   } catch (error) {
-    console.error('[BYOK] getUserApiKey error:', error, { userId, provider });
+    logError('[BYOK] getUserApiKey error:', error, { userId, provider });
     throw new ByokStoreError(`Failed to retrieve API key: ${error instanceof Error ? error.message : 'unknown error'}`, provider, userId);
   }
 }
@@ -108,9 +109,9 @@ export async function deleteUserApiKey(
   try {
     const sql = `DELETE FROM user_api_keys WHERE user_id = ? AND provider = ?`;
     getDb().prepare(sql).bind(userId, provider).run();
-    console.log('[BYOK] API key deleted', { userId, provider });
+    logInfo('[BYOK] API key deleted', { userId, provider });
   } catch (error) {
-    console.error('[BYOK] deleteUserApiKey error:', error, { userId, provider });
+    logError('[BYOK] deleteUserApiKey error:', error, { userId, provider });
     throw new ByokStoreError(`Failed to delete API key: ${error instanceof Error ? error.message : 'unknown error'}`, provider, userId);
   }
 }
@@ -128,7 +129,7 @@ export async function listUserApiKeys(
     const result = await getDb().prepare(sql).bind(userId).all<ApiKeyMetadata>();
     return result.results;
   } catch (error) {
-    console.error('[BYOK] listUserApiKeys error:', error, { userId });
+    logError('[BYOK] listUserApiKeys error:', error, { userId });
     throw new ByokStoreError(`Failed to list API keys: ${error instanceof Error ? error.message : 'unknown error'}`, undefined, userId);
   }
 }
@@ -145,7 +146,7 @@ export async function hasUserApiKey(
     return keys.some((k) => k.provider === provider);
   } catch (error) {
     if (error instanceof ByokStoreError) throw error;
-    console.error('[BYOK] hasUserApiKey error:', error, { userId, provider });
+    logError('[BYOK] hasUserApiKey error:', error, { userId, provider });
     throw new ByokStoreError(`Failed to check API key: ${error instanceof Error ? error.message : 'unknown error'}`, provider, userId);
   }
 }

@@ -51,6 +51,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError, warn as logWarn } from '@/lib/logger';
 
 // ============================================================================
 // Types
@@ -153,7 +154,7 @@ export async function checkRateLimitByIdentifier(
   const kv = getKV();
 
   if (!kv) {
-    console.warn('[RateLimiter] KV not available, allowing request (fail-open)');
+    logWarn('[RateLimiter] KV not available, allowing request (fail-open)');
     return {
       allowed: true,
       remaining: config.maxRequests,
@@ -217,7 +218,7 @@ export async function checkRateLimitByIdentifier(
       reset: now + Math.floor(config.windowMs / 1000),
     };
   } catch (error) {
-    console.error('[RateLimiter] Error checking rate limit:', error);
+    logError('[RateLimiter] Error checking rate limit:', error);
     // Fail open: allow request on KV errors
     return {
       allowed: true,
@@ -428,7 +429,7 @@ export async function resetRateLimit(
 ): Promise<boolean> {
   const kv = getKV();
   if (!kv) {
-    console.warn('[RateLimiter] KV not available for reset');
+    logWarn('[RateLimiter] KV not available for reset');
     return false;
   }
 
@@ -437,10 +438,10 @@ export async function resetRateLimit(
       const key = buildKey(prefix, identifier, windowMs);
       return await kv.delete(key);
     }
-    console.warn('[RateLimiter] Reset without windowMs is not supported for sliding window');
+    logWarn('[RateLimiter] Reset without windowMs is not supported for sliding window');
     return true;
   } catch (error) {
-    console.error('[RateLimiter] Error resetting rate limit:', error);
+    logError('[RateLimiter] Error resetting rate limit:', error);
     return false;
   }
 }

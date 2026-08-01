@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { error as logError } from '@/lib/logger';
 import { requireAdminRole } from '@/lib/auth-guard';
 import { getAnalyticsOverview } from '@/lib/analytics/cloudflare-analytics';
 import { getGlobalCacheKey, getCached, setCache, isKVAvailable } from '@/lib/cache/kv-cache';
@@ -82,7 +83,7 @@ return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         const cacheKey = getGlobalCacheKey('analytics-overview', `timeRange:${timeRange}`);
         await setCache(cacheKey, responseData, 60); // 60 second TTL
       } catch (cacheError) {
-        console.error('[AnalyticsCache] Cache store error:', cacheError);
+        logError('[AnalyticsCache] Cache store error:', cacheError);
       }
     }
 
@@ -96,7 +97,7 @@ return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
       },
     });
   } catch (error) {
-    console.error('Analytics overview API error:', error);
+    logError('Analytics overview API error:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

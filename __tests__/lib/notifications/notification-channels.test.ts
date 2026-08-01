@@ -405,6 +405,7 @@ it('should log warning when email API key missing', async () => {
 
   // Since email channel not configured, warning should be logged
   expect(consoleSpy).toHaveBeenCalledWith(
+    '[ApexOS]',
     "Notification channel 'email' is not configured"
   );
 
@@ -449,6 +450,7 @@ it('should not send webhook when URL missing', async () => {
 
   expect(mockFetch).not.toHaveBeenCalled();
   expect(consoleSpy).toHaveBeenCalledWith(
+    '[ApexOS]',
     "Notification channel 'webhook' is not configured"
   );
 

@@ -1,3 +1,4 @@
+import { warn as logWarn } from '@/lib/logger';
 /**
  * Cookie Manager for tracking referral codes and other tracking data
  */
@@ -76,7 +77,7 @@ function deleteCookie(name: string, options: Pick<CookieOptions, 'path' | 'domai
  */
 export function setReferralCookie(referralCode: string, options: CookieOptions = {}): void {
   if (!referralCode || typeof referralCode !== 'string') {
-    console.warn('Invalid referral code provided');
+    logWarn('Invalid referral code provided');
     return;
   }
 

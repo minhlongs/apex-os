@@ -16,6 +16,7 @@
  */
 
 import type { D1Database, D1PreparedStatement, D1Result } from '@/lib/db';
+import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
 import type { D1QueryResult, D1ExecResult } from '@/lib/auth/adapters/d1-adapter';
 
 // Use global crypto.randomUUID() (available in Cloudflare Workers)
@@ -142,7 +143,7 @@ export class QueryMonitor {
 
     if (isSlow && this.persistenceDb) {
       this._persistSlowQuery(fullMetrics).catch(err => {
-        console.error('Failed to persist slow query:', err);
+        logError('Failed to persist slow query:', err);
       });
     }
   }
@@ -162,7 +163,7 @@ export class QueryMonitor {
     if (metrics.endpointPath) context.push(`endpoint: ${metrics.endpointPath}`);
     if (metrics.userId) context.push(`user: ${metrics.userId}`);
 
-    console.warn(
+    logWarn(
       `[QueryMonitor] Expensive query detected (${reasons.join('; ')})\n` +
       ` SQL: ${metrics.sql.substring(0, 200)}${metrics.sql.length > 200 ? '...' : ''}\n` +
       ` Duration: ${metrics.durationMs}ms\n` +
@@ -197,7 +198,7 @@ export class QueryMonitor {
       .run()
       .then(() => {})
       .catch(error => {
-        console.error('Failed to persist slow query to database:', error);
+        logError('Failed to persist slow query to database:', error);
       });
   }
 
@@ -470,7 +471,7 @@ let globalMonitor: QueryMonitor | null = null;
 
 export function initializeQueryMonitor(config: QueryMonitorConfig = {}): QueryMonitor {
   if (globalMonitor) {
-    console.warn('[QueryMonitor] Already initialized, returning existing instance');
+    logWarn('[QueryMonitor] Already initialized, returning existing instance');
     return globalMonitor;
   }
 
@@ -480,7 +481,7 @@ export function initializeQueryMonitor(config: QueryMonitorConfig = {}): QueryMo
   };
 
   globalMonitor = new QueryMonitor(config);
-  console.log('[QueryMonitor] Initialized with config:', thresholds);
+  logInfo('[QueryMonitor] Initialized with config:', thresholds);
 
   return globalMonitor;
 }

@@ -92,6 +92,7 @@ describe('invalidateAffiliateCache', () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     await invalidateAffiliateCache('user-123', ['affiliate-conversions']);
     expect(consoleSpy).toHaveBeenCalledWith(
+      '[ApexOS]',
       '[Invalidation] conversions for affiliate user-123 (relying on TTL)'
     );
     consoleSpy.mockRestore();
@@ -103,6 +104,7 @@ describe('invalidatePublicDealsCache', () => {
     const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     await invalidatePublicDealsCache();
     expect(consoleSpy).toHaveBeenCalledWith(
+      '[ApexOS]',
       '[Invalidation] Public deals cache - relying on TTL expiry'
     );
     consoleSpy.mockRestore();
@@ -116,6 +118,7 @@ describe('invalidateAnalyticsCache', () => {
     await invalidateAnalyticsCache();
 
     expect(consoleSpy).toHaveBeenCalledWith(
+      '[ApexOS]',
       '[Invalidation] Analytics cache types: admin-analytics-overview, admin-analytics-timeseries, admin-analytics-countries, admin-analytics-top-pages, admin-analytics-referrers, admin-analytics-devices (relying on TTL)'
     );
     consoleSpy.mockRestore();
@@ -127,6 +130,7 @@ describe('invalidateAnalyticsCache', () => {
     await invalidateAnalyticsCache(['admin-analytics-overview', 'admin-analytics-devices']);
 
     expect(consoleSpy).toHaveBeenCalledWith(
+      '[ApexOS]',
       '[Invalidation] Analytics cache types: admin-analytics-overview, admin-analytics-devices (relying on TTL)'
     );
     consoleSpy.mockRestore();

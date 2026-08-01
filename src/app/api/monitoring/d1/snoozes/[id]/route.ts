@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { deleteSnooze } from '@/lib/monitoring/d1-monitor';
+import { error as logError } from '@/lib/logger';
 
 export async function DELETE(
   request: NextRequest,
@@ -37,7 +38,7 @@ export async function DELETE(
       data: { deleted: true, snoozeId },
     });
   } catch (error) {
-    console.error('Delete snooze error:', error);
+    logError('Delete snooze error:', error);
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }

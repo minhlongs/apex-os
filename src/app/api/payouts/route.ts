@@ -8,6 +8,7 @@ import { createAuth } from '@/lib/auth/auth-factory';
 import { createPayoutsService } from '@/lib/payouts';
 import { invalidateAffiliateCache } from '@/lib/cache/cache-invalidation';
 import { RateLimiter, extractIpAddress, type RateLimitResult } from '@/lib/ratelimit/rate-limiter';
+import { error as logError, warn as logWarn } from '@/lib/logger';
 
 const PAYOUTS_RATE_LIMITER = new RateLimiter(
   (globalThis as unknown as { DB: any }).DB
@@ -127,7 +128,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     for (const pending of pendingResults.results) {
       const affiliate = affiliateMap.get(pending.affiliate_id);
       if (!affiliate) {
-        console.warn(`Affiliate not found: ${pending.affiliate_id}`);
+        logWarn(`Affiliate not found: ${pending.affiliate_id}`);
         continue;
       }
 
@@ -167,7 +168,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         });
         totalPayoutAmount += pending.total_amount;
       } catch (error) {
-        console.error(`Failed to create payout for ${pending.affiliate_id}:`, error);
+        logError(`Failed to create payout for ${pending.affiliate_id}:`, error);
       }
     }
 
@@ -175,7 +176,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     const affiliateIdsToInvalidate = results.map(r => r.affiliate_id);
     for (const affiliateId of affiliateIdsToInvalidate) {
       void invalidateAffiliateCache(affiliateId, ['affiliate-dashboard', 'affiliate-payouts']).catch(err =>
-        console.error('[Payouts] Cache invalidation error:', err)
+        logError('[Payouts] Cache invalidation error:', err)
       );
     }
 
@@ -188,7 +189,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     });
 
   } catch (error) {
-    console.error('Payout execution error:', error);
+    logError('Payout execution error:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }
@@ -279,7 +280,7 @@ export async function GET(request: NextRequest): Promise<Response> {
     });
 
   } catch (error) {
-    console.error('Payout summary error:', error);
+    logError('Payout summary error:', error);
     return NextResponse.json(
       { error: 'Internal server error', details: String(error) },
       { status: 500 }

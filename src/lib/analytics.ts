@@ -1,3 +1,4 @@
+import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
 /**
  * Analytics Tracking Service
  * Hỗ trợ Mixpanel và Amplitude qua environment variables
@@ -71,7 +72,7 @@ class AnalyticsService {
     const amplitudeKey = process.env.NEXT_PUBLIC_AMPLITUDE_API_KEY;
 
     if (!mixpanelToken && !amplitudeKey) {
-      console.warn('[Analytics] No tokens configured. Set NEXT_PUBLIC_MIXPANEL_TOKEN or NEXT_PUBLIC_AMPLITUDE_API_KEY');
+      logWarn('[Analytics] No tokens configured. Set NEXT_PUBLIC_MIXPANEL_TOKEN or NEXT_PUBLIC_AMPLITUDE_API_KEY');
       this.initialized = true;
       return;
     }
@@ -88,10 +89,10 @@ class AnalyticsService {
           track_pageview: false,
           persistence: 'localStorage',
         });
-        console.log('[Analytics] Mixpanel initialized');
+        logInfo('[Analytics] Mixpanel initialized');
       }
     } catch (error) {
-      console.error('[Analytics] Failed to initialize Mixpanel:', error);
+      logError('[Analytics] Failed to initialize Mixpanel:', error);
     }
 
     try {
@@ -112,10 +113,10 @@ class AnalyticsService {
             },
           });
         }
-        console.log('[Analytics] Amplitude initialized');
+        logInfo('[Analytics] Amplitude initialized');
       }
     } catch (error) {
-      console.error('[Analytics] Failed to initialize Amplitude:', error);
+      logError('[Analytics] Failed to initialize Amplitude:', error);
     }
 
     this.initialized = true;
@@ -147,7 +148,7 @@ class AnalyticsService {
           });
         }
       } catch (error) {
-        console.error('[Analytics] Mixpanel track failed:', error);
+        logError('[Analytics] Mixpanel track failed:', error);
       }
     }
 
@@ -156,12 +157,12 @@ class AnalyticsService {
       try {
         await this.amplitude.track(eventName, enrichedProps);
       } catch (error) {
-        console.error('[Analytics] Amplitude track failed:', error);
+        logError('[Analytics] Amplitude track failed:', error);
       }
     }
 
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[Analytics] Tracked: ${eventName}`, enrichedProps);
+      logInfo(`[Analytics] Tracked: ${eventName}`, enrichedProps);
     }
   }
 
@@ -176,7 +177,7 @@ class AnalyticsService {
       try {
         this.mixpanel.identify(userId);
       } catch (error) {
-        console.error('[Analytics] Mixpanel identify failed:', error);
+        logError('[Analytics] Mixpanel identify failed:', error);
       }
     }
 
@@ -189,7 +190,7 @@ class AnalyticsService {
           await this.amplitude.setUserProperties(enrichedTraits);
         }
       } catch (error) {
-        console.error('[Analytics] Amplitude identify failed:', error);
+        logError('[Analytics] Amplitude identify failed:', error);
       }
     }
   }
@@ -203,7 +204,7 @@ class AnalyticsService {
       try {
         this.mixpanel.reset();
       } catch (error) {
-        console.error('[Analytics] Mixpanel reset failed:', error);
+        logError('[Analytics] Mixpanel reset failed:', error);
       }
     }
 
@@ -211,7 +212,7 @@ class AnalyticsService {
       try {
         await this.amplitude.removeUserId();
       } catch (error) {
-        console.error('[Analytics] Amplitude reset failed:', error);
+        logError('[Analytics] Amplitude reset failed:', error);
       }
     }
   }

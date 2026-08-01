@@ -1,3 +1,4 @@
+import { error as logError } from '@/lib/logger';
 /**
 * Admin API Keys API Routes
 * GET: lay danh sach keys
@@ -18,7 +19,7 @@ return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 const keys = await getUserKeys()
 return NextResponse.json({ keys })
 } catch (error) {
-console.error('[Admin API Keys API] GET error:', error)
+logError('[Admin API Keys API] GET error:', error)
 return NextResponse.json(
 { error: 'Khong the tai danh sach API keys' },
 { status: 500 }
@@ -44,7 +45,7 @@ return NextResponse.json(
 
 return NextResponse.json({ success: true })
 } catch (error) {
-console.error('[Admin API Keys API] POST error:', error)
+logError('[Admin API Keys API] POST error:', error)
 return NextResponse.json(
 { error: 'Khong them API key' },
 { status: 500 }
@@ -79,7 +80,7 @@ return NextResponse.json(
 
 return NextResponse.json({ success: true })
 } catch (error) {
-console.error('[Admin API Keys API] DELETE error:', error)
+logError('[Admin API Keys API] DELETE error:', error)
 return NextResponse.json(
 { error: 'Khong xoa API key' },
 { status: 500 }

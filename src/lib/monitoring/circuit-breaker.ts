@@ -9,6 +9,7 @@
  */
 
 import type { CircuitBreakerEntry, CircuitBreakerOptions, CircuitBreakerState } from '@/types/evaluation-state';
+import { info as logInfo } from '@/lib/logger';
 import { getEvaluationStateStorage } from './evaluation-state-storage';
 import type { D1Database } from '@/types/d1';
 
@@ -212,7 +213,7 @@ export class CircuitBreaker {
       this.onStateChange(this.name, oldState, newState);
     }
 
-    console.log(`[CircuitBreaker] ${this.name}: ${oldState} -> ${newState}`);
+    logInfo(`[CircuitBreaker] ${this.name}: ${oldState} -> ${newState}`);
   }
 
   /**

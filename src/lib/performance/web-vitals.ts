@@ -15,6 +15,7 @@
  */
 
 import { onCLS, onFCP, onINP, onLCP, onTTFB, type Metric } from 'web-vitals';
+import { error as logError, info as logInfo } from '@/lib/logger';
 
 // Configuration
 const CONFIG = {
@@ -62,7 +63,7 @@ async function sendToAnalytics(metric: Metric): Promise<void> {
     navigator.sendBeacon(CONFIG.analyticsEndpoint, blob);
   } catch (error) {
     if (CONFIG.debug) {
-      console.error('[WebVitals] Failed to send to analytics:', error);
+      logError('[WebVitals] Failed to send to analytics:', error);
     }
   }
 }
@@ -90,7 +91,7 @@ function sendToGoogleAnalytics(metric: Metric): void {
     }
   } catch (error) {
     if (CONFIG.debug) {
-      console.error('[WebVitals] Failed to send to GA:', error);
+      logError('[WebVitals] Failed to send to GA:', error);
     }
   }
 }
@@ -100,7 +101,7 @@ function sendToGoogleAnalytics(metric: Metric): void {
  */
 function handleMetric(metric: Metric): void {
   if (CONFIG.debug) {
-    console.log(`[WebVitals] ${formatMetric(metric)}`);
+    logInfo(`[WebVitals] ${formatMetric(metric)}`);
   }
 
   // Send to our analytics API
@@ -141,31 +142,31 @@ export function initWebVitals(): void {
   try {
     onLCP(handleMetric);
   } catch (error) {
-    if (CONFIG.debug) console.error('[WebVitals] LCP error:', error);
+    if (CONFIG.debug) logError('[WebVitals] LCP error:', error);
   }
 
   try {
     onINP(handleMetric);
   } catch (error) {
-    if (CONFIG.debug) console.error('[WebVitals] INP error:', error);
+    if (CONFIG.debug) logError('[WebVitals] INP error:', error);
   }
 
   try {
     onCLS(handleMetric);
   } catch (error) {
-    if (CONFIG.debug) console.error('[WebVitals] CLS error:', error);
+    if (CONFIG.debug) logError('[WebVitals] CLS error:', error);
   }
 
   try {
     onFCP(handleMetric);
   } catch (error) {
-    if (CONFIG.debug) console.error('[WebVitals] FCP error:', error);
+    if (CONFIG.debug) logError('[WebVitals] FCP error:', error);
   }
 
   try {
     onTTFB(handleMetric);
   } catch (error) {
-    if (CONFIG.debug) console.error('[WebVitals] TTFB error:', error);
+    if (CONFIG.debug) logError('[WebVitals] TTFB error:', error);
   }
 }
 
