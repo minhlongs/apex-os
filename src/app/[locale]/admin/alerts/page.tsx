@@ -7,7 +7,8 @@ import { redirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import AlertsClient from './AlertsClient';
-import { requireAdmin, fetchAlerts } from './actions';
+import { fetchAlerts } from './actions';
+import { requireAdmin } from '@/lib/admin-auth';
 import type { AlertStatus, AlertSeverity } from './actions';
 
 export async function generateMetadata({

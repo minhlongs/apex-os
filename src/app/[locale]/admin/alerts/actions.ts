@@ -7,6 +7,7 @@
 
 import { getDB } from '@/lib/db';
 import { error as logError } from '@/lib/logger';
+import { requireAdmin } from '@/lib/admin-auth';
 import type { D1Database } from '@/lib/db';
 
 // UI Alert types for admin dashboard
@@ -43,48 +44,6 @@ export interface AlertFilters {
   endDate?: string;
 }
 
-// Helper to check if user is admin
-export async function requireAdmin(): Promise<{ userId: string; role: string } | null> {
-  const { createAuth } = await import('@/lib/auth/auth-factory');
-
-  // In Server Actions, get session from headers and cookies
-  const { headers: getHeaders, cookies } = await import('next/headers');
-  const readonlyHeaders = await getHeaders();
-  const cookieStore = await cookies();
-
-  // Convert ReadonlyHeaders to mutable Headers for auth API
-  const headers = new Headers();
-  readonlyHeaders.forEach((value, key) => headers.append(key, value));
-
-  // Build cookies object for auth
-  const cookiesObj: Record<string, string> = {};
-  const allCookies = cookieStore.getAll();
-  for (const cookie of allCookies) {
-    cookiesObj[cookie.name] = cookie.value;
-  }
-
-  const sessionResult = await createAuth({ DB: getDB() }).api.getSession({
-    headers,
-    cookies: cookiesObj,
-  });
-
-  if (!sessionResult?.user) {
-    return null;
-  }
-
-  // Get user profile to check role
-  const userId = (sessionResult.user as { id: string }).id;
-  const profile = await getDB()
-    .prepare('SELECT role FROM profiles WHERE id = ?')
-    .bind(userId)
-    .first<{ role: string }>();
-
-  if (!profile || profile.role !== 'admin') {
-    return null;
-  }
-
-  return { userId, role: profile.role };
-}
 
 export interface AlertsResponse {
   alerts: Alert[];

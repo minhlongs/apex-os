@@ -8,7 +8,8 @@ import { NextIntlClientProvider } from 'next-intl'
 import { getMessages } from 'next-intl/server'
 import AffiliatesClient from './AffiliatesClient'
 import ExportUnpaidButton from '@/components/admin/ExportUnpaidButton'
-import { requireAdmin, getTopAffiliates } from './actions'
+import { getTopAffiliates } from './actions'
+import { requireAdmin } from '@/lib/admin-auth'
 
 export async function generateMetadata({
   params,

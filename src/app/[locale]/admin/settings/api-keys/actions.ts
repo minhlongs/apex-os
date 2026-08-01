@@ -1,7 +1,3 @@
-/**
- * Admin API Key Management Server Actions
- * Quản lý BYOK API keys cho admin
- */
 
 'use server'
 
@@ -14,65 +10,14 @@ import {
   ByokStoreError
 } from '@/lib/byok'
 import { error as logError, info as logInfo } from '@/lib/logger'
+import { requireAdmin } from '@/lib/admin-auth'
 
-/**
- * Helper kiểm tra admin role
- */
-export async function requireAdmin(): Promise<{ userId: string; role: string } | null> {
-  const db = getDB()
-  const { createAuth } = await import('@/lib/auth/auth-factory')
-
-  // Lấy session từ headers và cookies
-  const { headers: getHeaders, cookies } = await import('next/headers')
-  const readonlyHeaders = await getHeaders()
-  const cookieStore = await cookies()
-
-  // Convert ReadonlyHeaders to mutable Headers
-  const headers = new Headers()
-  readonlyHeaders.forEach((value, key) => headers.append(key, value))
-
-  // Build cookies object
-  const cookiesObj: Record<string, string> = {}
-  const allCookies = cookieStore.getAll()
-  for (const cookie of allCookies) {
-    cookiesObj[cookie.name] = cookie.value
-  }
-
-  const sessionResult = await createAuth({ DB: db }).api.getSession({
-    headers,
-    cookies: cookiesObj,
-  })
-
-  if (!sessionResult?.user) {
-    return null
-  }
-
-  // Kiểm tra role trong profile
-  const userId = (sessionResult.user as { id: string }).id
-  const profile = await db
-    .prepare('SELECT role FROM profiles WHERE id = ?')
-    .bind(userId)
-    .first<{ role: string }>()
-
-  if (!profile || profile.role !== 'admin') {
-    return null
-  }
-
-  return { userId, role: profile.role }
-}
-
-/**
- * API Key metadata cho UI
- */
 export interface ApiKeyInfo {
   provider: ByokProvider
   created_at: string
   updated_at: string
 }
 
-/**
- * GET danh sách API keys metadata của current admin user
- */
 export async function getUserKeys(): Promise<ApiKeyInfo[]> {
   try {
     const admin = await requireAdmin()
@@ -91,9 +36,6 @@ export async function getUserKeys(): Promise<ApiKeyInfo[]> {
   }
 }
 
-/**
- * Thêm mới API key
- */
 export async function addApiKey(formData: FormData): Promise<{ success: boolean; error?: string }> {
   try {
     const admin = await requireAdmin()
@@ -129,9 +71,6 @@ export async function addApiKey(formData: FormData): Promise<{ success: boolean;
   }
 }
 
-/**
- * Xóa API key
- */
 export async function deleteApiKey(provider: string): Promise<{ success: boolean; error?: string }> {
   try {
     const admin = await requireAdmin()

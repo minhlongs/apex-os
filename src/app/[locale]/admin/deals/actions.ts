@@ -5,54 +5,11 @@
 
 'use server'
 
-import { createAuth } from '@/lib/auth/auth-factory'
+import { requireAdmin } from '@/lib/admin-auth'
 import { error as logError } from '@/lib/logger'
 import type { AffiliateDeal, CreateDealDto, UpdateDealDto, PaginatedResponse } from '@/types/deal'
 import { revalidatePath } from 'next/cache'
 import { getDB } from '@/lib/db';
-
-// Helper to check if user is admin
-export async function requireAdmin(): Promise<{ userId: string; role: string } | null> {
-  const db = getDB();
-  const auth = createAuth({ DB: db })
-
-  // In Server Actions, get session from headers and cookies
-  const { headers: getHeaders, cookies } = await import('next/headers')
-  const readonlyHeaders = await getHeaders()
-  const cookieStore = await cookies()
-
-  // Convert ReadonlyHeaders to mutable Headers for auth API
-  const headers = new Headers()
-  readonlyHeaders.forEach((value, key) => headers.append(key, value))
-
-  // Build cookies object for auth
-  const cookiesObj: Record<string, string> = {}
-  const allCookies = cookieStore.getAll()
-  for (const cookie of allCookies) {
-    cookiesObj[cookie.name] = cookie.value
-  }
-
-  const sessionResult = await auth.api.getSession({
-    headers,
-    cookies: cookiesObj,
-  })
-
-  if (!sessionResult?.user) {
-    return null
-  }
-
-  // Get user profile to check role
-  const userId = (sessionResult.user as { id: string }).id
-  const profile = await db.prepare('SELECT role FROM profiles WHERE id = ?')
-    .bind(userId)
-    .first<{ role: string }>()
-
-  if (!profile || profile.role !== 'admin') {
-    return null
-  }
-
-  return { userId, role: profile.role }
-}
 
 /**
  * GET all deals with optional filtering (Admin)

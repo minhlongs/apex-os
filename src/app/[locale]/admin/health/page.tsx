@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import HealthDashboardClient from './health-dashboard-client';
-import { requireAdmin } from '../deals/actions';
+import { requireAdmin } from '@/lib/admin-auth';
 
 export async function generateMetadata({
   params,

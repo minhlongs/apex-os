@@ -7,7 +7,8 @@ import { redirect } from 'next/navigation'
 import { NextIntlClientProvider } from 'next-intl'
 import { getMessages } from 'next-intl/server'
 import ApiKeysClient from './ApiKeysClient'
-import { requireAdmin, getUserKeys } from './actions'
+import { getUserKeys } from './actions'
+import { requireAdmin } from '@/lib/admin-auth'
 
 export async function generateMetadata({
   params,
