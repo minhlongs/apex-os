@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { createRateLimiter, getClientIP } from './lib/rate-limiter'
 import { initializeDB } from './lib/db'
+import { warn as logWarn } from './lib/logger'
 
 const DEFAULT_LOCALE = 'vi'
 const SUPPORTED_LOCALES = ['vi', 'en']
@@ -89,7 +90,7 @@ initializeDB();
 } catch (error) {
 // DB might not be available in all environments (e.g., during build)
 // This is non-critical as getDB() will throw when actually needed
-console.warn('[middleware] DB initialization skipped:', error);
+logWarn('[middleware] DB initialization skipped:', error);
 }
 
 const { pathname } = request.nextUrl

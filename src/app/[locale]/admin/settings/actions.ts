@@ -6,6 +6,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { error as logError, warn as logWarn } from '@/lib/logger'
 import type { NotificationConfig, SlackConfig, EmailConfig, TelegramConfig } from '@/lib/notifications/config'
 import { loadConfig as loadEnvConfig } from '@/lib/notifications/config'
 
@@ -73,7 +74,7 @@ export async function getNotificationSettings(): Promise<{
 
   const kv = getKV()
   if (!kv) {
-    console.warn('[NotificationSettings] KV namespace not available, returning empty config')
+    logWarn('[NotificationSettings] KV namespace not available, returning empty config')
     return { envConfig: loadEnvConfig(), dbConfig: {} }
   }
 
@@ -116,7 +117,7 @@ export async function getNotificationSettings(): Promise<{
           }
         }
       } catch (parseError) {
-        console.error(`Failed to parse KV config for ${channelType}:`, parseError)
+        logError(`Failed to parse KV config for ${channelType}:`, parseError)
       }
     }
   }
@@ -162,7 +163,7 @@ export async function updateNotificationChannel(
 
     return { success: true }
   } catch (error) {
-    console.error('Failed to update notification config:', error)
+    logError('Failed to update notification config:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }
@@ -261,7 +262,7 @@ export async function testNotificationConnection(
       }
     }
   } catch (error) {
-    console.error(`Test connection failed for ${channelType}:`, error)
+    logError(`Test connection failed for ${channelType}:`, error)
     return {
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error during test',
@@ -294,7 +295,7 @@ export async function deleteNotificationChannel(
 
     return { success: true }
   } catch (error) {
-    console.error('Failed to delete notification config:', error)
+    logError('Failed to delete notification config:', error)
     return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
   }
 }

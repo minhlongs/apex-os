@@ -10,7 +10,7 @@ export interface AuthEnv {
   DB: D1Database
 }
 
-export function createAuth(env: AuthEnv) {
+export function createAuth(env: AuthEnv): any {
   return betterAuth({
     database: createD1Adapter({ db: env.DB }),
     basePath: '/api/auth',

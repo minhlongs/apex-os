@@ -6,6 +6,7 @@
 'use server'
 
 import { createAuth } from '@/lib/auth/auth-factory'
+import { error as logError } from '@/lib/logger'
 import type { AffiliateDeal, CreateDealDto, UpdateDealDto, PaginatedResponse } from '@/types/deal'
 import { revalidatePath } from 'next/cache'
 import { getDB } from '@/lib/db';
@@ -142,7 +143,7 @@ export async function getAllDeals(
       totalPages: Math.ceil(total / limit),
     }
   } catch (error) {
-    console.error('Error fetching deals:', error)
+    logError('Error fetching deals:', error)
     return { data: [], total: 0, page, limit, totalPages: 0 }
   }
 }
@@ -163,7 +164,7 @@ export async function getDealById(id: string): Promise<{ data: AffiliateDeal | n
 
     return { data: deal || null }
   } catch (error) {
-    console.error('Error fetching deal:', error)
+    logError('Error fetching deal:', error)
     return { data: null, error: 'Failed to fetch deal' }
   }
 }
@@ -246,7 +247,7 @@ export async function createDeal(formData: CreateDealDto): Promise<{ success: bo
     revalidatePath('/admin/deals')
     return { success: true, data: newDeal! }
   } catch (error) {
-    console.error('Error creating deal:', error)
+    logError('Error creating deal:', error)
     return { success: false, error: 'Failed to create deal' }
   }
 }
@@ -368,7 +369,7 @@ export async function updateDeal(
     revalidatePath('/admin/deals')
     return { success: true, data: updatedDeal! }
   } catch (error) {
-    console.error('Error updating deal:', error)
+    logError('Error updating deal:', error)
     return { success: false, error: 'Failed to update deal' }
   }
 }
@@ -400,7 +401,7 @@ export async function deleteDeal(id: string): Promise<{ success: boolean; error?
     revalidatePath('/admin/deals')
     return { success: true }
   } catch (error) {
-    console.error('Error deleting deal:', error)
+    logError('Error deleting deal:', error)
     return { success: false, error: 'Failed to delete deal' }
   }
 }

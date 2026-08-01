@@ -6,6 +6,7 @@
 'use server'
 
 import { getDB } from '@/lib/db';
+import { error as logError } from '@/lib/logger';
 import { revalidatePath } from 'next/cache';
 
 // Helper to check if user is admin
@@ -84,7 +85,7 @@ export async function getNotificationConfigs() {
       testResults: testResults.results,
     };
   } catch (error) {
-    console.error('Error fetching notification configs:', error);
+    logError('Error fetching notification configs:', error);
     return { success: false, error: 'Failed to fetch configurations' };
   }
 }
@@ -135,7 +136,7 @@ export async function updateNotificationConfig(
 
     return { success: true };
   } catch (error) {
-    console.error('Error updating notification config:', error);
+    logError('Error updating notification config:', error);
     return { success: false, error: 'Failed to update configuration' };
   }
 }
@@ -190,7 +191,7 @@ export async function testNotificationChannel(channelType: string): Promise<{ su
     return { success: false, error: testResult.error };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error(`Error testing notification channel ${channelType}:`, error);
+    logError(`Error testing notification channel ${channelType}:`, error);
 
     return { success: false, error: errorMessage };
   }

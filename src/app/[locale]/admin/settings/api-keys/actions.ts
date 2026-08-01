@@ -13,6 +13,7 @@ import {
   ByokProvider,
   ByokStoreError
 } from '@/lib/byok'
+import { error as logError, info as logInfo } from '@/lib/logger'
 
 /**
  * Helper kiểm tra admin role
@@ -82,7 +83,7 @@ export async function getUserKeys(): Promise<ApiKeyInfo[]> {
     const keys = await listUserApiKeys(admin.userId)
     return keys
   } catch (error) {
-    console.error('[Admin API Keys] Error fetching keys:', error)
+    logError('[Admin API Keys] Error fetching keys:', error)
     if (error instanceof ByokStoreError) {
       throw error
     }
@@ -117,10 +118,10 @@ export async function addApiKey(formData: FormData): Promise<{ success: boolean;
     // Lưu key đã được mã hóa
     await setUserApiKey(admin.userId, provider as ByokProvider, apiKey.trim())
 
-    console.log('[Admin API Keys] API key added', { userId: admin.userId, provider })
+    logInfo('[Admin API Keys] API key added', { userId: admin.userId, provider })
     return { success: true }
   } catch (error) {
-    console.error('[Admin API Keys] Error adding key:', error)
+    logError('[Admin API Keys] Error adding key:', error)
     const message = error instanceof ByokStoreError
       ? `Lỗi lưu API key: ${error.message}`
       : 'Không thể lưu API key'
@@ -145,10 +146,10 @@ export async function deleteApiKey(provider: string): Promise<{ success: boolean
 
     await deleteUserApiKey(admin.userId, provider as ByokProvider)
 
-    console.log('[Admin API Keys] API key deleted', { userId: admin.userId, provider })
+    logInfo('[Admin API Keys] API key deleted', { userId: admin.userId, provider })
     return { success: true }
   } catch (error) {
-    console.error('[Admin API Keys] Error deleting key:', error)
+    logError('[Admin API Keys] Error deleting key:', error)
     const message = error instanceof ByokStoreError
       ? `Lỗi xóa API key: ${error.message}`
       : 'Không thể xóa API key'

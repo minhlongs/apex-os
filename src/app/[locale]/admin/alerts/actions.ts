@@ -6,6 +6,7 @@
 'use server'
 
 import { getDB } from '@/lib/db';
+import { error as logError } from '@/lib/logger';
 import type { D1Database } from '@/lib/db';
 
 // UI Alert types for admin dashboard
@@ -299,7 +300,7 @@ export async function fetchAlerts(filters: AlertFilters & {
       summary,
     };
   } catch (error) {
-    console.error('Error fetching alerts:', error);
+    logError('Error fetching alerts:', error);
     return { alerts: [], total: 0, totalPages: 0, summary: getEmptySummary() };
   }
 }

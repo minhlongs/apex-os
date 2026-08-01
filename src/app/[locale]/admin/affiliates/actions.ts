@@ -6,6 +6,7 @@
 'use server'
 
 import { createAuth } from '@/lib/auth/auth-factory'
+import { error as logError } from '@/lib/logger';
 import type { TopAffiliate } from '@/app/api/admin/affiliates/route'
 import { getDB } from '@/lib/db';
 
@@ -169,7 +170,7 @@ export async function getTopAffiliates(
       totalPages: Math.ceil(total / limit),
     }
   } catch (error) {
-    console.error('Error fetching top affiliates:', error)
+    logError('Error fetching top affiliates:', error)
     return { affiliates: [], total: 0, page, limit, totalPages: 0 }
   }
 }
@@ -219,7 +220,7 @@ export async function getAffiliateById(id: string): Promise<{ data: TopAffiliate
 
     return { data: affiliate || null }
   } catch (error) {
-    console.error('Error fetching affiliate:', error)
+    logError('Error fetching affiliate:', error)
     return { data: null, error: 'Failed to fetch affiliate' }
   }
 }
