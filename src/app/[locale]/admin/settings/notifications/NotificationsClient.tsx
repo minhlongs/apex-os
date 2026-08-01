@@ -17,10 +17,6 @@ import {
   Bell,
 } from 'lucide-react';
 
-interface NotificationsClientProps {
-  // Không cần props vì component dùng useTranslations từ context
-}
-
 interface ChannelConfig {
   enabled: boolean;
   [key: string]: unknown;

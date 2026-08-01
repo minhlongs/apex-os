@@ -15,6 +15,7 @@ import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logge
  * - payout: Payout được gửi (Stellar USDC)
  */
 
+// eslint-disable-next-line @typescript-eslint/no-unused-expressions
 'use client';
 
 interface AnalyticsProperties {
