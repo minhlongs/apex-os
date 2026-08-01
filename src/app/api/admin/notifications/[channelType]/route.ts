@@ -6,6 +6,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { error as logError } from '@/lib/logger';
 import { requireAdmin } from '../../actions';
 
+// Minimal KV binding interface for Cloudflare Pages runtime
+interface KVNamespace {
+  get(key: string, type?: 'text' | 'json'): Promise<string | null>
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
+  delete(key: string): Promise<void>
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ channelType: string }> }

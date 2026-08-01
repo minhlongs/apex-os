@@ -26,6 +26,8 @@ const Horizon = mockedModule.Horizon;
 // ============================================================================
 
 // Hold references to mock functions for test assertions
+// Use var (not let) to avoid TDZ from jest.mock() hoisting
+// var is undefined at function scope top, assignable before declaration
 var horizonServerMock: jest.Mock;
 var keypairFromSecretMock: jest.Mock;
 

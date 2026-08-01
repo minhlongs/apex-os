@@ -12,6 +12,13 @@ import { StellarService, StellarNetwork } from '@/lib/payouts/stellar-service'
 // KV storage key for Stellar config
 const STELLAR_CONFIG_KEY = 'stellar_config'
 
+// Minimal KV binding interface for Cloudflare Pages runtime
+interface KVNamespace {
+  get(key: string, type?: 'text' | 'json'): Promise<string | null>
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
+  delete(key: string): Promise<void>
+}
+
 // Helper to get KV namespace
 function getKV() {
   return (globalThis as unknown as { KV: KVNamespace }).KV

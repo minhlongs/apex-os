@@ -17,6 +17,13 @@ function getConfigKey(channelType: string): string {
   return `${CONFIG_PREFIX}${channelType}`
 }
 
+// Minimal KV binding interface for Cloudflare Pages runtime
+interface KVNamespace {
+  get(key: string, type?: 'text' | 'json'): Promise<string | null>
+  put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>
+  delete(key: string): Promise<void>
+}
+
 // Helper to get KV namespace
 function getKV() {
   return (globalThis as unknown as { KV: KVNamespace }).KV
