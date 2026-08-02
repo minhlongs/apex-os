@@ -76,6 +76,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       const data = await res.json()
       if (!res.ok) return { error: data.message ?? 'Sign-up failed' }
+
+      // Sprint 4: enqueue welcome email (fire-and-forget)
+      const su = data as { user?: { id: string; role?: string } } | null
+      if (su?.user?.id) {
+        const { getEmailQueueService } = await import('@/lib/emails/email-queue')
+        const { welcomeTemplate } = await import('@/lib/emails/templates')
+        const html = welcomeTemplate({
+          userName: fullName,
+          userEmail: email,
+          locale: 'en',
+          baseUrl: process.env.NEXT_PUBLIC_BASE_URL || 'https://apex-os.com',
+ role: (su.user.role as 'shopper' | 'affiliate' | 'admin') || 'shopper',
+        })
+        void getEmailQueueService().enqueue({
+          userId: su.user.id,
+          email,
+          type: 'welcome',
+          subject: 'Welcome to ApexOS!',
+          html,
+          text: '',
+          priority: 1,
+        })
+      }
+
       await refreshSession()
       return { error: null }
     } catch {

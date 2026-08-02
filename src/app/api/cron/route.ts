@@ -59,20 +59,24 @@ async function handleD1MetricsCollection(db: any): Promise<{ success: boolean; a
   }
 }
 
-async function handleWeeklyPayouts(db: any): Promise<{ success: boolean; processed: number; totalAmount: number; details: string }> {
+async function handleWeeklyPayouts(
+  db: any
+): Promise<{ success: boolean; processed: number; totalAmount: number; details: string }> {
   try {
     if (!db) {
-      return { success: false, processed: 0, totalAmount: 0, details: 'Database not available' };
+      return {
+        success: false,
+        processed: 0,
+        totalAmount: 0,
+        details: 'Database not available',
+      };
     }
 
     const MIN_PAYOUT_THRESHOLD = 10.0;
     const FEE_RATE = 0.01;
 
     const pendingEarningsQuery = `
-      SELECT
-        e.affiliate_id,
-        SUM(e.amount) as total_amount,
-        GROUP_CONCAT(e.id) as earning_ids
+      SELECT e.affiliate_id, SUM(e.amount) as total_amount, GROUP_CONCAT(e.id) as earning_ids
       FROM earnings e
       WHERE e.is_paid = 0
       GROUP BY e.affiliate_id
@@ -97,33 +101,51 @@ async function handleWeeklyPayouts(db: any): Promise<{ success: boolean; process
     const placeholders = affiliateIds.map(() => '?').join(',');
     const affiliates = await db
       .prepare(
-        `SELECT id, email, full_name, payout_method, payout_method_details
-         FROM profiles
-         WHERE id IN (${placeholders})`
+        `SELECT id, email, full_name, payout_method, payout_method_details FROM profiles WHERE id IN (${placeholders})`
       )
       .bind(...affiliateIds)
       .all()();
 
-    const affiliateMap = new Map(affiliates.results.map((a) => [a.id, a]));
+    const affiliateMap = new Map(
+      affiliates.results.map((a) => [a.id, a])
+    );
     const payoutsService = createPayoutsService(db);
-    const results: Array<{ affiliate_id: string; affiliate_email: string; amount: number; payout_id: string }> = [];
+    const results: Array<{
+      affiliate_id: string;
+      affiliate_email: string;
+      amount: number;
+      payout_id: string;
+    }> = [];
     let totalPayoutAmount = 0;
 
     for (const pending of pendingResults.results) {
-      const affiliate = affiliateMap.get(pending.affiliate_id) as { id: string; email: string; full_name: string | null; payout_method: string | null; payout_method_details: string | null } | undefined;
+      const affiliate = affiliateMap.get(pending.affiliate_id) as {
+        id: string;
+        email: string;
+        full_name: string | null;
+        payout_method: string | null;
+        payout_method_details: string | null;
+      } | undefined;
       if (!affiliate) {
-        logWarn(`[Payouts:Cron] Affiliate not found: ${pending.affiliate_id}`);
+        logWarn(
+          `[Payouts:Cron] Affiliate not found: ${pending.affiliate_id}`
+        );
         continue;
       }
 
       const payoutMethod = affiliate.payout_method || 'crypto';
-      const payoutDetails = affiliate.payout_method_details ? JSON.parse(affiliate.payout_method_details) : {};
+      const payoutDetails = affiliate.payout_method_details
+        ? JSON.parse(affiliate.payout_method_details)
+        : {};
 
       try {
         const netAmount = pending.total_amount * (1 - FEE_RATE);
         const payout = await payoutsService.createPayout({
           affiliate_id: pending.affiliate_id,
-          payout_method: payoutMethod as 'crypto' | 'sepay' | 'bank_transfer',
+          payout_method: payoutMethod as
+            | 'crypto'
+            | 'sepay'
+            | 'bank_transfer',
           payout_method_details: payoutDetails,
           amount: pending.total_amount,
           net_amount: netAmount,
@@ -137,7 +159,9 @@ async function handleWeeklyPayouts(db: any): Promise<{ success: boolean; process
         const earningIds = pending.earning_ids.split(',');
         for (const earningId of earningIds) {
           await db
-            .prepare('UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?')
+            .prepare(
+              'UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?'
+            )
             .bind(payout.id, earningId)
             .run();
         }
@@ -150,11 +174,63 @@ async function handleWeeklyPayouts(db: any): Promise<{ success: boolean; process
         });
         totalPayoutAmount += pending.total_amount;
       } catch (error) {
-        logError(`[Payouts:Cron] Failed to create payout for ${pending.affiliate_id}:`, error);
+        logError(
+          `[Payouts:Cron] Failed to create payout for ${pending.affiliate_id}:`,
+          error
+        );
       }
     }
 
-    logInfo(`[Payouts:Cron] Processed ${results.length} payouts, total ${totalPayoutAmount} USDC`);
+    logInfo(
+      `[Payouts:Cron] Processed ${results.length} payouts, total ${totalPayoutAmount} USDC`
+    );
+
+    // Sprint 4: Queue payout-sent emails (non-blocking)
+    for (const result of results) {
+      void (async () => {
+        try {
+          const affiliate = affiliateMap.get(
+            result.affiliate_id
+          ) as { email?: string; full_name?: string } | undefined;
+          if (!affiliate?.email) return;
+          const { payoutCompletedTemplate } = await import(
+            '@/lib/emails/templates'
+          );
+          const { getEmailQueueService } = await import(
+            '@/lib/emails/email-queue'
+          );
+          const html = payoutCompletedTemplate({
+            userName: affiliate.full_name || 'Affiliate',
+            userEmail: affiliate.email,
+            locale: 'en',
+            baseUrl:
+              process.env.NEXT_PUBLIC_BASE_URL || 'https://apex-os.com',
+            amount: Number(result.amount ?? 0),
+            transactionHash: result.payout_id,
+            walletAddress: '',
+            network: 'testnet',
+            payoutDate: new Date().toISOString(),
+            explorerUrl: '',
+          });
+          void getEmailQueueService().enqueue({
+            userId: result.affiliate_id,
+            email: affiliate.email,
+            type: 'payout-sent',
+            subject: `Payout processed: ${Number(result.amount ?? 0).toFixed(2)} USDC`,
+            html,
+            text: '',
+            priority: 1,
+            metadata: {
+              payoutId: result.payout_id,
+              amount: Number(result.amount ?? 0),
+            },
+          });
+        } catch {
+          // non-blocking
+        }
+      })();
+    }
+
     return {
       success: true,
       processed: results.length,

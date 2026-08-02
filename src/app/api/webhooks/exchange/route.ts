@@ -387,7 +387,38 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
     const commissionAmount = trade.totalValue * ((deal?.cashback_percent ?? 0) / 100);
     const earningsIds = await createEarnings(db, conversionId, profile.id, deal.id, commissionAmount);
 
-    // Track analytics (fire-and-forget)
+    // Sprint 4: Queue commission-earned email for the primary affiliate (non-blocking)
+if (click?.affiliate_id && commissionAmount > 0) {
+  const affiliateProfile = await db.prepare('SELECT email, full_name FROM profiles WHERE id = ?').bind(click.affiliate_id).first<{ email: string; full_name: string }>();
+  if (affiliateProfile?.email) {
+    const { commissionEarnedTemplate } = await import('@/lib/emails/templates');
+    const { getEmailQueueService } = await import('@/lib/emails/email-queue');
+    const html = commissionEarnedTemplate({
+      userName: affiliateProfile.full_name || 'Affiliate',
+      userEmail: affiliateProfile.email,
+      locale: 'en',
+      baseUrl: process.env.NEXT_PUBLIC_BASE_URL || 'https://apex-os.com',
+      amount: commissionAmount,
+      dealName: deal.name,
+      exchange,
+      tradeVolume: trade.totalValue,
+      tier: 1,
+      payoutStatus: 'pending',
+    });
+    void getEmailQueueService().enqueue({
+      userId: click.affiliate_id,
+      email: affiliateProfile.email,
+      type: 'commission-earned',
+      subject: `Commission earned: ${commissionAmount.toFixed(2)} USDC from ${exchange}`,
+      html,
+      text: '',
+      priority: 1,
+      metadata: { conversionId, dealId: deal.id, exchange, amount: commissionAmount },
+ });
+  }
+}
+
+// Track analytics (fire-and-forget)
     const clientIP = extractIpAddress(request.headers);
     track('conversion', profile.id, {
       conversion_id: conversionId,

@@ -293,7 +293,6 @@ export function payoutCompletedTemplate(data: PayoutCompletedData & TemplateCont
     currency: 'USD',
   }).format(data.amount);
 
-  const shortHash = `${data.transactionHash.slice(0, 8)}...${data.transactionHash.slice(-8)}`;
 
   return `
     <!DOCTYPE html>
@@ -328,12 +327,12 @@ export function payoutCompletedTemplate(data: PayoutCompletedData & TemplateCont
                 <th>${data.locale === 'vi' ? 'Địa chỉ ví' : 'Wallet Address'}</th>
                 <td style="font-family: monospace; font-size: 12px;">${data.walletAddress}</td>
               </tr>
-              <tr>
-                <th>${data.locale === 'vi' ? 'Mã giao dịch' : 'Transaction Hash'}</th>
-                <td style="font-family: monospace; font-size: 12px;">
-                  <a href="${data.explorerUrl}" style="color: #6366f1;">${shortHash}</a>
-                </td>
-              </tr>
+ ${data.explorerUrl ? `<tr>
+ <th>${data.locale === 'vi' ? 'Mã giao dịch' : 'Transaction Hash'}</th>
+ <td style="font-family: monospace; font-size: 12px;">
+ <a href="${data.explorerUrl}" style="color: #6366f1;">${data.transactionHash.slice(0, 8)}...${data.transactionHash.slice(-8)}</a>
+ </td>
+ </tr>` : ''}
               <tr>
                 <th>${data.locale === 'vi' ? 'Ngày thanh toán' : 'Payout Date'}</th>
                 <td>${data.payoutDate}</td>
@@ -341,13 +340,13 @@ export function payoutCompletedTemplate(data: PayoutCompletedData & TemplateCont
             </table>
           </div>
 
-          <div class="section">
-            <div class="section-title">${data.locale === 'vi' ? 'Xác nhận giao dịch' : 'Verify Transaction'}</div>
-            <p>${data.locale === 'vi'
-              ? 'Bạn có thể xác nhận giao dịch này trên trình khám phá Stellar:'
-              : 'You can verify this transaction on the Stellar explorer:'}</p>
-            <p style="text-align: center;">
-              <a href="${data.explorerUrl}" class="button">${getTranslations(data.locale).viewTransaction}</a>
+ ${data.explorerUrl ? `<div class="section">
+ <div class="section-title">${data.locale === 'vi' ? 'Xác nhận giao dịch' : 'Verify Transaction'}</div>
+ <p>${data.locale === 'vi' ? 'Bạn có thể xác nhận giao dịch này trên trình khám phá Stellar:' : 'You can verify this transaction on the Stellar explorer:'}</p>
+ <p style="text-align: center;">
+ <a href="${data.explorerUrl}" class="button">${getTranslations(data.locale).viewTransaction}</a>
+ </p>
+ </div>` : ''}
             </p>
           </div>
 

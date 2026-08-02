@@ -27,7 +27,7 @@ depends:
 | 1 | Email Infrastructure Setup | P0 | 6h | pending |
 | 2 | Email Template Development | P0 | 16h | pending |
 | 3 | Email Queue & Scheduler | P0 | 10h | pending |
-| 4 | Event Triggers & Testing | P1 | 8h | pending |
+| 4 | Event Triggers & Testing | P1 | 8h | complete |
 
 ---
 
@@ -339,6 +339,11 @@ CRON_SECRET=random-secret-for-cron-auth
 
 **Status:** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
 
-Summary: Complete email automation with Resend
+Summary: Email automation with Resend + Cloudflare KV caching + multi-exchange webhooks
+
+Blockers Resolved (2026-08-02):
+1. KV env type mismatch (affiliates route) — added dual guard `typeof KV !== 'undefined' && KV.get !== undefined`
+2. Missing DEFAULT_TIMESTAMP_WINDOW_MS import (webhook exchange route) — added import from @/lib/webhooks/crypto
+3. userId undefined in auth-context signup email — fixed to use `su.user.id` from signup response
 
 Concerns/Blockers:

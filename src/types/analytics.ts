@@ -3,8 +3,6 @@
  * Funnel metrics and exchange breakdown types
  */
 
-import type { D1Database } from '@/lib/db';
-
 // ============================================================================
 // Cloudflare Analytics Types (used by admin dashboard)
 // ============================================================================
@@ -182,4 +180,96 @@ export interface RefreshStatus {
   refresh_count: number;
   error_count: number;
   views_status: Record<string, { last_refresh: string | null; row_count: number }>;
+}
+
+// ============================================================================
+// Query Builder Types (for analytics/query-builder.ts)
+// ============================================================================
+
+export interface DealsAnalyticsFilters {
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  page?: number;
+  exchange?: string;
+  deal_id?: string;
+}
+
+export interface AffiliatesAnalyticsFilters {
+  date_from?: string;
+  date_to?: string;
+  top?: number;
+  affiliate_id?: string;
+}
+
+export interface FunnelFilters {
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface ExchangesFilters {
+  date_from?: string;
+  date_to?: string;
+}
+
+export interface DailyDealRow {
+  date: string;
+  deal_id: string;
+  exchange: string;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+  commission: number;
+}
+
+export interface DailyAffiliateRow {
+  date: string;
+  affiliate_id: string;
+  email: string;
+  clicks: number;
+  conversions: number;
+  revenue: number;
+  commission: number;
+}
+
+export interface ExchangeBreakdownRow {
+  exchange: string;
+  total_volume: number;
+  total_revenue: number;
+  total_deals: number;
+  total_clicks: number;
+  total_conversions: number;
+  avg_conversion_rate: number;
+}
+
+export interface TopPairRow {
+  pair: string;
+  exchange: string;
+  total_volume: number;
+  total_conversions: number;
+  conversion_rate: number;
+}
+
+export interface FunnelDailyRow {
+  date: string;
+  stage_visits: number;
+  stage_clicks: number;
+  stage_signups: number;
+  stage_activations: number;
+  stage_conversions: number;
+  click_to_conversion_rate: number;
+}
+
+export interface AnalyticsResult<T> {
+  data: T[];
+  total: number;
+  page: number;
+  page_size: number;
+  query_time_ms: number;
+}
+
+export interface ApiEnvelope<T> {
+  success: true;
+  data: T;
+  meta: { total: number; query_time_ms: number };
 }
