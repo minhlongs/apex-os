@@ -56,6 +56,7 @@ const STATUS_FAILED = 'failed';
 
 export class EmailQueueService {
   private db: D1Database | null = null;
+  private dedupeCache: Map<string, EmailQueueRow> = new Map();
 
   private getDb(): D1Database {
     if (!this.db) {
@@ -64,8 +65,19 @@ export class EmailQueueService {
     return this.db;
   }
 
+  private makeDedupeKey(input: EnqueueInput): string {
+    const key = input.metadata?.dedupeKey as string | undefined;
+    if (!key) return '';
+    return `${input.email}|${input.type}|${key}`;
+  }
+
   /** Enqueue a new email for sending (sync — no D1 reads) */
   enqueue(input: EnqueueInput): EmailQueueRow {
+    const dedupeKey = this.makeDedupeKey(input);
+    if (dedupeKey && this.dedupeCache.has(dedupeKey)) {
+      return this.dedupeCache.get(dedupeKey)!;
+    }
+
     const db = this.getDb();
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -81,14 +93,19 @@ export class EmailQueueService {
       .bind(id, input.userId, input.email, input.type, input.subject, input.html, input.text || null, priority, STATUS_PENDING, scheduledAt, metadataJson, now, now)
       .run();
 
-    // Return the inserted row without a separate read
-    return {
+    const row: EmailQueueRow = {
       id, user_id: input.userId, email: input.email, type: input.type,
       subject: input.subject, html: input.html, text: input.text || null,
       priority, status: STATUS_PENDING, scheduled_at: scheduledAt,
       sent_at: null, error: null, metadata: metadataJson,
       created_at: now, updated_at: now,
-    } as EmailQueueRow;
+    };
+
+    if (dedupeKey) {
+      this.dedupeCache.set(dedupeKey, row);
+    }
+
+    return row;
   }
 
   /** Enqueue multiple emails in a batch */

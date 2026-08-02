@@ -14,10 +14,12 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { runMonitoringCycle } from '@/lib/monitoring/d1-monitor';
-import { runAlertEngine } from '@/lib/monitoring/alert-engine';
+import { evaluateBusinessAlerts } from '@/lib/notifications/business-alert-engine';
 import { refreshAnalyticsViews } from '@/lib/analytics/refresh';
 import { processEmailQueue, retryFailedEmails } from '@/lib/emails/email-scheduler';
 import { runLifecycleCampaigns } from '@/lib/emails/email-campaigns';
+import { createPayoutsService } from '@/lib/payouts';
+import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
 
 // ============================================================================
 // Cron Job Handlers
@@ -25,11 +27,11 @@ import { runLifecycleCampaigns } from '@/lib/emails/email-campaigns';
 
 async function handleAlertEvaluation(db: any): Promise<{ success: boolean; alerts: number; details: string }> {
   try {
-    const alerts = await runAlertEngine(db);
+    const result = await evaluateBusinessAlerts(db);
     return {
       success: true,
-      alerts: alerts.length,
-      details: `Evaluated alert rules, triggered ${alerts.length} alert(s)`,
+      alerts: result.triggered.length,
+      details: `Evaluated alert rules, triggered ${result.triggered.length} alert(s), skipped ${result.skipped.length}`,
     };
   } catch (error) {
     return {
@@ -57,15 +59,113 @@ async function handleD1MetricsCollection(db: any): Promise<{ success: boolean; a
   }
 }
 
-async function handleWeeklyPayouts(db: any): Promise<{ success: boolean; details: string }> {
+async function handleWeeklyPayouts(db: any): Promise<{ success: boolean; processed: number; totalAmount: number; details: string }> {
   try {
+    if (!db) {
+      return { success: false, processed: 0, totalAmount: 0, details: 'Database not available' };
+    }
+
+    const MIN_PAYOUT_THRESHOLD = 10.0;
+    const FEE_RATE = 0.01;
+
+    const pendingEarningsQuery = `
+      SELECT
+        e.affiliate_id,
+        SUM(e.amount) as total_amount,
+        GROUP_CONCAT(e.id) as earning_ids
+      FROM earnings e
+      WHERE e.is_paid = 0
+      GROUP BY e.affiliate_id
+      HAVING total_amount >= ?
+    `;
+
+    const pendingResults = await db
+      .prepare(pendingEarningsQuery)
+      .bind(MIN_PAYOUT_THRESHOLD)
+      .all()();
+
+    if (pendingResults.results.length === 0) {
+      return {
+        success: true,
+        processed: 0,
+        totalAmount: 0,
+        details: 'No payouts above minimum threshold found',
+      };
+    }
+
+    const affiliateIds = pendingResults.results.map((r) => r.affiliate_id);
+    const placeholders = affiliateIds.map(() => '?').join(',');
+    const affiliates = await db
+      .prepare(
+        `SELECT id, email, full_name, payout_method, payout_method_details
+         FROM profiles
+         WHERE id IN (${placeholders})`
+      )
+      .bind(...affiliateIds)
+      .all()();
+
+    const affiliateMap = new Map(affiliates.results.map((a) => [a.id, a]));
+    const payoutsService = createPayoutsService(db);
+    const results: Array<{ affiliate_id: string; affiliate_email: string; amount: number; payout_id: string }> = [];
+    let totalPayoutAmount = 0;
+
+    for (const pending of pendingResults.results) {
+      const affiliate = affiliateMap.get(pending.affiliate_id) as { id: string; email: string; full_name: string | null; payout_method: string | null; payout_method_details: string | null } | undefined;
+      if (!affiliate) {
+        logWarn(`[Payouts:Cron] Affiliate not found: ${pending.affiliate_id}`);
+        continue;
+      }
+
+      const payoutMethod = affiliate.payout_method || 'crypto';
+      const payoutDetails = affiliate.payout_method_details ? JSON.parse(affiliate.payout_method_details) : {};
+
+      try {
+        const netAmount = pending.total_amount * (1 - FEE_RATE);
+        const payout = await payoutsService.createPayout({
+          affiliate_id: pending.affiliate_id,
+          payout_method: payoutMethod as 'crypto' | 'sepay' | 'bank_transfer',
+          payout_method_details: payoutDetails,
+          amount: pending.total_amount,
+          net_amount: netAmount,
+          currency: 'USDC',
+          fee: pending.total_amount * FEE_RATE,
+          scheduled_at: new Date().toISOString(),
+          status: 'processing',
+          notes: `Auto-generated payout for ${pending.earning_ids.split(',').length} earnings`,
+        });
+
+        const earningIds = pending.earning_ids.split(',');
+        for (const earningId of earningIds) {
+          await db
+            .prepare('UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?')
+            .bind(payout.id, earningId)
+            .run();
+        }
+
+        results.push({
+          affiliate_id: pending.affiliate_id,
+          affiliate_email: affiliate.email,
+          amount: pending.total_amount,
+          payout_id: payout.id,
+        });
+        totalPayoutAmount += pending.total_amount;
+      } catch (error) {
+        logError(`[Payouts:Cron] Failed to create payout for ${pending.affiliate_id}:`, error);
+      }
+    }
+
+    logInfo(`[Payouts:Cron] Processed ${results.length} payouts, total ${totalPayoutAmount} USDC`);
     return {
       success: true,
-      details: 'Weekly payouts job triggered - endpoint implementation pending',
+      processed: results.length,
+      totalAmount: totalPayoutAmount,
+      details: `Processed ${results.length} payouts totaling ${totalPayoutAmount.toFixed(2)} USDC`,
     };
   } catch (error) {
     return {
       success: false,
+      processed: 0,
+      totalAmount: 0,
       details: error instanceof Error ? error.message : 'Unknown error',
     };
   }
