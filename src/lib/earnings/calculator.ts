@@ -27,6 +27,8 @@ import type {
   EarningsRecord,
   EarningsDatabase,
 } from './types';
+import { enqueueTransactional } from '@/lib/emails/executor';
+import { commissionEarnedTemplate } from '@/lib/emails/templates';
 
 /**
  * Batch job status codes
@@ -420,6 +422,37 @@ export class EarningsCalculator {
       if (!profile) {
         this.log(`Warning: Profile not found for affiliate ${earning.affiliate_id}, skipping`);
         continue;
+      }
+
+      // Queue commission-earned emails for each tier (level 1, 2, 3)
+      try {
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+        for (const earning of calculated) {
+          const profile = profiles.get(earning.affiliate_id);
+          if (!profile) continue;
+          const html = commissionEarnedTemplate({
+            userName: profile.full_name || earning.affiliate_id,
+            userEmail: profile.email || '',
+            locale: 'en',
+            baseUrl,
+            amount: earning.amount,
+            dealName: conversion.deal_id,
+            exchange: conversion.exchange || 'Unknown',
+            tradeVolume: conversion.trade_volume_usd || 0,
+            tier: earning.level,
+            payoutStatus: 'pending',
+          });
+          enqueueTransactional({
+            userId: earning.affiliate_id,
+            email: profile.email || '',
+            type: 'commission-earned',
+            subject: `You earned $${earning.amount.toFixed(2)} from a trade!`,
+            html,
+            priority: 2,
+          });
+        }
+      } catch (emailError) {
+        logInfo(`[EarningsCalculator] Email queue failed (non-blocking): ${emailError instanceof Error ? emailError.message : String(emailError)}`);
       }
 
       // Build earnings record

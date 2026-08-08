@@ -9,6 +9,8 @@ import { createPayoutsService } from '@/lib/payouts';
 import { invalidateAffiliateCache } from '@/lib/cache/cache-invalidation';
 import { RateLimiter, extractIpAddress, type RateLimitResult } from '@/lib/ratelimit/rate-limiter';
 import { error as logError, warn as logWarn } from '@/lib/logger';
+import { enqueueTransactional } from '@/lib/emails/executor';
+import { payoutCompletedTemplate } from '@/lib/emails/templates';
 
 const PAYOUTS_RATE_LIMITER = new RateLimiter(
   (globalThis as unknown as { DB: any }).DB
@@ -152,21 +154,51 @@ export async function POST(request: NextRequest): Promise<Response> {
           notes: `Auto-generated payout for ${pending.earning_ids.split(',').length} earnings`,
         });
 
-        // Mark earnings as paid (is_paid = 1)
-        const earningIds = pending.earning_ids.split(',');
-        for (const earningId of earningIds) {
-          await DB.prepare('UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?')
-            .bind(payout.id, earningId)
-            .run();
-        }
+ // Mark earnings as paid (is_paid = 1)
+ const earningIds = pending.earning_ids.split(',');
+ for (const earningId of earningIds) {
+   await DB.prepare('UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?')
+     .bind(payout.id, earningId)
+     .run();
+ }
 
-        results.push({
-          affiliate_id: pending.affiliate_id,
-          affiliate_email: affiliate.email,
-          amount: pending.total_amount,
-          payout_id: payout.id,
-        });
-        totalPayoutAmount += pending.total_amount;
+ // Queue payout-sent email (non-blocking)
+ try {
+   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://apex-os.com';
+   const explorerUrl = payout.transaction_id
+    ? `https://stellar.expert/explorer/testnet/tx/${payout.transaction_id}`
+    : `${baseUrl}/dashboard/payouts`;
+   const html = payoutCompletedTemplate({
+     userName: affiliate.full_name || affiliate.email,
+     userEmail: affiliate.email,
+     locale: 'en',
+     baseUrl,
+     amount: pending.total_amount,
+     transactionHash: payout.transaction_id || payout.id,
+     walletAddress: payoutDetails.address || '',
+     network: 'testnet',
+     payoutDate: new Date().toLocaleDateString(),
+     explorerUrl,
+   });
+   enqueueTransactional({
+     userId: pending.affiliate_id,
+     email: affiliate.email,
+     type: 'payout-completed',
+     subject: `Payout Sent: $${pending.total_amount.toFixed(2)} USDC to your wallet`,
+     html,
+     priority: 1,
+   });
+ } catch (enqueueError) {
+   logError(`[Payouts] enqueue failed for ${pending.affiliate_id}:`, enqueueError);
+ }
+
+ results.push({
+   affiliate_id: pending.affiliate_id,
+   affiliate_email: affiliate.email,
+   amount: pending.total_amount,
+   payout_id: payout.id,
+ });
+ totalPayoutAmount += pending.total_amount;
       } catch (error) {
         logError(`Failed to create payout for ${pending.affiliate_id}:`, error);
       }

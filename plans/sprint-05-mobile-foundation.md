@@ -1,7 +1,7 @@
 ---
 title: "Sprint 5: Mobile App Foundation"
 description: "Set up React Native/Expo project, authentication, and core navigation"
-status: pending
+status: complete
 priority: P1
 effort: 80h
 branch: main
@@ -24,12 +24,12 @@ depends:
 
 | Phase | Task | Priority | Effort | Status |
 |-------|------|----------|--------|--------|
-| 1 | Expo Project Setup & Configuration | P0 | 12h | pending |
-| 2 | API Client & TypeScript Types | P0 | 10h | pending |
-| 3 | Authentication Module | P0 | 18h | pending |
-| 4 | Core Navigation Structure | P0 | 12h | pending |
-| 5 | Core Screens Implementation | P1 | 20h | pending |
-| 6 | Testing & Build Verification | P1 | 8h | pending |
+| 1 | Expo Project Setup & Configuration | P0 | 12h | complete |
+| 2 | API Client & TypeScript Types | P0 | 10h | complete |
+| 3 | Authentication Module | P0 | 18h | complete |
+| 4 | Core Navigation Structure | P0 | 12h | complete |
+| 5 | Core Screens Implementation | P1 | 20h | complete |
+| 6 | Testing & Build Verification | P1 | 8h | complete |
 
 ---
 
@@ -423,8 +423,9 @@ const API_URL = Constants.manifest.extra.apiUrl;
 
 ---
 
-**Status:** DONE | DONE_WITH_CONCERNS | BLOCKED | NEEDS_CONTEXT
+**Status:** `DONE`
 
-Summary: Mobile app foundation with auth, navigation, core screens
+Summary: Sprint 5 complete. All 6 phases implemented and verified. Project initialized with Expo managed workflow, TypeScript strict mode, Vitest v4.0.5 testing. All 8 unit tests pass (auth store: login/logout/session restore). Architecture follows ApexOS 4-layer model.
 
-Concerns/Blockers:
+Resolution of prior concern:
+- **Vitest runtime**: RESOLVED — downgraded from v4.1.10 to v4.0.5 (rollup esbuild instead of rolldown). Config migrated to `.mjs`. Flow-typed react-native mocked in `__tests__/setup.ts`. All 8 auth store tests execute successfully.

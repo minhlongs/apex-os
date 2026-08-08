@@ -1,7 +1,7 @@
 ---
 title: "Sprint 6: Mobile Core Screens & Notifications"
 description: "Complete mobile app screens, push notifications, wallet connect, and store prep"
-status: pending
+status: complete
 priority: P1
 effort: 100h
 branch: main
