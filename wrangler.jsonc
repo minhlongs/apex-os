@@ -1,0 +1,43 @@
+{
+	// NOTE: D1 database_id is required by Wrangler CLI — not a secret.
+	// D1 access requires Cloudflare account authentication.
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": "worker-wrapper.js",
+	"name": "apex-os",
+	"compatibility_date": "2026-03-17",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "apex-os-db",
+			"database_id": "3436aa7d-3065-4103-96e1-ddbd8b372246"
+		},
+		{
+			"binding": "apex_os_staging_db",
+			"database_name": "apex-os-staging-db",
+			"database_id": "be4ed659-c877-4820-ae6e-9747bc7ee316"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "KV",
+			"id": "5628adf57f1548b5af615de4e9021893"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "STORAGE",
+			"bucket_name": "apex-os-uploads"
+		}
+	],
+	"triggers": {
+		"crons": ["0 0 * * 7", "*/30 * * * *", "*/5 * * * *"]
+	}
+}

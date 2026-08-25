@@ -1,0 +1,23 @@
+- context:
+    goal_id: goal_9efbb386c1fe
+  duration_ms: 0.0
+  error_summary: "Traceback (most recent call last):\n  File \"<string>\", line 1,\
+    \ in <module>\n    import src.main\nModuleNotFoundError: No module named 'src.main'\n"
+  goal: Deploy ApexOS to Cloudflare Pages with D1 database, complete affiliate cashback
+    system, alerting, and admin dashboards
+  recipe_used: goal-engine-v1
+  reflection: ''
+  status: failed
+  timestamp: 1786337760.781474
+- context:
+    goal_id: goal_9efbb386c1fe
+  duration_ms: 0.0
+  error_summary: "; ; [Errno 2] No such file or directory: 'bandit'; /opt/homebrew/lib/python3.11/site-packages/coverage/control.py:956:\
+    \ CoverageWarning: No data was collected. (no-data-collected); see https://coverage.readthedocs.io/en/7.14.2/messages.html#warning-no-data-collected\n\
+    \  self._warn(\"No data was collected.\", slug=\"no-data-collected\")\n"
+  goal: Deploy ApexOS to Cloudflare Pages with D1 database, complete affiliate cashback
+    system, alerting, and admin dashboards
+  recipe_used: goal-engine-v1
+  reflection: ''
+  status: failed
+  timestamp: 1786339281.933552
