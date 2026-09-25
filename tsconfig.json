@@ -44,11 +44,20 @@
   ],
   "exclude": [
     "node_modules",
+    "apex-os-mobile",
+    "apex-os-mobile/**",
     "scripts",
     "jest.setup.ts",
+    "__tests__",
+    "__tests__/**",
+    "src/__tests__",
+    "src/__tests__/**",
     "**/*.test.ts",
     "**/*.test.tsx",
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
     "sentry.*.config.ts",
-    "src/app/api/admin/health"
+    "src/app/api/admin/health",
+    "src/lib/earnings/**"
   ]
 }

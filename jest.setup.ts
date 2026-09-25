@@ -28,6 +28,12 @@ if (typeof global.crypto?.getRandomValues !== 'function') {
   };
 }
 
+// Provide subtle crypto for WebCrypto HMAC operations
+if (!global.crypto?.subtle && nodeCrypto.webcrypto?.subtle) {
+  // @ts-ignore
+  global.crypto.subtle = nodeCrypto.webcrypto.subtle;
+}
+
 // Mock NextResponse properly
 class MockNextResponse {
   static json(data: any, init?: { status?: number; headers?: Record<string, string> }) {
@@ -65,41 +71,137 @@ global.NextResponse = MockNextResponse;
 
 // Mock Web APIs that Next.js Request/Response depend on
 // @ts-ignore - mocking global Web API for Jest tests
+global.Headers = class Headers {
+  private _map: Map<string, string> = new Map();
+
+  constructor(init?: any) {
+    if (init) {
+      if (init instanceof Headers || (init && typeof init.forEach === 'function')) {
+        init.forEach((value: string, key: string) => this.set(key, value));
+      } else if (Array.isArray(init)) {
+        init.forEach(([k, v]) => this.set(k, v));
+      } else if (typeof init === 'object') {
+        Object.entries(init).forEach(([k, v]) => this.set(k, v as string));
+      }
+    }
+  }
+
+  get(name: string): string | null {
+    return this._map.get(name.toLowerCase()) ?? null;
+  }
+
+  set(name: string, value: string): void {
+    this._map.set(name.toLowerCase(), String(value));
+  }
+
+  has(name: string): boolean {
+    return this._map.has(name.toLowerCase());
+  }
+
+  delete(name: string): boolean {
+    return this._map.delete(name.toLowerCase());
+  }
+
+  forEach(cb: (value: string, key: string, parent: Headers) => void): void {
+    this._map.forEach((value, key) => cb(value, key, this as any));
+  }
+
+  entries() {
+    return this._map.entries();
+  }
+
+  keys() {
+    return this._map.keys();
+  }
+
+  values() {
+    return this._map.values();
+  }
+
+  [Symbol.iterator]() {
+    return this._map.entries();
+  }
+} as any;
+
+// @ts-ignore - mocking global Web API for Jest tests
 global.Request = class Request {
   private _url: string;
+  public headers: any;
+  public method: string;
+  private _body: any;
 
-  constructor(input: RequestInfo | URL, public init?: RequestInit) {
+  constructor(input: any, init?: any) {
     if (typeof input === 'string') {
       this._url = input;
     } else if (input instanceof URL) {
       this._url = input.toString();
+    } else if (input && typeof input === 'object' && input.url) {
+      this._url = input.url;
     } else {
       this._url = String(input);
     }
+
+    this.method = (init?.method ?? input?.method ?? 'GET').toUpperCase();
+    this.headers = new (global.Headers as any)(init?.headers ?? input?.headers);
+    this._body = init?.body ?? input?.body ?? null;
   }
 
   get url(): string {
     return this._url;
   }
-};
+
+  async json() {
+    if (typeof this._body === 'string') {
+      return JSON.parse(this._body);
+    }
+    return this._body ?? {};
+  }
+
+  async text() {
+    if (typeof this._body === 'string') {
+      return this._body;
+    }
+    return this._body != null ? JSON.stringify(this._body) : '';
+  }
+} as any;
 
 // @ts-ignore - mocking global Web API for Jest tests
 global.Response = class Response {
-  constructor(public body?: BodyInit, public init?: ResponseInit) {}
-  json() {
-    return Promise.resolve(JSON.parse(JSON.stringify(this.body || '{}')));
-  }
-};
+  public status: number;
+  public headers: any;
 
-// @ts-ignore - mocking global Web API for Jest tests
-global.Headers = class Headers extends Map<string, string> {
-  constructor(public init?: HeadersInit) {
-    super();
-    if (init) {
-      Object.entries(init).forEach(([key, value]) => this.set(key, value as string));
-    }
+  constructor(public body?: any, public init?: any) {
+    this.status = init?.status ?? 200;
+    this.headers = new (global.Headers as any)(init?.headers);
   }
-};
+
+  get ok(): boolean {
+    return this.status >= 200 && this.status < 300;
+  }
+
+  async json() {
+    if (typeof this.body === 'string') {
+      return JSON.parse(this.body);
+    }
+    return this.body ?? {};
+  }
+
+  async text() {
+    if (typeof this.body === 'string') {
+      return this.body;
+    }
+    return this.body != null ? JSON.stringify(this.body) : '';
+  }
+
+  static json(data: any, init?: any) {
+    const body = JSON.stringify(data);
+    const headers = new (global.Headers as any)(init?.headers);
+    if (!headers.has('content-type')) {
+      headers.set('content-type', 'application/json');
+    }
+    return new Response(body, { ...init, headers });
+  }
+} as any;
 
 // Mock Sentry to prevent actual network calls during tests
 const mockSentry = {
