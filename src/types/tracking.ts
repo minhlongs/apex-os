@@ -18,6 +18,8 @@ export interface DealClick {
   device_type: string | null;
   click_type: 'link' | 'banner' | 'email' | 'social' | 'qr';
   is_unique: number; // 1 for unique click, 0 for repeat
+  is_suspicious?: number | null; // 0 = clean/approved, 1 = flagged suspicious
+  anomaly_score?: number | null; // quantitative anomaly score (0.0 - 1.0)
   created_at: string;
 }
 

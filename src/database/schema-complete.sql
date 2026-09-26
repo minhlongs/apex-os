@@ -179,7 +179,11 @@ CREATE TABLE deal_clicks (
   device_type TEXT,
   click_type TEXT DEFAULT 'link' CHECK (click_type IN ('link', 'banner', 'email', 'social', 'qr')),
   is_unique INTEGER DEFAULT 1,
-  created_at TEXT DEFAULT (datetime('now'))
+  created_at TEXT DEFAULT (datetime('now')),
+  -- Fraud Detection Engine extensions (Migration 021)
+  is_suspicious INTEGER DEFAULT 0,
+  flag_reasons TEXT,
+  anomaly_score REAL DEFAULT 0.0
 );
 
 CREATE INDEX IF NOT EXISTS idx_deal_clicks_deal ON deal_clicks(deal_id);
@@ -191,6 +195,12 @@ CREATE INDEX IF NOT EXISTS idx_deal_clicks_created ON deal_clicks(created_at);
 -- Composite indexes for query optimization (Migration 008)
 CREATE INDEX IF NOT EXISTS idx_deal_clicks_deal_created ON deal_clicks(deal_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_deal_clicks_affiliate_created ON deal_clicks(affiliate_id, created_at);
+
+-- Fraud Detection Engine indexes (Migration 021)
+CREATE INDEX IF NOT EXISTS idx_deal_clicks_ip_created ON deal_clicks(ip_address, created_at);
+CREATE INDEX IF NOT EXISTS idx_deal_clicks_session_created ON deal_clicks(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_deal_clicks_is_suspicious ON deal_clicks(is_suspicious);
+CREATE INDEX IF NOT EXISTS idx_deal_clicks_suspicious_created ON deal_clicks(is_suspicious, created_at DESC);
 
 -- ============================================
 -- CONVERSIONS TABLE (verified trades)
@@ -447,6 +457,57 @@ CREATE INDEX IF NOT EXISTS idx_web_vitals_url ON web_vitals(url);
 
 -- Composite covering index for rating-based queries
 CREATE INDEX IF NOT EXISTS idx_web_vitals_rating_value ON web_vitals(rating, value);
+
+-- ============================================
+-- FRAUD DETECTION & ANOMALY SCHEMA (Migration 021)
+-- ============================================
+
+-- Blocked IPs table for real-time blacklist enforcement
+CREATE TABLE IF NOT EXISTS blocked_ips (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  ip_address TEXT UNIQUE NOT NULL,
+  reason TEXT NOT NULL,
+  blocked_by TEXT DEFAULT 'system',
+  created_at TEXT DEFAULT (datetime('now')),
+  expires_at TEXT,
+  is_active INTEGER DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_blocked_ips_ip ON blocked_ips(ip_address);
+CREATE INDEX IF NOT EXISTS idx_blocked_ips_active ON blocked_ips(is_active, ip_address);
+
+-- Fraud Reviews table (Immutable Audit Log)
+CREATE TABLE IF NOT EXISTS fraud_reviews (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  click_id TEXT,
+  ip_address TEXT,
+  reviewer_id TEXT,
+  reviewed_by TEXT,
+  action TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  reviewed_at TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (datetime('now')),
+  details TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_fraud_reviews_click ON fraud_reviews(click_id);
+CREATE INDEX IF NOT EXISTS idx_fraud_reviews_ip ON fraud_reviews(ip_address);
+CREATE INDEX IF NOT EXISTS idx_fraud_reviews_reviewer ON fraud_reviews(reviewer_id);
+CREATE INDEX IF NOT EXISTS idx_fraud_reviews_action ON fraud_reviews(action);
+CREATE INDEX IF NOT EXISTS idx_fraud_reviews_reviewed_at ON fraud_reviews(reviewed_at DESC);
+
+-- Immutability triggers on fraud_reviews (Audit log cannot be updated or purged)
+CREATE TRIGGER IF NOT EXISTS trg_fraud_reviews_prevent_update BEFORE UPDATE ON fraud_reviews
+FOR EACH ROW
+BEGIN
+  SELECT RAISE(ABORT, 'fraud_reviews audit log is immutable: UPDATE operations are prohibited');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_fraud_reviews_prevent_delete BEFORE DELETE ON fraud_reviews
+FOR EACH ROW
+BEGIN
+  SELECT RAISE(ABORT, 'fraud_reviews audit log is immutable: DELETE operations are prohibited');
+END;
 
 -- ============================================
 -- Schema completed successfully

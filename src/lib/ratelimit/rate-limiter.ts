@@ -350,10 +350,25 @@ export function createRateLimiter(): RateLimiter {
  * Utility to extract IP from request headers (Cloudflare)
  */
 export function extractIpAddress(headers: Headers): string {
-  return headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-         headers.get('cf-connecting-ip') ||
-         headers.get('x-real-ip') ||
-         '127.0.0.1';
+  const cfConnectingIp = headers.get('cf-connecting-ip')?.trim();
+  if (cfConnectingIp && cfConnectingIp.length > 0) {
+    return cfConnectingIp;
+  }
+
+  const xForwardedFor = headers.get('x-forwarded-for');
+  if (xForwardedFor && xForwardedFor.trim().length > 0) {
+    const leftmost = xForwardedFor.split(',')[0]?.trim();
+    if (leftmost && leftmost.length > 0) {
+      return leftmost;
+    }
+  }
+
+  const xRealIp = headers.get('x-real-ip')?.trim();
+  if (xRealIp && xRealIp.length > 0) {
+    return xRealIp;
+  }
+
+  return '127.0.0.1';
 }
 
 /**

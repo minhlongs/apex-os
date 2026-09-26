@@ -14,6 +14,7 @@ const navItems = [
   { href: '/admin/analytics', label: 'Analytics' },
   { href: '/admin/monitoring', label: 'Monitoring' },
   { href: '/admin/notifications', label: 'Notifications' },
+  { href: '/admin/fraud', label: 'Fraud Detection' },
 ];
 
 export default function AdminLayout({

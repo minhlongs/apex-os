@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, Package, Activity, DollarSign, Bell, Settings } from 'lucide-react';
+import { BarChart3, Package, Activity, DollarSign, Bell, Settings, ShieldAlert } from 'lucide-react';
 import NotificationBadge from '@/components/notifications/NotificationBadge';
 
 interface AdminNavProps {
@@ -16,6 +16,7 @@ const navItems = [
   { href: '/admin/metrics', labelKey: 'metrics', icon: DollarSign },
   { href: '/admin/health', labelKey: 'health', icon: Activity },
   { href: '/admin/alerts', labelKey: 'alerts', icon: Bell, showBadge: false },
+  { href: '/admin/fraud', labelKey: 'fraud', icon: ShieldAlert, showBadge: true },
 ];
 
 const settingsItems = [
