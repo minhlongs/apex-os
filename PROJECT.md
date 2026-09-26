@@ -1,67 +1,96 @@
-# Project: ApexOS Fraud Detection & Anomaly Engine
+# Project: ApexOS Mobile App Store & TestFlight Production Release
 
 ## Architecture
-- **Framework**: Next.js 15 App Router with Edge / Cloudflare Workers runtime support.
-- **Database**: Cloudflare D1 SQL database accessed via `@/lib/db` (`getDB()`) with prepared statements, parameter binding, and atomic batch execution (`db.batch`).
-- **Authentication & Authorization**: Better Auth session extraction and admin authorization via `requireAdmin(request)` (`@/lib/admin-auth` and `@/app/api/admin/actions.ts`).
-- **Fraud Engine Architecture**:
-  - Dual-window sliding/fixed IP rate limiter (100 clicks/hour, 1,000 clicks/day per IP).
-  - IP blocklist validator (`blocked_ips`) returning HTTP 403 Forbidden before logging valid affiliate clicks.
-  - Velocity detector (<2s burst clicks, >10:1 click-to-conversion ratio) writing `is_suspicious = 1` and `flag_reasons` to `deal_clicks`.
-  - Conversion attribution safeguard: `Matcher.resolveClick` in `@/lib/tracking/matcher.ts` filters unapproved suspicious clicks (`AND (is_suspicious = 0 OR is_suspicious IS NULL)`).
-  - Admin review dashboard at `/admin/fraud` with inspection filters, anomaly breakdown, and actions (approve, reject, block IP, bulk resolve).
-  - Immutable audit trail in `fraud_reviews` capturing every administrative action and IP block/unblock.
-- **Test Framework**: Jest with `ts-jest` and `jsdom` runner (`node ./node_modules/jest/bin/jest.js`), with in-memory `MockFraudDatabase` for D1 simulation.
+- **Framework**: React Native 0.86 with Expo SDK 52 in `apex-os-mobile`.
+- **Target Platforms**: iOS (Apple App Store & TestFlight) and Android (Google Play Store).
+- **Build & Distribution Infrastructure**:
+  - EAS Build configuration (`eas.json`) with `development`, `preview` (TestFlight internal/ad-hoc), and `production` release profiles.
+  - Native application configuration via `app.json` with bundle ID `com.apexos.app`, package `com.apexos.app`, semantic version `1.0.0`, buildNumber `1`, versionCode `1`, and URL scheme `apex-os://`.
+- **Resilience & Safe Areas**:
+  - Global `ErrorBoundary` (`src/components/common/ErrorBoundary.tsx`) wrapping the root component tree with user-facing recovery actions and diagnostic details disclosure.
+  - Safe Area handling via `react-native-safe-area-context`: root `SafeAreaProvider`, dynamic bottom tab insets on `MainTabNavigator`, and top safe area insets on headerless screens (`DashboardScreen`, `ProfileScreen`, `BillingHistoryScreen`, `NotificationsSettingsScreen`).
+- **Design & Theming System**:
+  - Centralized design tokens (`src/theme/tokens.ts`) with semantic colors (background, card, border, text, primary, status).
+  - Navigation container dark theme binding preventing white-screen flashes during transitions.
+  - Consistent styling across cards, inputs, and tab navigation.
+- **Cold Start & Deep Linking**:
+  - Mount-time cold start URL resolution (`Linking.getInitialURL()`) in `App.tsx`.
+  - Registered `BillingStackNavigator` in `AppNavigator.tsx` to handle billing receipt deep links (`apex-os://receipt/...`).
+- **Bundle Optimization**:
+  - Metro bundler configuration (`metro.config.js`).
+  - Selective icon tree-shaking (`@expo/vector-icons/Ionicons`) reducing bundle asset payload.
+  - JavaScript Hermes bytecode bundle strictly under 50MB (currently ~2.9MB).
+- **Verification Pipeline**:
+  - Automated unit test suite with 100% pass rate via Vitest.
+  - Zero TypeScript compiler errors (`tsc --noEmit`).
+  - Clean production export via `npx expo export` with exit code 0.
 
 ## Feature Inventory
 Every feature from the Survey phase appears here with its assigned milestone.
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| F1 | D1 Database Schema Extension | Migration `021_fraud_detection_schema.sql` adding `is_suspicious`, `flag_reasons` to `deal_clicks`; creating `blocked_ips`, `fraud_reviews` with immutability trigger; and query indexes | M1 | Survey 2 & ORIGINAL_REQUEST R5 |
-| F2 | Core Types & Interface Contracts | Comprehensive TypeScript definitions in `src/types/fraud.ts` for reason codes, review actions, anomaly records, and API contracts | M1 | Survey 1, Survey 2, Survey 3 |
-| F3 | Dual-Window IP Rate Limiter | IP rate limiter enforcing 100 clicks/hour and 1,000 clicks/day per IP, returning RFC 6585-compliant HTTP 429 with `Retry-After` headers | M2 | Survey 1 & ORIGINAL_REQUEST R1 |
-| F4 | IP Blocklist & Auto-Blocking | Check `blocked_ips` table rejecting requests with HTTP 403 Forbidden without logging valid clicks; auto-block repeated offenders exceeding limits | M2 | Survey 1 & ORIGINAL_REQUEST R1 |
-| F5 | Click Ingestion Route Protection | Wrap `src/app/api/deals/[id]/click/route.ts` and `src/app/api/tracking/click/route.ts` with IP extraction, rate limiting, and IP blocklist checks | M2 | Survey 1 & ORIGINAL_REQUEST R1, R5 |
-| F6 | Conversion Attribution Compatibility | Update `Matcher.resolveClick` in `src/lib/tracking/matcher.ts` to ignore unapproved suspicious clicks while preserving legitimate attribution and existing test mocks | M2 | Survey 1, Survey 2 & ORIGINAL_REQUEST R5 |
-| F7 | Rapid Burst Anomaly Detection | Detect multi-click bursts (<2s between clicks from same IP/session) and flag with `is_suspicious = 1` and reason code `BURST_CLICK` | M3 | Survey 2 & ORIGINAL_REQUEST R2 |
-| F8 | Click-to-Conversion Ratio Velocity | Detect abnormal click-to-conversion velocity (>10:1 ratio) per affiliate/deal and flag with `is_suspicious = 1` and reason code `HIGH_CLICK_CONVERSION_RATIO` | M3 | Survey 2 & ORIGINAL_REQUEST R2 |
-| F9 | Flag Reasons & Score Persistence | Atomic storage of detection flags, anomaly scores, and JSON array of reason codes on `deal_clicks` records | M3 | Survey 2 & ORIGINAL_REQUEST R2 |
-| F10 | Admin Fraud Dashboard UI | Create `/admin/fraud` page and components (`FraudDashboard.tsx`, KPI cards, filter toolbar, clicks table, anomaly breakdown drawer, bulk action bar) | M4 | Survey 3 & ORIGINAL_REQUEST R3 |
-| F11 | Admin Fraud API Endpoints | Implement authenticated routes (`/api/admin/fraud/clicks`, `/api/admin/fraud/stats`, `/api/admin/fraud/actions`, `/api/admin/fraud/blocked-ips`) guarded by `requireAdmin` | M4 | Survey 3 & ORIGINAL_REQUEST R3 |
-| F12 | Immutable Audit Logging | Atomic persistence of review decisions (approve, reject, block IP, bulk resolve) in `fraud_reviews` with reviewer ID, timestamp, action type, and reason | M4 | Survey 3 & ORIGINAL_REQUEST R4 |
-| F13 | Full E2E Test Suite & Typecheck | 100% passing E2E tests (Tiers 1-4), Tier 5 adversarial hardening, 0 TS compiler errors (`tsc --noEmit`), and forensic integrity audit | M5 | Survey 3 & ORIGINAL_REQUEST Quality |
+| F1 | EAS Build Configuration | `eas.json` with development, preview, and production profiles | M1 | Survey 1, ORIGINAL_REQUEST R1 |
+| F2 | App Configuration & Identifier Setup | `app.json` with `com.apexos.app`, version 1.0.0, buildNumber 1, versionCode 1, scheme apex-os://, platforms ["ios", "android"] | M1 | Survey 1, Survey 3, ORIGINAL_REQUEST R1 |
+| F3 | App Store Assets & Splash Alignment | Fix `assets/splash.png` path, configure adaptive icons and splash screen parameters | M1 | Survey 1, Survey 3, ORIGINAL_REQUEST R4 |
+| F4 | App Store Listing Metadata | Complete App Store metadata package (descriptions, keywords, release notes, categories, privacy policy URL) in `metadata/store-metadata.json` | M1 | Survey 1, ORIGINAL_REQUEST R4 |
+| F5 | Global Error Boundary Architecture | Create `src/components/common/ErrorBoundary.tsx` with user-facing retry, error reset, and diagnostics drawer | M2 | Survey 2, ORIGINAL_REQUEST R2 |
+| F6 | Safe Area Context Integration | Wrap root in `SafeAreaProvider`, adapt non-header screens with top insets, and dynamic bottom insets on `MainTabNavigator` | M2 | Survey 2, ORIGINAL_REQUEST R2 |
+| F7 | Theme Unification & UI Polish | Centralized `src/theme/tokens.ts`, apply `navigationTheme` on `<NavigationContainer>`, fix `ReceiptScreen` and `EarningsScreen` backgrounds, set input placeholder colors | M2 | Survey 2, ORIGINAL_REQUEST R2 |
+| F8 | Navigation & Cold-Start Deep Linking | Register `BillingStackNavigator` in `AppNavigator.tsx`, add `Linking.getInitialURL()` cold-start listener, and pass `linking` config to `NavigationContainer` | M2 | Survey 2, Survey 3, ORIGINAL_REQUEST R2 |
+| F9 | Metro & Bundle Optimization | Create `metro.config.js`, deep import `Ionicons` to eliminate unused vector fonts, optimize cold start | M3 | Survey 3, ORIGINAL_REQUEST R3 |
+| F10 | Package & Dependency Hygiene | Add missing `@vitest/coverage-v8` / test dependencies, remove obsolete/unrecognised config, clean `node_modules` | M3 | Survey 1, Survey 3, ORIGINAL_REQUEST R3, R5 |
+| F11 | Safe Area & Error Boundary Test Harness | Add `react-native-safe-area-context` mock to `__tests__/setup.ts` and add unit tests for `ErrorBoundary` and theme tokens | M4 | Survey 2, ORIGINAL_REQUEST R5 |
+| F12 | Full Verification & Export Pipeline | 100% test pass rate in `apex-os-mobile`, `tsc --noEmit` 0 errors, `npx expo export` produces <50MB bundle with 0 errors | M4 | Survey 1, Survey 2, Survey 3, ORIGINAL_REQUEST R5 |
+| F13 | Adversarial & Integrity Audit | Challenger stress tests and Forensic Auditor integrity verification (no mocks/facades) | M5 | Teamwork Project Pattern |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | Database Schema & Core Foundation | D1 migration `021_fraud_detection_schema.sql`, core types in `src/types/fraud.ts`, test harness foundation | none | DONE |
-| M2 | Click Rate-Limiting, IP Blocking & Route Protection | Dual-window rate limiter (100/hr, 1000/day), `blocked_ips` check, route integration (`/api/deals/[id]/click`, `/api/tracking/click`), attribution compatibility in `matcher.ts` | M1 | DONE |
-| M3 | Anomaly Velocity Engine & Click Flagging | Rapid burst detection (<2s), click-to-conversion anomaly (>10:1), flagging persistence (`is_suspicious = 1`, `flag_reasons`) | M1 | DONE |
-| M4 | Admin Fraud Dashboard, APIs & Audit Trail | `/admin/fraud` UI page and components, admin nav integration, admin API endpoints, immutable audit logging in `fraud_reviews` | M1, M2, M3 | DONE |
-| M5 | E2E Integration Pass & Coverage Hardening | Pass 100% of E2E tests (Tiers 1-4) published in `TEST_READY.md`, Tier 5 adversarial hardening, 0 TS errors, forensic audit | M2, M3, M4 | DONE |
+| M1 | EAS Build, Code Signing & App Store Metadata | `eas.json`, `app.json`, splash/icon assets, store metadata | none | DONE |
+| M2 | UI Polish, Error Boundaries, Safe Areas & Theme | `ErrorBoundary`, `SafeAreaProvider`, screen insets, `MainTabNavigator`, `tokens.ts`, `App.tsx` | M1 | DONE |
+| M3 | Bundle Optimization, Metro Config & Cold Start | `metro.config.js`, vector icon tree-shaking, cold start deep links | M1, M2 | DONE |
+| M4 | Test Pipeline & Verification Hardening | Mock setup, ErrorBoundary tests, 100% test pass, tsc 0 errors, expo export <50MB | M1, M2, M3 | DONE |
+| M5 | Adversarial Verification & Forensic Audit | Challenger tests and Forensic Integrity Audit gate | M4 | DONE |
 
 ## Interface Contracts
-### Fraud Detection & Rate Limiter ↔ API Routes
-- Function: `checkIpRateLimit(db: D1Database, ip: string): Promise<{ allowed: boolean; retryAfter?: number; reason?: string }>`
-- Function: `isIpBlocked(db: D1Database, ip: string): Promise<boolean>`
-- Function: `recordFraudDecision(db: D1Database, params: ReviewDecisionParams): Promise<{ success: boolean; reviewId: string }>`
 
-### Anomaly Velocity Engine ↔ Deal Clicks Ingestion
-- Function: `evaluateClickVelocity(db: D1Database, click: IncomingClickData): Promise<{ isSuspicious: boolean; flagReasons: string[]; anomalyScore: number }>`
-- Burst threshold: `< 2,000ms` between consecutive clicks for same IP or session.
-- Ratio threshold: `> 10.0` click-to-conversion ratio where clicks >= 10.
+### ErrorBoundary ↔ App.tsx
+- Component: `<ErrorBoundary fallbackComponent={CustomFallback} onError={(error, info) => logError(error, info)}>{children}</ErrorBoundary>`
+- Props: `children: React.ReactNode`, `fallback?: (props: FallbackProps) => React.ReactNode`
+- FallbackProps: `{ error: Error; resetError: () => void }`
 
-### Admin Action Payload ↔ `/api/admin/fraud/actions`
-- Body: `{ action: 'approve' | 'reject' | 'block_ip' | 'bulk_resolve'; clickIds?: string[]; ip?: string; reason: string }`
-- Response: `{ success: true, affectedCount: number, auditIds: string[] }`
+### Safe Area Insets ↔ MainTabNavigator
+- Screen wrapper hook: `const insets = useSafeAreaInsets();`
+- Tab bar height: `height: 60 + insets.bottom`
+- Tab bar paddingBottom: `paddingBottom: Math.max(insets.bottom, 8)`
 
-### Code Layout
-- `src/database/migrations/021_fraud_detection_schema.sql` (schema updates)
-- `src/types/fraud.ts` (shared type definitions)
-- `src/lib/fraud/fraud-engine.ts` (rate limiting, IP blocking, and velocity checks)
-- `src/lib/tracking/matcher.ts` (attribution matching safeguard)
-- `src/app/api/deals/[id]/click/route.ts` (deal click ingestion protection)
-- `src/app/api/tracking/click/route.ts` (tracking click ingestion protection)
-- `src/app/[locale]/admin/fraud/page.tsx` & components in `src/components/admin/fraud/` (admin UI)
-- `src/app/api/admin/fraud/` (admin API endpoints)
-- `src/__tests__/fraud/` (unit, integration, and E2E test suites)
+### Theme Tokens ↔ Components
+- Colors contract:
+  - `theme.colors.background`: `#0A0A0A`
+  - `theme.colors.card`: `#18181B`
+  - `theme.colors.border`: `#27272A`
+  - `theme.colors.text`: `#F4F4F5`
+  - `theme.colors.textMuted`: `#A1A1AA`
+  - `theme.colors.placeholder`: `#71717A`
+  - `theme.colors.primary`: `#3B82F6`
+
+### Navigation Deep Linking Contract
+- Scheme: `apex-os://`
+- Prefixes: `['apex-os://', 'https://apexos.app']`
+- Config:
+  - `Root`: Tab navigator routes
+  - `BillingStack`: `receipt/:paymentId` -> `ReceiptScreen`
+  - `Auth`: `login`, `signup`
+
+## Code Layout
+- `apex-os-mobile/eas.json` (EAS Build profiles)
+- `apex-os-mobile/app.json` (Expo & Native App Configuration)
+- `apex-os-mobile/metro.config.js` (Metro Bundler Configuration)
+- `apex-os-mobile/assets/` (Icons, Splash, Adaptive Icons)
+- `apex-os-mobile/metadata/store-metadata.json` (App Store & Play Store Listing Metadata)
+- `apex-os-mobile/App.tsx` (Root Provider, Navigation, Error Boundary)
+- `apex-os-mobile/src/components/common/ErrorBoundary.tsx` (Global Error Boundary Component)
+- `apex-os-mobile/src/theme/tokens.ts` (Unified Design Tokens)
+- `apex-os-mobile/src/navigation/` (AppNavigator, MainTabNavigator, Route Params)
+- `apex-os-mobile/src/screens/` (Dashboard, Profile, Billing, Settings, Deals)
+- `apex-os-mobile/__tests__/` (Unit, Component, and Navigation Tests)
