@@ -7,29 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-09-27
+
 ### Added
-- **Claude-Zenos Unified Launcher** - Unified launcher integrating Claude Code with ZenOS branding and LM Studio model selection
-- **Cloudflare D1 Migration** - Complete migration to Cloudflare D1 with type checking fixes and local development support
-- **OPC Platform Dev Environment** - Bootstrap script for initializing opc-community-platform development environment
-- **Production Readiness Verification Script** - Automated script to verify production deployment readiness
-- **Global Auto-Routing for Claude Code** - Intelligent model routing system with LM Studio integration and proper TTY handling
-- **Mekong Furniture OPC Automation System** - Complete automation system for Mekong Furniture OPC operations
+- **OKX & KuCoin Multi-Exchange Webhooks**: Unified router (`/api/webhooks/exchange`) and dedicated endpoints (`/okx`, `/kucoin`), HMAC-SHA256 signature verification (including KuCoin Base64 encoding), 5-minute timestamp validation windows, and 30-day click attribution matching.
+- **Advanced Analytics Dashboard & D1 Views**: 5 materialized views in migration `018_analytics_views.sql` (`analytics_daily_deals`, `analytics_daily_affiliates`, `analytics_exchange_breakdown`, `analytics_top_pairs`, `analytics_funnel_daily`), administrative analytics dashboard (`/[locale]/admin/analytics`), CSV export, and KV caching layer.
+- **Lifecycle Transactional Email Engine**: 5 React Email templates (`WelcomeEmail`, `ConversionEarnedEmail`, `PayoutSentEmail`, `WeeklySummaryEmail`, `DealExpiringEmail`), queue architecture in D1 (`email_queue`, `email_events`), priority scheduling, retry processor (up to 3 retries), and hourly cron trigger (`/api/cron/process-email-queue`).
+- **ApexOS Mobile Store & TestFlight Readiness**: React Native 0.86 and Expo SDK 52 mobile application, Hermes bytecode optimization producing a 5.4MB dual-platform bundle (<50MB ceiling), complete EAS Build profiles (`development`, `preview`, `production`), App Store / Google Play metadata, global `ErrorBoundary`, safe area handling, and deep link routing (`apex-os://billing/result`, `apex-os://wallet-connected`).
+- **Fraud Anomaly Detection Engine & Admin Review**: Multi-tier defense on click tracking, dual-window rate limiting (100 clicks/hr, 1,000 clicks/day per IP), velocity burst anomaly detection (<2s delta), click-to-conversion ratio skew detection (>10:1), IP blocklisting (HTTP 403), auto-blocking repeat offenders (150 clicks/hr), full admin fraud management dashboard (`/admin/fraud`), and immutable SQLite trigger audit logs (`fraud_reviews`).
+- **NOWPayments Crypto Billing & Wallet Binding**: Authenticated checkout API (`/api/payments`) supporting tier upgrades (BASIC, PREMIUM, ENTERPRISE, MASTER), HMAC-SHA512 IPN webhook verification (`/api/webhooks/ipn`), idempotent tier activation ledger (`tier_activations`), and multi-chain wallet profile binding (`/api/profile/wallet` supporting Ethereum, Solana, Stellar) with native push notification registration (`/api/notifications/register`).
 
-### Changed
-- **Auto-Routing Rewrite** - Complete rewrite of ck-init auto-routing with improved TTY handling
-- **Project Status** - Marked project as complete with mainnet deployment deferred
+### Performance
+- **KV Caching Deserialization Fixes**: Eliminated redundant `JSON.parse` operations on pre-parsed KV cache objects across analytics and affiliate routes.
+- **Database Composite Indexes**: Added high-efficiency composite indexes on `deals(is_active, created_at DESC)`, `payments(user_id, created_at DESC)`, `deal_clicks(ip_address, created_at)`, and `conversions(status, converted_at)`.
+- **Query Optimizations**: Refactored click velocity burst queries from `OR` clauses to indexed single-column lookups and `UNION ALL`, reducing query latency on high-volume click streams.
 
-### Fixed
-- **Skill.py and Setup Verification** - Fixed verify-setup arithmetic issues and added missing skill.py
-
-### Documentation
-- **Claude-Zenos Unified Launcher Documentation** - Comprehensive documentation for the unified launcher
-- **Ship Pipeline Documentation** - Added ship pipeline documentation and scripts
-- **Production Deployment Quick Reference** - Quick reference guide for production deployment
-- **Handover Package** - Urgent handover package for immediate production deployment
-- **Claude Code Integration Guide** - Integration guide for auto-routing configuration
-- **Production Deployment Checklist** - Setup guide and checklist for production deployment
-- **Progress Checklist for Init Workflow** - Detailed progress tracking for initialization workflow
+### Security
+- **Cryptographic Replay Protection**: Nonce and trade ID replay protection using Cloudflare KV with standard `get`/`put` key-value operations and 24-hour expiration windows.
+- **Strict HMAC Signatures**: Validated HMAC-SHA256 (Binance, Bybit, OKX, KuCoin) and HMAC-SHA512 (NOWPayments IPN) with canonical payload sorting and timing-safe equality comparisons.
+- **Dual-Window IP Rate Limiting & Auto-Block**: RFC 6585-compliant 429 rate limit responses with `Retry-After` headers and auto-blocking for repeated offenders exceeding 150 clicks/hour.
 
 ## [1.0.1] - 2026-06-25
 

@@ -115,14 +115,47 @@ export async function evaluateClickVelocity(
   const sessionId = click.sessionId ? click.sessionId.trim() : '';
 
   if (ip || sessionId) {
-    // Exact SQL query matching MockFraudDatabase substring parser and D1 indexes
-    const priorQuery =
-      'SELECT id, created_at, ip_address, session_id FROM deal_clicks WHERE (ip_address = ? OR session_id = ?) ORDER BY created_at DESC LIMIT 1';
+    // Optimized index seeks on ip_address and session_id separately to utilize composite indexes
+    let prior: { id: string; created_at: string; ip_address: string; session_id: string } | null = null;
 
-    const prior = await db
-      .prepare(priorQuery)
-      .bind(ip, sessionId)
-      .first<{ id: string; created_at: string; ip_address: string; session_id: string }>();
+    if (ip && sessionId) {
+      const [priorByIp, priorBySession] = await Promise.all([
+        db
+          .prepare(
+            'SELECT id, created_at, ip_address, session_id FROM deal_clicks WHERE ip_address = ? ORDER BY created_at DESC LIMIT 1'
+          )
+          .bind(ip)
+          .first<{ id: string; created_at: string; ip_address: string; session_id: string }>(),
+        db
+          .prepare(
+            'SELECT id, created_at, ip_address, session_id FROM deal_clicks WHERE session_id = ? ORDER BY created_at DESC LIMIT 1'
+          )
+          .bind(sessionId)
+          .first<{ id: string; created_at: string; ip_address: string; session_id: string }>(),
+      ]);
+
+      if (priorByIp && priorBySession) {
+        const timeIp = parseTimestampMs(priorByIp.created_at);
+        const timeSession = parseTimestampMs(priorBySession.created_at);
+        prior = timeIp >= timeSession ? priorByIp : priorBySession;
+      } else {
+        prior = priorByIp || priorBySession;
+      }
+    } else if (ip) {
+      prior = await db
+        .prepare(
+          'SELECT id, created_at, ip_address, session_id FROM deal_clicks WHERE ip_address = ? ORDER BY created_at DESC LIMIT 1'
+        )
+        .bind(ip)
+        .first<{ id: string; created_at: string; ip_address: string; session_id: string }>();
+    } else if (sessionId) {
+      prior = await db
+        .prepare(
+          'SELECT id, created_at, ip_address, session_id FROM deal_clicks WHERE session_id = ? ORDER BY created_at DESC LIMIT 1'
+        )
+        .bind(sessionId)
+        .first<{ id: string; created_at: string; ip_address: string; session_id: string }>();
+    }
 
     if (prior?.created_at) {
       const priorMs = parseTimestampMs(prior.created_at);

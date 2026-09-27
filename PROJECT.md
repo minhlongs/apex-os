@@ -1,96 +1,79 @@
-# Project: ApexOS Mobile App Store & TestFlight Production Release
+# Project: ApexOS Sprint 10 — Q3 2026 Final Go-Live Readiness & Master Release Consolidation
 
 ## Architecture
-- **Framework**: React Native 0.86 with Expo SDK 52 in `apex-os-mobile`.
-- **Target Platforms**: iOS (Apple App Store & TestFlight) and Android (Google Play Store).
-- **Build & Distribution Infrastructure**:
-  - EAS Build configuration (`eas.json`) with `development`, `preview` (TestFlight internal/ad-hoc), and `production` release profiles.
-  - Native application configuration via `app.json` with bundle ID `com.apexos.app`, package `com.apexos.app`, semantic version `1.0.0`, buildNumber `1`, versionCode `1`, and URL scheme `apex-os://`.
-- **Resilience & Safe Areas**:
-  - Global `ErrorBoundary` (`src/components/common/ErrorBoundary.tsx`) wrapping the root component tree with user-facing recovery actions and diagnostic details disclosure.
-  - Safe Area handling via `react-native-safe-area-context`: root `SafeAreaProvider`, dynamic bottom tab insets on `MainTabNavigator`, and top safe area insets on headerless screens (`DashboardScreen`, `ProfileScreen`, `BillingHistoryScreen`, `NotificationsSettingsScreen`).
-- **Design & Theming System**:
-  - Centralized design tokens (`src/theme/tokens.ts`) with semantic colors (background, card, border, text, primary, status).
-  - Navigation container dark theme binding preventing white-screen flashes during transitions.
-  - Consistent styling across cards, inputs, and tab navigation.
-- **Cold Start & Deep Linking**:
-  - Mount-time cold start URL resolution (`Linking.getInitialURL()`) in `App.tsx`.
-  - Registered `BillingStackNavigator` in `AppNavigator.tsx` to handle billing receipt deep links (`apex-os://receipt/...`).
-- **Bundle Optimization**:
-  - Metro bundler configuration (`metro.config.js`).
-  - Selective icon tree-shaking (`@expo/vector-icons/Ionicons`) reducing bundle asset payload.
-  - JavaScript Hermes bytecode bundle strictly under 50MB (currently ~2.9MB).
-- **Verification Pipeline**:
-  - Automated unit test suite with 100% pass rate via Vitest.
-  - Zero TypeScript compiler errors (`tsc --noEmit`).
-  - Clean production export via `npx expo export` with exit code 0.
+- **Web Application**: Next.js 14 App Router, TypeScript, TailwindCSS, Cloudflare Pages/Workers runtime.
+- **Database & Storage**: Cloudflare D1 (SQLite) with Drizzle ORM / parameterized queries, Cloudflare KV namespace for caching and replay protection.
+- **Exchange Integration**: Unified multi-exchange webhook router supporting Binance, Bybit, OKX, and KuCoin with HMAC-SHA256 signature verification, 5-minute timestamp validation windows, and KV replay protection.
+- **Billing & Payments**: NOWPayments crypto checkout integration for tier upgrades (BASIC, PREMIUM, ENTERPRISE, MASTER), HMAC-SHA512 IPN webhook verification, idempotent tier activations.
+- **Fraud Detection Engine**: Multi-tier defense on click tracking: dual-window rate limiting (100 clicks/hr, 1,000 clicks/day), velocity burst detection (<2s), click-to-conversion anomaly scoring (>10:1), IP blocklisting, and immutable admin review audit logging.
+- **Mobile Application**: React Native 0.86 with Expo SDK 52 in `apex-os-mobile` submodule, Hermes bytecode engine, EAS Build profiles (development, preview, production), bundle size strictly <50MB (5.4MB current).
+- **Master Release**: Fast-forward branch consolidation onto `master`, submodule tracking via `.gitmodules`, and semantic release `v1.1.0`.
 
 ## Feature Inventory
-Every feature from the Survey phase appears here with its assigned milestone.
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| F1 | EAS Build Configuration | `eas.json` with development, preview, and production profiles | M1 | Survey 1, ORIGINAL_REQUEST R1 |
-| F2 | App Configuration & Identifier Setup | `app.json` with `com.apexos.app`, version 1.0.0, buildNumber 1, versionCode 1, scheme apex-os://, platforms ["ios", "android"] | M1 | Survey 1, Survey 3, ORIGINAL_REQUEST R1 |
-| F3 | App Store Assets & Splash Alignment | Fix `assets/splash.png` path, configure adaptive icons and splash screen parameters | M1 | Survey 1, Survey 3, ORIGINAL_REQUEST R4 |
-| F4 | App Store Listing Metadata | Complete App Store metadata package (descriptions, keywords, release notes, categories, privacy policy URL) in `metadata/store-metadata.json` | M1 | Survey 1, ORIGINAL_REQUEST R4 |
-| F5 | Global Error Boundary Architecture | Create `src/components/common/ErrorBoundary.tsx` with user-facing retry, error reset, and diagnostics drawer | M2 | Survey 2, ORIGINAL_REQUEST R2 |
-| F6 | Safe Area Context Integration | Wrap root in `SafeAreaProvider`, adapt non-header screens with top insets, and dynamic bottom insets on `MainTabNavigator` | M2 | Survey 2, ORIGINAL_REQUEST R2 |
-| F7 | Theme Unification & UI Polish | Centralized `src/theme/tokens.ts`, apply `navigationTheme` on `<NavigationContainer>`, fix `ReceiptScreen` and `EarningsScreen` backgrounds, set input placeholder colors | M2 | Survey 2, ORIGINAL_REQUEST R2 |
-| F8 | Navigation & Cold-Start Deep Linking | Register `BillingStackNavigator` in `AppNavigator.tsx`, add `Linking.getInitialURL()` cold-start listener, and pass `linking` config to `NavigationContainer` | M2 | Survey 2, Survey 3, ORIGINAL_REQUEST R2 |
-| F9 | Metro & Bundle Optimization | Create `metro.config.js`, deep import `Ionicons` to eliminate unused vector fonts, optimize cold start | M3 | Survey 3, ORIGINAL_REQUEST R3 |
-| F10 | Package & Dependency Hygiene | Add missing `@vitest/coverage-v8` / test dependencies, remove obsolete/unrecognised config, clean `node_modules` | M3 | Survey 1, Survey 3, ORIGINAL_REQUEST R3, R5 |
-| F11 | Safe Area & Error Boundary Test Harness | Add `react-native-safe-area-context` mock to `__tests__/setup.ts` and add unit tests for `ErrorBoundary` and theme tokens | M4 | Survey 2, ORIGINAL_REQUEST R5 |
-| F12 | Full Verification & Export Pipeline | 100% test pass rate in `apex-os-mobile`, `tsc --noEmit` 0 errors, `npx expo export` produces <50MB bundle with 0 errors | M4 | Survey 1, Survey 2, Survey 3, ORIGINAL_REQUEST R5 |
-| F13 | Adversarial & Integrity Audit | Challenger stress tests and Forensic Auditor integrity verification (no mocks/facades) | M5 | Teamwork Project Pattern |
+| F1 | KV Analytics Deserialization Fix | Eliminate redundant `JSON.parse` on parsed KV objects in `/api/analytics/{deals,affiliates,exchanges,funnel}` and `/api/affiliate/team` | M1 | Survey 2 |
+| F2 | Webhook Replay Protection KV Compatibility | Update `src/lib/webhooks/replay-protection.ts` to use standard Cloudflare KV `get`/`put` instead of unsupported `kv.add` | M1 | Survey 2 |
+| F3 | Database Composite Indexes Migration | Add migration `022_performance_optimization_indexes.sql` for `deals(is_active, created_at DESC)` and `payments(user_id, created_at DESC)` | M1 | Survey 2 |
+| F4 | Click Velocity Query Optimization | Refactor `deal_clicks` burst query in `src/lib/fraud/fraud-engine.ts` from `OR` to `UNION ALL` to utilize composite indexes | M1 | Survey 2 |
+| F5 | Schema Complete Synchronization | Synchronize `src/database/schema-complete.sql` with migrations 012, 018, and 020 (`payments`, `tier_activations`, `device_tokens`, `deep_link_analytics`, `email_queue`) | M1 | Survey 2 |
+| F6 | Version Bump to 1.1.0 | Increment `"version": "1.1.0"` in root `package.json` | M2 | Survey 3 |
+| F7 | Q3 Completed Documentation Sync | Update `README.md` and `CHANGELOG.md` with complete Q3 features and v1.1.0 release notes | M2 | Survey 3 |
+| F8 | Roadmap & Go/No-Go Status Update | Update `plans/q3-2026-roadmap.md` and `plans/README-Q3-ROADMAP.md` to `status: completed` and check all 6 criteria `[x]` | M2 | Survey 1, Survey 3 |
+| F9 | Architecture & Integration Guides | Create `docs/mobile/README.md`, `docs/fraud/README.md`, `docs/payments/README.md`, `docs/email/README.md`, and update `docs/api-endpoints.md` | M2 | Survey 3 |
+| F10 | Submodule `.gitmodules` Restoration | Create root `.gitmodules` mapping `apex-os-mobile` to remote repository, push mobile commits, verify clean submodule status | M3 | Survey 2, Survey 3 |
+| F11 | Master Branch Linear Consolidation | Fast-forward merge `feature/sprint-09-mobile-store-prep` into `master` and tag release `v1.1.0` | M3 | Survey 2 |
+| F12 | Full System E2E Regression Verification | Execute 100% of web test suites (108 suites) and mobile test suites (12 suites) with 0 failures | M4 | Survey 1, Survey 3 |
+| F13 | TypeScript Zero-Error Verification | Verify `tsc --noEmit` exits with code 0 across both web and mobile repositories | M4 | Survey 1, Survey 3 |
+| F14 | Clean Production Builds Verification | Verify `npm run build` succeeds (69/69 pages) and `npx expo export` produces <50MB bundle | M4 | Survey 1, Survey 3 |
+| F15 | Cross-Cutting Go/No-Go Final Sign-off | Evaluate and publish final verification sign-off across all 6 roadmap Go/No-Go criteria | M4 | Survey 1, Survey 2, Survey 3 |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | EAS Build, Code Signing & App Store Metadata | `eas.json`, `app.json`, splash/icon assets, store metadata | none | DONE |
-| M2 | UI Polish, Error Boundaries, Safe Areas & Theme | `ErrorBoundary`, `SafeAreaProvider`, screen insets, `MainTabNavigator`, `tokens.ts`, `App.tsx` | M1 | DONE |
-| M3 | Bundle Optimization, Metro Config & Cold Start | `metro.config.js`, vector icon tree-shaking, cold start deep links | M1, M2 | DONE |
-| M4 | Test Pipeline & Verification Hardening | Mock setup, ErrorBoundary tests, 100% test pass, tsc 0 errors, expo export <50MB | M1, M2, M3 | DONE |
-| M5 | Adversarial Verification & Forensic Audit | Challenger tests and Forensic Integrity Audit gate | M4 | DONE |
+| M1 | API Performance, Caching & Database Schema Hardening | F1, F2, F3, F4, F5 | none | DONE |
+| M2 | Comprehensive Documentation & Roadmap Synchronization | F6, F7, F8, F9 | none | DONE |
+| M3 | Master Branch Consolidation & Submodule Hygiene | F10, F11 | M1, M2 | DONE |
+| M4 | Final Go/No-Go Audit, Full E2E Test & Production Build Verification | F12, F13, F14, F15 | M1, M2, M3 | PLANNED |
 
 ## Interface Contracts
 
-### ErrorBoundary ↔ App.tsx
-- Component: `<ErrorBoundary fallbackComponent={CustomFallback} onError={(error, info) => logError(error, info)}>{children}</ErrorBoundary>`
-- Props: `children: React.ReactNode`, `fallback?: (props: FallbackProps) => React.ReactNode`
-- FallbackProps: `{ error: Error; resetError: () => void }`
+### Cloudflare KV Cache Contract (`src/lib/cache/kv-cache.ts`)
+- `getCached<T>(key: string): Promise<T | null>`
+- Behavior: calls `KV.get(key, 'json')`. If result is string, calls `JSON.parse(result)`. If result is object, returns directly.
+- TTL: 300s (5 minutes) for analytics and affiliate statistics.
+- Headers: `Cache-Control: public, s-maxage=300, stale-while-revalidate=60`, `X-Cache: HIT | MISS`.
 
-### Safe Area Insets ↔ MainTabNavigator
-- Screen wrapper hook: `const insets = useSafeAreaInsets();`
-- Tab bar height: `height: 60 + insets.bottom`
-- Tab bar paddingBottom: `paddingBottom: Math.max(insets.bottom, 8)`
+### Webhook Replay Protection Contract (`src/lib/webhooks/replay-protection.ts`)
+- `checkAndRecordNonce(nonce: string, timestamp: number, ttlSeconds?: number): Promise<boolean>`
+- Key format: `replay:${nonce}`
+- Method: `const existing = await kv.get(key); if (existing) return false; await kv.put(key, '1', { expirationTtl: ttlSeconds }); return true;`
 
-### Theme Tokens ↔ Components
-- Colors contract:
-  - `theme.colors.background`: `#0A0A0A`
-  - `theme.colors.card`: `#18181B`
-  - `theme.colors.border`: `#27272A`
-  - `theme.colors.text`: `#F4F4F5`
-  - `theme.colors.textMuted`: `#A1A1AA`
-  - `theme.colors.placeholder`: `#71717A`
-  - `theme.colors.primary`: `#3B82F6`
+### Database Composite Index Contract (`src/database/migrations/022_performance_optimization_indexes.sql`)
+- `CREATE INDEX IF NOT EXISTS idx_deals_active_created ON deals(is_active, created_at DESC);`
+- `CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments(user_id, created_at DESC);`
 
-### Navigation Deep Linking Contract
-- Scheme: `apex-os://`
-- Prefixes: `['apex-os://', 'https://apexos.app']`
-- Config:
-  - `Root`: Tab navigator routes
-  - `BillingStack`: `receipt/:paymentId` -> `ReceiptScreen`
-  - `Auth`: `login`, `signup`
+### Git Submodule Contract (`.gitmodules`)
+```ini
+[submodule "apex-os-mobile"]
+	path = apex-os-mobile
+	url = git@github.com:minhlongs/apex-os-mobile.git
+```
 
 ## Code Layout
-- `apex-os-mobile/eas.json` (EAS Build profiles)
-- `apex-os-mobile/app.json` (Expo & Native App Configuration)
-- `apex-os-mobile/metro.config.js` (Metro Bundler Configuration)
-- `apex-os-mobile/assets/` (Icons, Splash, Adaptive Icons)
-- `apex-os-mobile/metadata/store-metadata.json` (App Store & Play Store Listing Metadata)
-- `apex-os-mobile/App.tsx` (Root Provider, Navigation, Error Boundary)
-- `apex-os-mobile/src/components/common/ErrorBoundary.tsx` (Global Error Boundary Component)
-- `apex-os-mobile/src/theme/tokens.ts` (Unified Design Tokens)
-- `apex-os-mobile/src/navigation/` (AppNavigator, MainTabNavigator, Route Params)
-- `apex-os-mobile/src/screens/` (Dashboard, Profile, Billing, Settings, Deals)
-- `apex-os-mobile/__tests__/` (Unit, Component, and Navigation Tests)
+- `src/app/api/analytics/` (Deals, Affiliates, Exchanges, Funnel analytics routes)
+- `src/app/api/affiliate/team/route.ts` (Affiliate team downline route)
+- `src/lib/webhooks/replay-protection.ts` (KV replay protection)
+- `src/lib/fraud/fraud-engine.ts` (Fraud velocity detection engine)
+- `src/database/migrations/022_performance_optimization_indexes.sql` (Performance indexes)
+- `src/database/schema-complete.sql` (Canonical baseline schema)
+- `package.json` (Root package metadata & version 1.1.0)
+- `README.md` (Project overview & Q3 feature documentation)
+- `CHANGELOG.md` (Consolidated 1.1.0 release notes)
+- `plans/q3-2026-roadmap.md` & `plans/README-Q3-ROADMAP.md` (Completed roadmap records)
+- `docs/mobile/README.md` (Mobile architecture & build guide)
+- `docs/fraud/README.md` (Fraud anomaly engine guide)
+- `docs/payments/README.md` (NOWPayments & IPN webhook guide)
+- `docs/email/README.md` (Email templates & queue guide)
+- `docs/api-endpoints.md` (Synchronized API directory)
+- `.gitmodules` (Submodule tracking configuration)

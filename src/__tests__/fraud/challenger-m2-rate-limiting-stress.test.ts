@@ -401,14 +401,17 @@ describe('Challenger M2: Rate Limiting & IP Blocking Stress Suite', () => {
         );
       `);
 
-      // Insert 100 clicks using production route default (datetime('now'))
-      const stmt = sqlite.prepare("INSERT INTO deal_clicks (id, ip_address) VALUES (?, '203.0.113.88')");
+      // Insert 100 clicks using production route format (datetime('now') -> 'YYYY-MM-DD HH:MM:SS')
+      const stmt = sqlite.prepare(
+        "INSERT INTO deal_clicks (id, ip_address, created_at) VALUES (?, '203.0.113.88', '2026-09-27 12:00:00')"
+      );
       for (let i = 0; i < 100; i++) {
         stmt.run(`click-${i}`);
       }
 
       // Cutoff generated as ISO-8601 (as done in checkIpRateLimit: new Date(now - 3600000).toISOString())
-      const hourlyCutoff = new Date(Date.now() - 3600 * 1000).toISOString();
+      // At 11:00:00 UTC on the same day: '2026-09-27T11:00:00.000Z'
+      const hourlyCutoff = '2026-09-27T11:00:00.000Z';
 
       // Query executed by checkIpRateLimit
       const query = sqlite.prepare(

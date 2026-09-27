@@ -72,9 +72,9 @@ export const GET = withRateLimit(async (request: NextRequest): Promise<Response>
         // @ts-ignore
         const cached = await KV.get(cacheKey, 'json');
         if (cached) {
-          const parsed = JSON.parse(cached);
+          const data = typeof cached === 'string' ? JSON.parse(cached) : cached;
           return NextResponse.json(
-            { ...parsed, meta: { ...parsed.meta, cached: true } },
+            { ...data, meta: { ...data.meta, cached: true } },
             {
               headers: {
                 'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',

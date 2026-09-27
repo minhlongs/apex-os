@@ -44,3 +44,5 @@ backups/
 .cache/
 coverage/
 .agents/
+*.bak
+*.tsbuildinfo

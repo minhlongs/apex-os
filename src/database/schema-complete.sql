@@ -11,6 +11,15 @@ PRAGMA foreign_keys = ON;
 DROP TABLE IF EXISTS v_affiliate_performance;
 DROP TABLE IF EXISTS v_pending_earnings;
 DROP TABLE IF EXISTS v_payout_summary;
+DROP TABLE IF EXISTS deep_link_analytics;
+DROP TABLE IF EXISTS device_tokens;
+DROP TABLE IF EXISTS email_events;
+DROP TABLE IF EXISTS email_queue;
+DROP TABLE IF EXISTS tier_activations;
+DROP TABLE IF EXISTS payments;
+DROP TABLE IF EXISTS fraud_reviews;
+DROP TABLE IF EXISTS blocked_ips;
+DROP TABLE IF EXISTS web_vitals;
 DROP TABLE IF EXISTS earnings;
 DROP TABLE IF EXISTS payouts;
 DROP TABLE IF EXISTS conversions;
@@ -71,6 +80,9 @@ CREATE TABLE profiles (
   avatar_url TEXT,
   role TEXT DEFAULT 'shopper' CHECK (role IN ('shopper', 'affiliate', 'admin', 'master_trader')),
   plan TEXT DEFAULT 'free' CHECK (plan IN ('free', 'starter', 'growth', 'premium', 'master')),
+  tier TEXT DEFAULT 'BASIC',
+  wallet_address TEXT,
+  preferred_chain TEXT,
   referral_code TEXT UNIQUE,
   referred_by TEXT,
   notification_settings TEXT,
@@ -81,6 +93,8 @@ CREATE TABLE profiles (
 CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
 CREATE INDEX IF NOT EXISTS idx_profiles_referral_code ON profiles(referral_code);
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
+CREATE INDEX IF NOT EXISTS idx_profiles_tier ON profiles(tier);
+CREATE INDEX IF NOT EXISTS idx_profiles_wallet_address ON profiles(wallet_address);
 
 -- ============================================
 -- DEALS TABLE (affiliate offers)
@@ -111,6 +125,7 @@ CREATE INDEX IF NOT EXISTS idx_deals_exchange ON deals(exchange);
 CREATE INDEX IF NOT EXISTS idx_deals_category ON deals(category);
 CREATE INDEX IF NOT EXISTS idx_deals_dates ON deals(starts_at, ends_at);
 CREATE INDEX IF NOT EXISTS idx_deals_creator ON deals(created_by);
+CREATE INDEX IF NOT EXISTS idx_deals_active_created ON deals(is_active, created_at DESC);
 
 -- ============================================
 -- AFFILIATE CODES TABLE
@@ -196,9 +211,9 @@ CREATE INDEX IF NOT EXISTS idx_deal_clicks_created ON deal_clicks(created_at);
 CREATE INDEX IF NOT EXISTS idx_deal_clicks_deal_created ON deal_clicks(deal_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_deal_clicks_affiliate_created ON deal_clicks(affiliate_id, created_at);
 
--- Fraud Detection Engine indexes (Migration 021)
-CREATE INDEX IF NOT EXISTS idx_deal_clicks_ip_created ON deal_clicks(ip_address, created_at);
-CREATE INDEX IF NOT EXISTS idx_deal_clicks_session_created ON deal_clicks(session_id, created_at);
+-- Fraud Detection Engine & Performance indexes (Migrations 021 & 022)
+CREATE INDEX IF NOT EXISTS idx_deal_clicks_ip_created ON deal_clicks(ip_address, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deal_clicks_session_created ON deal_clicks(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_deal_clicks_is_suspicious ON deal_clicks(is_suspicious);
 CREATE INDEX IF NOT EXISTS idx_deal_clicks_suspicious_created ON deal_clicks(is_suspicious, created_at DESC);
 
@@ -508,6 +523,143 @@ FOR EACH ROW
 BEGIN
   SELECT RAISE(ABORT, 'fraud_reviews audit log is immutable: DELETE operations are prohibited');
 END;
+
+-- ============================================
+-- PAYMENTS & TIER ACTIVATIONS (Migration 012 & 022)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  payment_id TEXT UNIQUE NOT NULL,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'confirming', 'confirmed', 'failed', 'expired', 'refunded')),
+  plan TEXT,
+  user_id TEXT,
+  amount REAL DEFAULT 0,
+  currency TEXT DEFAULT 'USDT',
+  txn_id TEXT,
+  confirmed_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id);
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+CREATE INDEX IF NOT EXISTS idx_payments_payment_id ON payments(payment_id);
+CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments(user_id, created_at DESC);
+
+-- Tier activation log (audit trail)
+CREATE TABLE IF NOT EXISTS tier_activations (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  payment_id TEXT,
+  old_tier TEXT,
+  new_tier TEXT NOT NULL,
+  activated_by TEXT DEFAULT 'ipn',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tier_activations_user ON tier_activations(user_id);
+
+-- ============================================
+-- EMAIL QUEUE & EVENTS (Migration 018)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS email_queue (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  email TEXT NOT NULL,
+  type TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  html TEXT NOT NULL,
+  text TEXT,
+  priority INTEGER NOT NULL DEFAULT 2,
+  status TEXT NOT NULL DEFAULT 'pending',
+  scheduled_at TEXT NOT NULL DEFAULT (datetime('now')),
+  sent_at TEXT,
+  error TEXT,
+  metadata TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_queue_status_scheduled ON email_queue(status, scheduled_at);
+CREATE INDEX IF NOT EXISTS idx_email_queue_user ON email_queue(user_id);
+CREATE INDEX IF NOT EXISTS idx_email_queue_type ON email_queue(type);
+
+-- Auto-update updated_at on email_queue
+CREATE TRIGGER IF NOT EXISTS trg_email_queue_updated
+AFTER UPDATE ON email_queue
+FOR EACH ROW
+BEGIN
+  UPDATE email_queue SET updated_at = datetime('now') WHERE id = NEW.id;
+END;
+
+CREATE TABLE IF NOT EXISTS email_events (
+  id TEXT PRIMARY KEY,
+  queue_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  email TEXT NOT NULL,
+  resend_id TEXT,
+  reason TEXT,
+  payload TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (queue_id) REFERENCES email_queue(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_email_events_queue_id ON email_events(queue_id);
+CREATE INDEX IF NOT EXISTS idx_email_events_type ON email_events(event_type);
+CREATE INDEX IF NOT EXISTS idx_email_events_created ON email_events(created_at);
+
+-- ============================================
+-- DEVICE TOKENS & DEEP LINK ANALYTICS (Migration 020)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS device_tokens (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  user_id TEXT NOT NULL,
+  platform TEXT NOT NULL CHECK (platform IN ('ios', 'android', 'web')),
+  token TEXT,
+  expo_token TEXT,
+  apns_token TEXT,
+  fcm_token TEXT,
+  is_active INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_tokens_user ON device_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_token ON device_tokens(token);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_expo ON device_tokens(expo_token);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_apns ON device_tokens(apns_token);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_fcm ON device_tokens(fcm_token);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_platform ON device_tokens(platform);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_user_active ON device_tokens(user_id, is_active);
+
+-- Auto-update updated_at on device_tokens
+CREATE TRIGGER IF NOT EXISTS trg_device_tokens_updated
+AFTER UPDATE ON device_tokens
+FOR EACH ROW
+BEGIN
+  UPDATE device_tokens SET updated_at = datetime('now') WHERE id = old.id;
+END;
+
+CREATE TABLE IF NOT EXISTS deep_link_analytics (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  user_id TEXT,
+  kind TEXT NOT NULL,
+  route TEXT NOT NULL,
+  source TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  metadata TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_deep_link_analytics_user ON deep_link_analytics(user_id);
+CREATE INDEX IF NOT EXISTS idx_deep_link_analytics_kind ON deep_link_analytics(kind);
+CREATE INDEX IF NOT EXISTS idx_deep_link_analytics_route ON deep_link_analytics(route);
+CREATE INDEX IF NOT EXISTS idx_deep_link_analytics_source ON deep_link_analytics(source);
+CREATE INDEX IF NOT EXISTS idx_deep_link_analytics_timestamp ON deep_link_analytics(timestamp);
+CREATE INDEX IF NOT EXISTS idx_deep_link_analytics_created ON deep_link_analytics(created_at);
 
 -- ============================================
 -- Schema completed successfully
