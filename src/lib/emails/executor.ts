@@ -17,7 +17,7 @@ export interface QueueEmailInput {
   metadata?: Record<string, unknown>;
 }
 
-export interface QueuedEmail extends EmailQueueRow {}
+export type QueuedEmail = EmailQueueRow;
 
 export function enqueueTransactional(input: QueueEmailInput): QueuedEmail {
   const queue = getEmailQueueService();
