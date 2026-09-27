@@ -421,6 +421,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     }, clientIP).catch(() => {});
 
     const duration = Date.now() - startTime;
+
+    // Mark as processed for replay protection
+    await markWebhookProcessed('okx', trade.orderId, trade.symbol);
+
     // Invalidate cache for the affiliate
     void invalidateAffiliateCache(profile.id, ['affiliate-dashboard', 'affiliate-conversions']).catch(err =>
       logError('[OKX Webhook] Cache invalidation error:', err)
