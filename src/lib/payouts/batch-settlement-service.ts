@@ -34,6 +34,21 @@ import { PayoutRouter, payoutRouter } from './router';
 import { TreasuryHealthService, treasuryHealthService } from './treasury-health-service';
 import { PayoutAuditService, createAuditStatement } from './audit-service';
 import { keccak256 } from './crypto/keccak';
+import {
+  ComplianceAuditService,
+  complianceAuditService as defaultComplianceAuditService,
+} from '../compliance/audit-service';
+import {
+  SanctionsScreeningService,
+  sanctionsScreeningService as defaultSanctionsScreeningService,
+} from '../compliance/sanctions-service';
+import {
+  getKycTierLimit,
+  isTierLimitExceeded,
+  type KycTier,
+  type KycStatus,
+  type ComplianceStatus,
+} from '../compliance/types';
 
 // ============================================================================
 // Math & Precision Helpers (Floating Point Safety)
@@ -125,6 +140,8 @@ export interface BatchSettlementServiceDependencies {
   router?: PayoutRouter;
   healthService?: TreasuryHealthService;
   auditService?: PayoutAuditService;
+  complianceAuditService?: ComplianceAuditService;
+  sanctionsService?: SanctionsScreeningService;
 }
 
 interface RawUnpaidEarningRow {
@@ -156,6 +173,8 @@ export class BatchSettlementService implements IBatchSettlementService {
   private readonly routerOverride?: PayoutRouter;
   private readonly healthServiceOverride?: TreasuryHealthService;
   private readonly auditServiceOverride?: PayoutAuditService;
+  private readonly complianceAuditServiceOverride?: ComplianceAuditService;
+  private readonly sanctionsServiceOverride?: SanctionsScreeningService;
 
   public static readonly DEFAULT_MIN_THRESHOLD = 50.0;
   public static readonly DEFAULT_BATCH_LIMIT = 50;
@@ -165,6 +184,8 @@ export class BatchSettlementService implements IBatchSettlementService {
     this.routerOverride = deps?.router;
     this.healthServiceOverride = deps?.healthService;
     this.auditServiceOverride = deps?.auditService;
+    this.complianceAuditServiceOverride = deps?.complianceAuditService;
+    this.sanctionsServiceOverride = deps?.sanctionsService;
   }
 
   /**
@@ -195,6 +216,113 @@ export class BatchSettlementService implements IBatchSettlementService {
   public getAuditService(): PayoutAuditService {
     if (this.auditServiceOverride) return this.auditServiceOverride;
     return new PayoutAuditService(this.getDb());
+  }
+
+  /**
+   * Resolve ComplianceAuditService instance
+   */
+  public getComplianceAuditService(): ComplianceAuditService {
+    if (this.complianceAuditServiceOverride) return this.complianceAuditServiceOverride;
+    return defaultComplianceAuditService;
+  }
+
+  /**
+   * Resolve SanctionsScreeningService instance
+   */
+  public getSanctionsService(): SanctionsScreeningService {
+    if (this.sanctionsServiceOverride) return this.sanctionsServiceOverride;
+    return defaultSanctionsScreeningService;
+  }
+
+  /**
+   * Introspect table capabilities to support both legacy and migration 024 schemas
+   */
+  public async checkPayoutsTableCapabilities(db: D1Database): Promise<{
+    hasComplianceColumns: boolean;
+    supportsKycRequiredStatus: boolean;
+    supportsBlockedStatus: boolean;
+    hasComplianceAuditLogs: boolean;
+  }> {
+    try {
+      const payoutsSchemaRow = await db
+        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='payouts'")
+        .first<{ sql: string }>();
+      const sql = payoutsSchemaRow?.sql ?? '';
+
+      const auditRow = await db
+        .prepare("SELECT count(*) as count FROM sqlite_master WHERE type='table' AND name='compliance_audit_logs'")
+        .first<{ count: number }>();
+      const hasComplianceAuditLogs = Number(auditRow?.count ?? 0) > 0;
+
+      return {
+        hasComplianceColumns: sql.includes('compliance_status'),
+        supportsKycRequiredStatus: sql.includes('kyc_required'),
+        supportsBlockedStatus: sql.includes('compliance_blocked'),
+        hasComplianceAuditLogs,
+      };
+    } catch {
+      return {
+        hasComplianceColumns: false,
+        supportsKycRequiredStatus: false,
+        supportsBlockedStatus: false,
+        hasComplianceAuditLogs: false,
+      };
+    }
+  }
+
+  /**
+   * Query rolling 30-day cumulative volume for an affiliate
+   * Excludes optional excludePayoutId (e.g. current in-flight payout)
+   */
+  public async get30DayCumulativeVolume(
+    db: D1Database,
+    affiliateId: string,
+    excludePayoutId?: string
+  ): Promise<number> {
+    try {
+      const query = excludePayoutId
+        ? `SELECT COALESCE(SUM(amount), 0) as total
+           FROM payouts
+           WHERE affiliate_id = ?
+             AND status IN ('completed', 'processing', 'pending')
+             AND created_at >= datetime('now', '-30 days')
+             AND id != ?`
+        : `SELECT COALESCE(SUM(amount), 0) as total
+           FROM payouts
+           WHERE affiliate_id = ?
+             AND status IN ('completed', 'processing', 'pending')
+             AND created_at >= datetime('now', '-30 days')`;
+
+      const stmt = excludePayoutId
+        ? db.prepare(query).bind(affiliateId, excludePayoutId)
+        : db.prepare(query).bind(affiliateId);
+
+      const row = await stmt.first<{ total: number }>();
+      return Number(row?.total ?? 0);
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Query user profile for KYC verification tier and status
+   */
+  public async getUserKycProfile(
+    db: D1Database,
+    affiliateId: string
+  ): Promise<{ kycTier: KycTier; kycStatus: KycStatus }> {
+    try {
+      const row = await db
+        .prepare('SELECT kyc_tier, kyc_status FROM profiles WHERE id = ?')
+        .bind(affiliateId)
+        .first<{ kyc_tier?: string; kyc_status?: string }>();
+
+      const kycTier = (row?.kyc_tier as KycTier) || 'tier0_unverified';
+      const kycStatus = (row?.kyc_status as KycStatus) || 'unverified';
+      return { kycTier, kycStatus };
+    } catch {
+      return { kycTier: 'tier0_unverified', kycStatus: 'unverified' };
+    }
   }
 
   // ==========================================================================
@@ -319,6 +447,30 @@ export class BatchSettlementService implements IBatchSettlementService {
         else estimatedGasFeeUsd = 0.001;
       }
 
+      // Pre-flight compliance evaluation: Sanctions & KYC 30-day cumulative volume
+      const sanctionsService = this.getSanctionsService();
+      const sanctionsScreening = await sanctionsService.checkAddress(
+        agg.walletAddress,
+        resolvedChain,
+        db
+      );
+
+      const cumulative30d = await this.get30DayCumulativeVolume(db, agg.affiliateId);
+      const { kycTier } = await this.getUserKycProfile(db, agg.affiliateId);
+      const tierLimit = getKycTierLimit(kycTier);
+      const isLimitExceeded = isTierLimitExceeded(cumulative30d, netAmount, kycTier);
+
+      let complianceStatus: ComplianceStatus = 'clean';
+      let complianceReason: string | undefined = undefined;
+
+      if (sanctionsScreening.isSanctioned) {
+        complianceStatus = 'compliance_blocked';
+        complianceReason = 'SANCTIONED_ADDRESS';
+      } else if (isLimitExceeded) {
+        complianceStatus = 'kyc_required';
+        complianceReason = 'KYC_TIER_LIMIT_EXCEEDED';
+      }
+
       payoutsPreview.push({
         affiliateId: agg.affiliateId,
         recipientAddress: agg.walletAddress,
@@ -329,6 +481,10 @@ export class BatchSettlementService implements IBatchSettlementService {
         fee,
         netAmount,
         estimatedGasFeeUsd,
+        complianceStatus,
+        complianceReason,
+        kycTier,
+        cumulative30dVolume: cumulative30d,
       });
     }
 
@@ -520,6 +676,7 @@ export class BatchSettlementService implements IBatchSettlementService {
     }
 
     // 2. Phase 1: Atomic D1 Reservation via db.batch([...])
+    const capabilities = await this.checkPayoutsTableCapabilities(db);
     const batchId = generateId();
     const reservationItems: Array<{
       payoutId: string;
@@ -564,28 +721,63 @@ export class BatchSettlementService implements IBatchSettlementService {
         token: 'USDC',
       });
 
-      // Insert payout row (status: pending)
-      reservationStatements.push(
-        db.prepare(`
-          INSERT INTO payouts (
-            id, affiliate_id, batch_id, chain, payout_method, payout_method_details,
-            amount, currency, fee, net_amount, status, idempotency_key, gas_fee_native, gas_fee_usd,
-            scheduled_at, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, 'crypto', ?, ?, 'USD', ?, ?, 'pending', ?, 0.0, ?, ?, datetime('now'), datetime('now'))
-        `).bind(
-          payoutId,
-          item.affiliateId,
-          batchId,
-          item.chain,
-          methodDetails,
-          item.grossAmount,
-          item.fee,
-          item.netAmount,
-          idempotencyKey,
-          item.estimatedGasFeeUsd,
-          options?.scheduledAt ?? null
-        )
-      );
+      // Insert payout row
+      if (capabilities.hasComplianceColumns) {
+        let initialStatus = 'pending';
+        if (item.complianceStatus === 'kyc_required' && capabilities.supportsKycRequiredStatus) {
+          initialStatus = 'kyc_required';
+        } else if (item.complianceStatus === 'compliance_blocked' && capabilities.supportsBlockedStatus) {
+          initialStatus = 'compliance_blocked';
+        }
+
+        reservationStatements.push(
+          db.prepare(`
+            INSERT INTO payouts (
+              id, affiliate_id, batch_id, chain, payout_method, payout_method_details,
+              amount, currency, fee, net_amount, status, compliance_status, compliance_reason,
+              idempotency_key, gas_fee_native, gas_fee_usd,
+              scheduled_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'crypto', ?, ?, 'USD', ?, ?, ?, ?, ?, ?, 0.0, ?, ?, datetime('now'), datetime('now'))
+          `).bind(
+            payoutId,
+            item.affiliateId,
+            batchId,
+            item.chain,
+            methodDetails,
+            item.grossAmount,
+            item.fee,
+            item.netAmount,
+            initialStatus,
+            item.complianceStatus ?? 'clean',
+            item.complianceReason ?? null,
+            idempotencyKey,
+            item.estimatedGasFeeUsd,
+            options?.scheduledAt ?? null
+          )
+        );
+      } else {
+        reservationStatements.push(
+          db.prepare(`
+            INSERT INTO payouts (
+              id, affiliate_id, batch_id, chain, payout_method, payout_method_details,
+              amount, currency, fee, net_amount, status, idempotency_key, gas_fee_native, gas_fee_usd,
+              scheduled_at, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, 'crypto', ?, ?, 'USD', ?, ?, 'pending', ?, 0.0, ?, ?, datetime('now'), datetime('now'))
+          `).bind(
+            payoutId,
+            item.affiliateId,
+            batchId,
+            item.chain,
+            methodDetails,
+            item.grossAmount,
+            item.fee,
+            item.netAmount,
+            idempotencyKey,
+            item.estimatedGasFeeUsd,
+            options?.scheduledAt ?? null
+          )
+        );
+      }
 
       // Lock earnings to this payout_id (is_paid remains 0 until confirmed)
       for (const earningId of item.earningIds) {
@@ -657,6 +849,10 @@ export class BatchSettlementService implements IBatchSettlementService {
     const executionResults: PayoutExecutionResult[] = [];
     const executionErrors: string[] = [];
 
+    const sanctionsService = this.getSanctionsService();
+    const complianceAuditService = this.getComplianceAuditService();
+    const runningAffiliateVolume = new Map<string, number>();
+
     for (const reserved of reservationItems) {
       const { payoutId, idempotencyKey, previewItem: item } = reserved;
 
@@ -719,6 +915,162 @@ export class BatchSettlementService implements IBatchSettlementService {
         });
         continue;
       }
+
+      // Pre-flight Sanctions Check
+      const sanctionsScreening = await sanctionsService.checkAddress(
+        item.recipientAddress,
+        item.chain,
+        db
+      );
+
+      if (sanctionsScreening.isSanctioned || item.complianceStatus === 'compliance_blocked') {
+        const errorReason = `SANCTIONED_ADDRESS: Recipient address '${item.recipientAddress}' on chain '${item.chain}' is flagged on sanctions watchlist (${sanctionsScreening.reason || 'OFAC SDN / AML Flag'})`;
+
+        const blockedStatus = capabilities.supportsBlockedStatus ? 'compliance_blocked' : 'failed';
+        const batchStmts: D1PreparedStatement[] = [];
+
+        if (capabilities.hasComplianceColumns) {
+          batchStmts.push(
+            db.prepare(`
+              UPDATE payouts
+              SET status = ?,
+                  compliance_status = 'compliance_blocked',
+                  compliance_reason = 'SANCTIONED_ADDRESS',
+                  error_message = ?,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `).bind(blockedStatus, errorReason, payoutId)
+          );
+        } else {
+          batchStmts.push(
+            db.prepare(`
+              UPDATE payouts
+              SET status = 'failed',
+                  error_message = ?,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `).bind(errorReason, payoutId)
+          );
+        }
+
+        if (capabilities.hasComplianceAuditLogs) {
+          batchStmts.push(
+            complianceAuditService.createAuditStatement(db, {
+              action: 'sanctions_block',
+              severity: 'critical',
+              targetId: payoutId,
+              details: {
+                batchId,
+                affiliateId: item.affiliateId,
+                address: item.recipientAddress,
+                chain: item.chain,
+                amount: item.netAmount,
+                reason: sanctionsScreening.reason,
+                source: sanctionsScreening.source,
+                riskScore: sanctionsScreening.riskScore,
+              },
+            })
+          );
+        }
+
+        await db.batch(batchStmts);
+
+        failedPayouts++;
+        executionErrors.push(errorReason);
+        executionResults.push({
+          success: false,
+          payoutId,
+          chain: item.chain,
+          toAddress: item.recipientAddress,
+          amount: item.netAmount,
+          token: 'USDC',
+          error: errorReason,
+          status: 'failed',
+          timestamp: new Date().toISOString(),
+        });
+        continue;
+      }
+
+      // Pre-flight KYC Tier & 30-Day Cumulative Volume Limit Check
+      const priorCumulative30d = await this.get30DayCumulativeVolume(db, item.affiliateId, payoutId);
+      const runningAffiliateBatchVol = runningAffiliateVolume.get(item.affiliateId) ?? 0;
+      const totalCumulativeVolume = priorCumulative30d + runningAffiliateBatchVol;
+
+      const { kycTier } = await this.getUserKycProfile(db, item.affiliateId);
+      const tierLimit = getKycTierLimit(kycTier);
+      const isLimitExceeded = isTierLimitExceeded(totalCumulativeVolume, item.netAmount, kycTier);
+
+      if (isLimitExceeded || item.complianceStatus === 'kyc_required') {
+        const errorReason = `KYC_TIER_LIMIT_EXCEEDED: Cumulative 30-day payout volume ($${(totalCumulativeVolume + item.netAmount).toFixed(2)}) exceeds KYC tier limit for ${kycTier} ($${tierLimit.toFixed(2)}). Verification required.`;
+
+        const kycStatusValue = capabilities.supportsKycRequiredStatus ? 'kyc_required' : 'pending';
+        const batchStmts: D1PreparedStatement[] = [];
+
+        if (capabilities.hasComplianceColumns) {
+          batchStmts.push(
+            db.prepare(`
+              UPDATE payouts
+              SET status = ?,
+                  compliance_status = 'kyc_required',
+                  compliance_reason = 'KYC_TIER_LIMIT_EXCEEDED',
+                  error_message = ?,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `).bind(kycStatusValue, errorReason, payoutId)
+          );
+        } else {
+          batchStmts.push(
+            db.prepare(`
+              UPDATE payouts
+              SET error_message = ?,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `).bind(errorReason, payoutId)
+          );
+        }
+
+        if (capabilities.hasComplianceAuditLogs) {
+          batchStmts.push(
+            complianceAuditService.createAuditStatement(db, {
+              action: 'kyc_tier_hold',
+              severity: 'medium',
+              targetId: payoutId,
+              details: {
+                batchId,
+                affiliateId: item.affiliateId,
+                amount: item.netAmount,
+                cumulative30d: totalCumulativeVolume,
+                tierLimit,
+                kycTier,
+                reason: 'KYC_TIER_LIMIT_EXCEEDED',
+              },
+            })
+          );
+        }
+
+        await db.batch(batchStmts);
+
+        failedPayouts++;
+        executionErrors.push(errorReason);
+        executionResults.push({
+          success: false,
+          payoutId,
+          chain: item.chain,
+          toAddress: item.recipientAddress,
+          amount: item.netAmount,
+          token: 'USDC',
+          error: errorReason,
+          status: 'failed',
+          timestamp: new Date().toISOString(),
+        });
+        continue;
+      }
+
+      // Track running volume for this affiliate in this batch
+      runningAffiliateVolume.set(
+        item.affiliateId,
+        runningAffiliateBatchVol + item.netAmount
+      );
 
       // In-flight circuit breaker evaluation before dispatching
       const inFlightCheck = await healthService.canSettle(
@@ -930,16 +1282,7 @@ export class BatchSettlementService implements IBatchSettlementService {
 
     // 1. Locate payout record in D1
     const payout = await db
-      .prepare(`
-        SELECT
-          id, affiliate_id, batch_id, chain, payout_method, payout_method_details,
-          amount, currency, fee, net_amount, status, idempotency_key,
-          gas_fee_native, gas_fee_usd, error_message, retry_count,
-          last_retried_at, scheduled_at, paid_at, transaction_id, notes, metadata,
-          created_at, updated_at
-        FROM payouts
-        WHERE id = ?
-      `)
+      .prepare(`SELECT * FROM payouts WHERE id = ?`)
       .bind(payoutId)
       .first<PayoutRecord>();
 
@@ -1004,6 +1347,54 @@ export class BatchSettlementService implements IBatchSettlementService {
         amount: payout.net_amount,
         token: 'USDC',
         error: `Payout is in '${payout.status}' status. Only 'failed' payouts can be retried (or provide force: true)`,
+        status: 'failed',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // Pre-flight compliance check: Sanctions & KYC tier limits
+    if ((payout as any).compliance_status === 'compliance_blocked') {
+      return {
+        success: false,
+        payoutId,
+        chain,
+        toAddress: recipientAddress,
+        amount: payout.net_amount,
+        token: 'USDC',
+        error: 'Retry rejected: payout is compliance blocked due to sanctions screening',
+        status: 'failed',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    const sanctionsService = this.getSanctionsService();
+    const sanctionsCheck = await sanctionsService.checkAddress(recipientAddress, chain, db);
+    if (sanctionsCheck.isSanctioned) {
+      return {
+        success: false,
+        payoutId,
+        chain,
+        toAddress: recipientAddress,
+        amount: payout.net_amount,
+        token: 'USDC',
+        error: `Retry rejected: recipient address '${recipientAddress}' is flagged on sanctions watchlist (${sanctionsCheck.reason})`,
+        status: 'failed',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    const { kycTier } = await this.getUserKycProfile(db, payout.affiliate_id);
+    const cumulative30d = await this.get30DayCumulativeVolume(db, payout.affiliate_id, payoutId);
+    const tierLimit = getKycTierLimit(kycTier);
+    if (isTierLimitExceeded(cumulative30d, payout.net_amount, kycTier)) {
+      return {
+        success: false,
+        payoutId,
+        chain,
+        toAddress: recipientAddress,
+        amount: payout.net_amount,
+        token: 'USDC',
+        error: `Retry rejected: cumulative 30-day payout volume ($${(cumulative30d + payout.net_amount).toFixed(2)}) exceeds KYC limit for ${kycTier} ($${tierLimit.toFixed(2)})`,
         status: 'failed',
         timestamp: new Date().toISOString(),
       };

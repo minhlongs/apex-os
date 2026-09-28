@@ -20,6 +20,11 @@ import { SUPPORTED_PAYOUT_CHAINS } from './types';
 import { StellarAdapter } from './adapters/stellar-adapter';
 import { EthereumAdapter } from './adapters/ethereum-adapter';
 import { SolanaAdapter } from './adapters/solana-adapter';
+import {
+  SanctionsScreeningService,
+  sanctionsScreeningService,
+} from '../compliance/sanctions-service';
+import * as logger from '../logger';
 
 export interface UserPayoutProfile {
   preferred_chain?: string | null;
@@ -28,14 +33,33 @@ export interface UserPayoutProfile {
 
 export class PayoutRouter {
   private adapters: Map<SupportedPayoutChain, PayoutChainAdapter>;
+  private sanctionsService: SanctionsScreeningService;
 
-  constructor(adapters?: Partial<Record<SupportedPayoutChain, PayoutChainAdapter>>) {
+  constructor(
+    adapters?: Partial<Record<SupportedPayoutChain, PayoutChainAdapter>>,
+    sanctionsService?: SanctionsScreeningService
+  ) {
     this.adapters = new Map<SupportedPayoutChain, PayoutChainAdapter>();
+    this.sanctionsService = sanctionsService ?? sanctionsScreeningService;
 
     // Register provided adapters or instantiate defaults
     this.adapters.set('stellar', adapters?.stellar ?? new StellarAdapter());
     this.adapters.set('ethereum', adapters?.ethereum ?? new EthereumAdapter());
     this.adapters.set('solana', adapters?.solana ?? new SolanaAdapter());
+  }
+
+  /**
+   * Get registered sanctions screening service
+   */
+  getSanctionsService(): SanctionsScreeningService {
+    return this.sanctionsService;
+  }
+
+  /**
+   * Set custom sanctions screening service
+   */
+  setSanctionsService(service: SanctionsScreeningService): void {
+    this.sanctionsService = service;
   }
 
   /**
@@ -175,12 +199,31 @@ export class PayoutRouter {
   }
 
   /**
-   * Send a payout to a recipient via the designated chain adapter
+   * Send a payout to a recipient via the designated chain adapter with pre-flight sanctions screening
    */
   async sendPayout(
     chain: SupportedPayoutChain,
     params: PayoutExecutionParams
   ): Promise<PayoutExecutionResult> {
+    // 1. Synchronous pre-flight sanctions screening
+    const screening = await this.sanctionsService.checkAddress(params.recipientAddress, chain);
+    if (screening.isSanctioned) {
+      const errorMsg = `Pre-flight sanctions check failed: recipient address '${params.recipientAddress}' on chain '${chain}' is flagged (${screening.reason || 'Sanctioned address'}). Transaction aborted.`;
+      logger.error(`[PayoutRouter] [SANCTIONS_BLOCK] ${errorMsg}`);
+      return {
+        success: false,
+        payoutId: params.payoutId,
+        chain,
+        toAddress: params.recipientAddress,
+        amount: params.amount,
+        token: params.token ?? 'USDC',
+        error: errorMsg,
+        status: 'failed',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
+    // 2. Delegate to chain adapter
     const adapter = this.getAdapter(chain);
     return adapter.sendPayout(params);
   }
