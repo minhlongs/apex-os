@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-28
+
+### Added
+- **Multi-Chain Automated Payout Rails & Settlement Engine**: Pluggable `PayoutChainAdapter` architecture extending settlement beyond Stellar to Ethereum (EVM ERC-20 USDC/USDT) and Solana (SPL USDC) with pure TypeScript Keccak-256 and Base58 codecs for edge runtime compatibility.
+- **Automated Batch Settlement & Ledger Safety**: `BatchSettlementService` with $50 minimum threshold aggregation, Cloudflare D1 atomic two-phase reservation (`db.batch`), deterministic SHA-256 idempotency key generation, and strict double-entry ledger reconciliation.
+- **Treasury Health Monitoring & Circuit Breaker**: `TreasuryHealthService` inspecting native gas and stablecoin reserves across Ethereum, Solana, and Stellar, grading health status (`HEALTHY`, `LOW_RESERVE`, `CRITICAL`), and pausing automated batch processing when hot wallet reserves fall below safety floors.
+- **Admin Payout Controls & Immutability**: Endpoints for batch preview and triggering (`/api/admin/payouts/batch`), failed payout retry with gas re-estimation and CAS guards (`/api/admin/payouts/retry`), and treasury inspection (`/api/admin/payouts/treasury`), backed by tamper-proof `payout_audit_logs` protected by SQLite engine triggers.
+- **D1 Schema Migration 023**: Migration `023_multichain_payouts.sql` introducing `payout_batches`, `payout_audit_logs`, multi-chain columns on `payouts`, and immutability triggers.
+
 ## [1.1.0] - 2026-09-27
 
 ### Added
