@@ -24,7 +24,9 @@ export type PayoutStatus =
   | 'processing'
   | 'completed'
   | 'failed'
-  | 'cancelled';
+  | 'cancelled'
+  | 'kyc_required'
+  | 'compliance_blocked';
 
 export const PAYOUT_STATUSES: readonly PayoutStatus[] = [
   'pending',
@@ -32,6 +34,8 @@ export const PAYOUT_STATUSES: readonly PayoutStatus[] = [
   'completed',
   'failed',
   'cancelled',
+  'kyc_required',
+  'compliance_blocked',
 ] as const;
 
 export type BatchStatus =
@@ -104,6 +108,8 @@ export interface PayoutRecord {
   error_message?: string | null;
   retry_count?: number;
   last_retried_at?: string | null;
+  compliance_status?: 'clean' | 'pending_review' | 'kyc_required' | 'compliance_blocked' | 'approved' | 'rejected';
+  compliance_reason?: string | null;
   notes: string | null;
   metadata: string | null;
   created_at: string;
@@ -324,6 +330,10 @@ export interface BatchPreviewItem {
   fee: number;
   netAmount: number;
   estimatedGasFeeUsd: number;
+  complianceStatus?: 'clean' | 'pending_review' | 'kyc_required' | 'compliance_blocked' | 'approved' | 'rejected';
+  complianceReason?: string;
+  kycTier?: string;
+  cumulative30dVolume?: number;
 }
 
 export interface BatchPreviewResult {

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-28
+
+### Added
+- **KYC & Regulatory Compliance Engine**: Tiered 30-day rolling payout limits ($500 unverified ceiling, $2,500 basic, $50,000+ enhanced) protecting cryptocurrency settlement rails against illicit flows and financial non-compliance.
+- **On-Chain Sanctions & AML Address Screening**: Pre-flight screening of recipient wallet addresses on Ethereum, Solana, and Stellar via `SanctionsScreeningService`, blocking OFAC SDN sanctioned addresses and mixer deposits with `compliance_blocked` status and high-severity audit logging.
+- **Identity Verification Webhook & Automated Release**: Provider-agnostic KYC session generation (`/api/kyc/initiate`) and edge HMAC-SHA256 webhook handler (`/api/webhooks/kyc`) that upgrades user profiles to `tier2_enhanced` upon approval and automatically unholds previously blocked `kyc_required` payouts via `AutoReleaseService`.
+- **Administrative Compliance Review Dashboard**: Responsive management dashboard (`/admin/compliance`) and secure API endpoints (`/api/admin/compliance/*`) for reviewing held payouts, managing local sanctions watchlists, and logging immutable audit events into `compliance_audit_logs`.
+- **D1 Schema Migration 024**: Migration `024_kyc_compliance_schema.sql` adding `sanctioned_addresses` (pre-seeded with OFAC SDN list), `compliance_audit_logs` with SQLite engine immutability triggers, and payout compliance tracking fields.
+
 ## [1.2.0] - 2026-09-28
 
 ### Added
