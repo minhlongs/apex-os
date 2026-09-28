@@ -1,103 +1,85 @@
-# Test Suite Readiness Report: Fraud Detection & Anomaly Engine
-**ApexOS Sprint 8: Fraud Detection & Anomaly Engine (Phase 2)**
-*Published by: `teamwork_preview_test_writer_e2e_1` (E2E Test Writer)*
-*Target Directory: `/Users/macbook/apex-os`*
-*Date: 2026-09-25*
+# Test Suite Readiness Report: Cross-Exchange Arbitrage & High-Yield Deal Crawler Engine
+**ApexOS Sprint 13: Cross-Exchange Arbitrage & High-Yield Deal Crawler Engine**  
+*Published by: `teamwork_preview_test_writer_e2e_11` (E2E Test Writer)*  
+*Target Directory: `/Users/macbook/apex-os`*  
+*Date: 2026-09-28*  
 
 ---
 
 ## 1. Executive Summary
 
-The comprehensive, opaque-box, requirement-driven E2E test suite covering all 12 features for the **ApexOS Fraud Detection & Anomaly Engine** has been designed, implemented, and verified.
+The comprehensive, opaque-box, requirement-driven E2E test suite covering all functional and non-functional requirements for the **ApexOS Cross-Exchange Arbitrage & High-Yield Deal Crawler Engine** has been designed, implemented, and verified.
 
-- **Total Tests Authored**: 138 tests across 4 test suites.
-- **Test Runner Command**:
+- **Total Test Cases**: **52 tests** in `src/__tests__/crawler/e2e-arbitrage-crawler.test.ts`.
+- **Test Command**:
   ```bash
-  node ./node_modules/jest/bin/jest.js src/__tests__/fraud/
+  npx jest src/__tests__/crawler/e2e-arbitrage-crawler.test.ts
   ```
-- **Execution Performance**: ~0.74 seconds total execution time.
-- **Syntax / Setup Errors**: **0 errors** (compiles cleanly, 0 TypeScript errors with `tsc --noEmit`).
-- **Current Execution Status**: **138 passed, 0 failed (100% passing rate)**.
+- **Execution Performance**: **0.58 seconds** total execution time.
+- **Typecheck Status**: **0 errors (`npx tsc --noEmit`)**.
+- **Test Results**: **52 passed, 0 failed (100% passing rate)**.
 
 ---
 
 ## 2. Test Suite Tier Breakdown
 
-| Suite Tier | File Path | Test Count | Minimum Req | Current Pass | Status |
+| Suite Tier | Category | Test Count | Minimum Req | Current Pass | Status |
 |---|---|---|---|---|---|
-| **Tier 1: Feature Coverage** | `src/__tests__/fraud/e2e-tier1-features.test.ts` | 61 | >= 60 | 61 passed | 100% Pass |
-| **Tier 2: Boundary & Corner Cases** | `src/__tests__/fraud/e2e-tier2-boundaries.test.ts` | 60 | >= 60 | 60 passed | 100% Pass |
-| **Tier 3: Pairwise Combinations** | `src/__tests__/fraud/e2e-tier3-combinations.test.ts` | 12 | >= 10 | 12 passed | 100% Pass |
-| **Tier 4: Real-World Scenarios** | `src/__tests__/fraud/e2e-tier4-scenarios.test.ts` | 5 | >= 5 | 5 passed | 100% Pass |
-| **Total** | | **138** | **>= 135** | **138 passed, 0 failed** | **TEST READY** |
+| **Tier 1: Feature Coverage** | Primary behaviors across F1 - F7 | 37 | >= 35 (>=5/feature) | 37 passed | 100% Pass |
+| **Tier 2: Boundary & Corner Cases** | Zero fees, rebates, 0%/100% cashback, extreme volume, 429 fallback, rate limiting | 7 | >= 6 | 7 passed | 100% Pass |
+| **Tier 3: Cross-Feature Combinations** | Multi-step pipeline, cooldown deduplication, dual-market pair coexistence, expiry deactivation | 5 | >= 4 | 5 passed | 100% Pass |
+| **Tier 4: Real-World Scenarios** | Trader $810/yr savings, Admin manual sync pipeline, Flash volatility burst alerting | 3 | >= 3 | 3 passed | 100% Pass |
+| **Total** | | **52** | **>= 48** | **52 passed, 0 failed** | **TEST READY** |
 
 ---
 
-## 3. Feature Coverage Checklist (F1 - F12)
+## 3. Feature Coverage Checklist (F1 - F7)
 
-| Feature ID | Description | Endpoint / Artifact | Milestone | Test Count | Current Test Status |
-|---|---|---|---|---|---|
-| **F1** | D1 Schema Extension | `021_fraud_detection_schema.sql` | M1 | 12 tests | Passing (verifies table DDL, triggers, and mock schema compatibility) |
-| **F2** | Core Types & Interface Contracts | `src/types/fraud.ts` | M1 | 10 tests | Passing (verifies contract structures and reason code enums) |
-| **F3** | Dual-Window IP Rate Limiter | `src/lib/fraud/fraud-engine.ts` | M2 | 12 tests | Passing (100/hr, 1000/day, 429 status, Retry-After header) |
-| **F4** | IP Blocklist & Auto-Blocking | `blocked_ips` query & engine | M2 | 12 tests | Passing (403 status, IPv6 support, expiration handling) |
-| **F5** | Click Route Protection | `/api/deals/[id]/click`, `/api/tracking/click` | M2 | 12 tests | Passing (IP extraction, 403 rejection, redirect URL delivery) |
-| **F6** | Conversion Attribution Compatibility | `src/lib/tracking/matcher.ts` | M2 | 11 tests | Passing (safeguard filters `is_suspicious=1`, allows approved clicks) |
-| **F7** | Rapid Burst Anomaly Detection | `evaluateClickVelocity` (< 2000ms) | M3 | 11 tests | Passing (exact 2000ms boundary, session correlation, anomaly scores) |
-| **F8** | Click-to-Conversion Ratio Velocity | `evaluateClickVelocity` (> 10:1 ratio) | M3 | 11 tests | Passing (exact 10.0 boundary, 10-click minimum volume threshold) |
-| **F9** | Flag Reasons & Score Persistence | `deal_clicks` atomic storage | M3 | 10 tests | Passing (JSON array serialization, 0.0-1.0 score clamping) |
-| **F10** | Admin Fraud Dashboard UI | `/admin/fraud` & components | M4 | 10 tests | Passing (KPI metrics, filter toolbar, clicks table) |
-| **F11** | Admin Fraud API Endpoints | `/api/admin/fraud/*` | M4 | 10 tests | Passing (RBAC admin enforcement, pagination, action execution) |
-| **F12** | Immutable Audit Logging | `fraud_reviews` & triggers | M4 | 11 tests | Passing (audit persistence, UPDATE/DELETE immutability triggers) |
+| Feature ID | Feature Name | Key Test Invariants Verified | Test Count | Pass Rate | Status |
+|---|---|---|:---:|:---:|:---:|
+| **F1** | Crawler Adapters & Symbol Normalization | Spot & Futures indexing, BNB/KCS/OKB discounts, VIP brackets, symbol normalization (`BTCUSDT`, `BTC-USDT-SWAP` -> `BTC/USDT`), deterministic offline fallback fixtures | 6 | 100% | PASS |
+| **F2** | Arbitrage & Yield Math Engine | Net taker fee calculation with cashback reduction, basis point spread (bps), relative fee savings %, volume benchmark savings ($10k, $50k, $250k), classification (`FEE_SPREAD`, `CASHBACK_MAX`, `VIP_PROMOTION`) | 6 | 100% | PASS |
+| **F3** | Sync History & Audit Logging | `crawler_sync_runs` table persistence, execution duration, items count, error message logging, `fallback_used` tracking, descending pagination | 5 | 100% | PASS |
+| **F4** | Real-Time Alert Dispatching & Push | Threshold triggers (spread >= 15.0 bps OR savings >= 20.0%), formatted Telegram Markdown alert messages, mobile push payloads for `device_tokens`, threshold gating | 5 | 100% | PASS |
+| **F5** | Public Arbitrage API (`GET /api/deals/arbitrage`) | Pagination, filtering by trading `pair` (case-insensitive), filtering by `market_type` (`spot`/`futures`), filtering by `min_spread`, response envelope structure | 5 | 100% | PASS |
+| **F6** | Admin Crawler Management APIs | Dual-phase admin RBAC (401 unauthenticated, 403 non-admin), `POST /api/admin/crawler/run` crawl trigger, `GET /api/admin/crawler/status` aggregate rate cards and exchange health metrics | 5 | 100% | PASS |
+| **F7** | Deals UI Logic & Arbitrage Finder | Dynamic volume slider calculations ($10k-$1M), maker/taker order blending, badge color thresholds (neutral, success, super), 1-click CTA affiliate deep link routing | 5 | 100% | PASS |
 
 ---
 
-## 4. Implementation Bugs Discovered & Escalations
+## 4. Key Authoritative Numerical Calculations Verified
 
-The test writer operates under strict read-only / test-only authority. The following defects discovered during baseline testing against existing click ingestion routes are escalated to the implementing builder agents:
+### Test Vector 1: Prompt Canonical Bybit vs Binance Futures (BTC/USDT)
+- **Base Exchange (Binance Futures)**: Gross Taker = 0.075%, Cashback = 20.0% $\rightarrow$ Net Taker = 0.0600% (6.0 bps)
+- **Target Exchange (Bybit Futures)**: Gross Taker = 0.055%, Cashback = 40.0% $\rightarrow$ Net Taker = 0.0330% (3.3 bps)
+- **Net Spread**: $(0.00060 - 0.00033) \times 10,000 = \mathbf{2.70 \text{ bps}}$
+- **Fee Savings %**: $\frac{0.00060 - 0.00033}{0.00060} \times 100 = \mathbf{45.00\%}$
+- **Volume Benchmark Savings ($250k/mo volume)**:
+  - Monthly: $\$250,000 \times \frac{2.70}{10,000} = \mathbf{\$67.50/\text{mo}}$
+  - Annual: $\$67.50 \times 12 = \mathbf{\$810.00/\text{yr}}$ *(Direct match to prompt scenario: "$810/yr savings switching from Binance to Bybit with ApexOS 40% cashback")*
 
-### 1. [HIGH] Inconsistent IP Header Precedence in Deal Click Ingestion (`src/app/api/deals/[id]/click/route.ts`)
-- **Observed Behavior**: In `POST /api/deals/[id]/click`, line 55 prioritizes client-controlled `X-Forwarded-For` over trusted edge `CF-Connecting-IP`:
-  ```ts
-  const ipAddress = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-                   request.headers.get('cf-connecting-ip') ||
-                   request.headers.get('x-real-ip') || null;
-  ```
-  In contrast, `GET /api/deals/[id]/click`, line 175 checks `cf-connecting-ip` first:
-  ```ts
-  request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || null
-  ```
-- **Security Impact**: In `POST`, malicious actors can spoof arbitrary IP addresses via `X-Forwarded-For` to bypass IP-based rate limiting and IP blocklists.
-- **Recommended Fix (M2 Builder)**: Standardize both `POST` and `GET` using a shared `extractIpAddress(request.headers)` utility that checks `cf-connecting-ip` first.
+### Test Vector 2: Spot Fee Spread (OKX vs Binance on ETH/USDT)
+- **Base Exchange (Binance Spot)**: Gross Taker = 0.100%, Cashback = 10.0% $\rightarrow$ Net Taker = 0.0900% (9.0 bps)
+- **Target Exchange (OKX Spot)**: Gross Taker = 0.070%, Cashback = 25.0% $\rightarrow$ Net Taker = 0.0525% (5.25 bps)
+- **Net Spread**: $3.75 \text{ bps}$ | **Savings %**: $41.67\%$ | **$250k Annual Savings**: $\$1,125.00/\text{yr}$
 
-### 2. [HIGH] Relative Redirect URL Crash in Tracking Click Route (`src/app/api/tracking/click/route.ts`)
-- **Observed Behavior**: In `GET /api/tracking/click`, line 113 constructs a relative path:
-  ```ts
-  targetUrl = `/${locale}/deals/${dealId}`;
-  ```
-  and passes it directly to `NextResponse.redirect(targetUrl, { status: 302 })`. Next.js App Router enforces absolute URLs in `NextResponse.redirect`, throwing `TypeError: Invalid URL` and causing an unhandled HTTP 500 Internal Server Error when no explicit `redirect` query parameter is supplied.
-- **Recommended Fix (M2 Builder)**: Ensure redirect URLs are constructed using the request origin:
-  ```ts
-  targetUrl = new URL(`/${locale}/deals/${dealId}`, request.url).toString();
-  ```
-
-### 3. [MEDIUM] Pending Milestone Artifacts
-- Database migration `src/database/migrations/021_fraud_detection_schema.sql` (M1)
-- Core types `src/types/fraud.ts` (M1)
-- Fraud engine core `src/lib/fraud/fraud-engine.ts` (M2, M3)
-- Admin UI at `/admin/fraud` and components (M4)
-- Admin API endpoints in `src/app/api/admin/fraud/` (M4)
+### Test Vector 3: High-Spread Volatility Burst Alert Trigger (> 15 bps)
+- **Base Exchange (KuCoin Spot surge)**: Net Taker = 0.200% (20.0 bps)
+- **Target Exchange (Bybit Spot promo)**: Net Taker = 0.042% (4.2 bps)
+- **Net Spread**: $15.80 \text{ bps} \ge 15.0 \text{ bps}$ (Threshold met $\rightarrow$ Telegram + Mobile Push dispatched!)
 
 ---
 
-## 5. Verification Commands for Milestone Progression
+## 5. Verification Commands
 
-When builders complete M1, M2, M3, and M4, verify the full suite progression:
+To independently execute and verify the E2E test suite:
+
 ```bash
-# Run the complete test suite:
-node ./node_modules/jest/bin/jest.js src/__tests__/fraud/
+# 1. Run the comprehensive E2E arbitrage crawler test suite:
+npx jest src/__tests__/crawler/e2e-arbitrage-crawler.test.ts
 
-# Verify TypeScript typecheck:
-node ./node_modules/typescript/bin/tsc --noEmit
+# 2. Run TypeScript compilation check:
+npx tsc --noEmit
 ```
-Target for Milestone 5 (M5): **138 passed, 0 failed, 100% passing rate**.
+
+Target status: **52 passed, 0 failed (100% pass rate), 0 TypeScript compiler errors**.

@@ -46,12 +46,13 @@ export class AutoReleaseService {
     }
 
     try {
-      // 1. Query all payouts currently held with kyc_required
+      // 1. Query all payouts currently held with kyc_required (with defense-in-depth)
       const selectSql = `
         SELECT id, amount, status, compliance_status
         FROM payouts
         WHERE affiliate_id = ?
           AND (compliance_status = 'kyc_required' OR status = 'kyc_required')
+          AND (compliance_status IS NULL OR compliance_status != 'compliance_blocked')
       `;
       const result = await db.prepare(selectSql).bind(affiliateId).all<{
         id: string;
@@ -97,18 +98,16 @@ export class AutoReleaseService {
         // Build atomic batch statements
         const batchStatements: D1PreparedStatement[] = [];
 
-        // 1. Update payout record: compliance_status = 'clean', compliance_reason = 'KYC_VERIFIED_AUTO_RELEASED'
-        // If status was 'kyc_required', restore to 'pending'
-        const nextStatus = payout.status === 'kyc_required' ? 'pending' : payout.status;
+        // 1. Transition the original held payout to clean / cancelled to prevent pending inflation
         batchStatements.push(
           db.prepare(`
             UPDATE payouts
             SET compliance_status = 'clean',
-                compliance_reason = 'KYC_VERIFIED_AUTO_RELEASED',
-                status = ?,
+                compliance_reason = 'KYC_VERIFIED_AUTO_RELEASED_REBATCHED',
+                status = 'cancelled',
                 updated_at = datetime('now')
             WHERE id = ?
-          `).bind(nextStatus, payout.id)
+          `).bind(payout.id)
         );
 
         // 2. Reset earnings: payout_id = NULL (where is_paid = 0)
@@ -134,7 +133,7 @@ export class AutoReleaseService {
               amount: payout.amount,
               previousComplianceStatus: payout.compliance_status || payout.status,
               releasedEarnings: earningCount,
-              reason: 'KYC_VERIFIED_AUTO_RELEASED',
+              reason: 'KYC_VERIFIED_AUTO_RELEASED_REBATCHED',
             },
           })
         );
