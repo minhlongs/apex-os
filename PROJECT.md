@@ -1,79 +1,131 @@
-# Project: ApexOS Sprint 10 — Q3 2026 Final Go-Live Readiness & Master Release Consolidation
+# Project: Multi-Chain Automated Payout Rails & Settlement Engine for ApexOS
 
 ## Architecture
-- **Web Application**: Next.js 14 App Router, TypeScript, TailwindCSS, Cloudflare Pages/Workers runtime.
-- **Database & Storage**: Cloudflare D1 (SQLite) with Drizzle ORM / parameterized queries, Cloudflare KV namespace for caching and replay protection.
-- **Exchange Integration**: Unified multi-exchange webhook router supporting Binance, Bybit, OKX, and KuCoin with HMAC-SHA256 signature verification, 5-minute timestamp validation windows, and KV replay protection.
-- **Billing & Payments**: NOWPayments crypto checkout integration for tier upgrades (BASIC, PREMIUM, ENTERPRISE, MASTER), HMAC-SHA512 IPN webhook verification, idempotent tier activations.
-- **Fraud Detection Engine**: Multi-tier defense on click tracking: dual-window rate limiting (100 clicks/hr, 1,000 clicks/day), velocity burst detection (<2s), click-to-conversion anomaly scoring (>10:1), IP blocklisting, and immutable admin review audit logging.
-- **Mobile Application**: React Native 0.86 with Expo SDK 52 in `apex-os-mobile` submodule, Hermes bytecode engine, EAS Build profiles (development, preview, production), bundle size strictly <50MB (5.4MB current).
-- **Master Release**: Fast-forward branch consolidation onto `master`, submodule tracking via `.gitmodules`, and semantic release `v1.1.0`.
+Pluggable multi-chain automated payout rails extending ApexOS settlement capabilities from Stellar to Ethereum (ERC-20 USDC/USDT) and Solana (SPL USDC), built for Cloudflare Workers/Pages Edge Runtime without native Node C++ dependencies.
+
+```
+                    ┌────────────────────────┐
+                    │ Admin & Scheduled Jobs │
+                    │ /api/admin/payouts/*   │
+                    └───────────┬────────────┘
+                                │
+                                ▼
+                   ┌───────────────────────────┐
+                   │  BatchSettlementService   │
+                   │  - Threshold Filtering    │
+                   │  - D1 Atomic Reservation  │
+                   │  - Idempotency Keys       │
+                   └───────┬───────────┬───────┘
+                           │           │
+            ┌──────────────┘           └──────────────┐
+            ▼                                         ▼
+┌─────────────────────────┐               ┌───────────────────────────┐
+│  TreasuryHealthService  │               │       PayoutRouter        │
+│  - Native Gas Floors    │               │  - User preferred_chain   │
+│  - Stablecoin Reserves  │               │  - Address Verification   │
+│  - Auto-Pause Gate      │               └─────────────┬─────────────┘
+└─────────────────────────┘                             │
+                                  ┌─────────────────────┼─────────────────────┐
+                                  ▼                     ▼                     ▼
+                        ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
+                        │ StellarAdapter  │   │ EthereumAdapter │   │  SolanaAdapter  │
+                        │ - Horizon RPC   │   │ - Edge JSON-RPC │   │ - Edge JSON-RPC │
+                        │ - XLM / USDC    │   │ - Keccak-256    │   │ - Base58 Codec  │
+                        │                 │   │ - EIP-55        │   │ - SPL Transfers │
+                        │                 │   │ - EIP-1559 Fees │   │ - Compute Budget│
+                        └─────────────────┘   └─────────────────┘   └─────────────────┘
+                                  │                     │                     │
+                                  └─────────────────────┼─────────────────────┘
+                                                        │
+                                                        ▼
+                                      ┌───────────────────────────────────┐
+                                      │ Cloudflare D1 Storage & Auditing │
+                                      │ - Migration 023_multichain        │
+                                      │ - payouts (extended)              │
+                                      │ - payout_batches                  │
+                                      │ - payout_audit_logs (immutable)   │
+                                      └───────────────────────────────────┘
+```
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
-| F1 | KV Analytics Deserialization Fix | Eliminate redundant `JSON.parse` on parsed KV objects in `/api/analytics/{deals,affiliates,exchanges,funnel}` and `/api/affiliate/team` | M1 | Survey 2 |
-| F2 | Webhook Replay Protection KV Compatibility | Update `src/lib/webhooks/replay-protection.ts` to use standard Cloudflare KV `get`/`put` instead of unsupported `kv.add` | M1 | Survey 2 |
-| F3 | Database Composite Indexes Migration | Add migration `022_performance_optimization_indexes.sql` for `deals(is_active, created_at DESC)` and `payments(user_id, created_at DESC)` | M1 | Survey 2 |
-| F4 | Click Velocity Query Optimization | Refactor `deal_clicks` burst query in `src/lib/fraud/fraud-engine.ts` from `OR` to `UNION ALL` to utilize composite indexes | M1 | Survey 2 |
-| F5 | Schema Complete Synchronization | Synchronize `src/database/schema-complete.sql` with migrations 012, 018, and 020 (`payments`, `tier_activations`, `device_tokens`, `deep_link_analytics`, `email_queue`) | M1 | Survey 2 |
-| F6 | Version Bump to 1.1.0 | Increment `"version": "1.1.0"` in root `package.json` | M2 | Survey 3 |
-| F7 | Q3 Completed Documentation Sync | Update `README.md` and `CHANGELOG.md` with complete Q3 features and v1.1.0 release notes | M2 | Survey 3 |
-| F8 | Roadmap & Go/No-Go Status Update | Update `plans/q3-2026-roadmap.md` and `plans/README-Q3-ROADMAP.md` to `status: completed` and check all 6 criteria `[x]` | M2 | Survey 1, Survey 3 |
-| F9 | Architecture & Integration Guides | Create `docs/mobile/README.md`, `docs/fraud/README.md`, `docs/payments/README.md`, `docs/email/README.md`, and update `docs/api-endpoints.md` | M2 | Survey 3 |
-| F10 | Submodule `.gitmodules` Restoration | Create root `.gitmodules` mapping `apex-os-mobile` to remote repository, push mobile commits, verify clean submodule status | M3 | Survey 2, Survey 3 |
-| F11 | Master Branch Linear Consolidation | Fast-forward merge `feature/sprint-09-mobile-store-prep` into `master` and tag release `v1.1.0` | M3 | Survey 2 |
-| F12 | Full System E2E Regression Verification | Execute 100% of web test suites (108 suites) and mobile test suites (12 suites) with 0 failures | M4 | Survey 1, Survey 3 |
-| F13 | TypeScript Zero-Error Verification | Verify `tsc --noEmit` exits with code 0 across both web and mobile repositories | M4 | Survey 1, Survey 3 |
-| F14 | Clean Production Builds Verification | Verify `npm run build` succeeds (69/69 pages) and `npx expo export` produces <50MB bundle | M4 | Survey 1, Survey 3 |
-| F15 | Cross-Cutting Go/No-Go Final Sign-off | Evaluate and publish final verification sign-off across all 6 roadmap Go/No-Go criteria | M4 | Survey 1, Survey 2, Survey 3 |
+| 1 | Schema Migration 023 | Cloudflare D1 migration defining `payout_batches`, `payout_audit_logs`, immutability triggers, and extending `payouts` with multi-chain columns | M1 | ORIGINAL_REQUEST §R5 |
+| 2 | Core Multi-Chain Types | TypeScript type definitions for chains, adapters, fee estimation, batch records, and audit events | M1 | ORIGINAL_REQUEST §R1, R2 |
+| 3 | Immutable Audit Logger | `PayoutAuditService` providing atomic dual-write audit logs with SQLite trigger immutability | M1 | ORIGINAL_REQUEST §R4 |
+| 4 | Edge JSON-RPC Client | Pure TypeScript `fetch`-based JSON-RPC client with timeout, exponential backoff, and retry for HTTP 429/5xx | M2 | ORIGINAL_REQUEST §R5 |
+| 5 | Edge Crypto & Codecs | Zero-dependency pure TS Keccak-256, EIP-55 checksum validator/formatter, and strict 32-byte Base58 codec | M2 | ORIGINAL_REQUEST §R1, R5 |
+| 6 | Pluggable Chain Adapter Interface | `PayoutChainAdapter` defining `estimateFee`, `sendPayout`, `verifyTransaction`, `getTreasuryBalance` | M2 | ORIGINAL_REQUEST §R1 |
+| 7 | Stellar Payout Adapter | `StellarAdapter` wrapping Horizon operations for USDC and XLM gas fee estimation and verification | M2 | ORIGINAL_REQUEST §R1 |
+| 8 | Ethereum EVM Adapter | `EthereumAdapter` supporting ERC-20 (USDC/USDT), calldata encoding (`0xa9059cbb`), EIP-1559 gas estimation, simulation, and receipt polling | M2 | ORIGINAL_REQUEST §R1 |
+| 9 | Solana SPL Adapter | `SolanaAdapter` supporting SPL USDC transfer instructions, compute unit budgeting, blockhash freshness, and commitment confirmation | M2 | ORIGINAL_REQUEST §R1 |
+| 10 | Payout Router | `PayoutRouter` resolving target adapter from user `preferred_chain` with strict chain-specific address validation | M2 | ORIGINAL_REQUEST §R1 |
+| 11 | Treasury Balance & Gas Health Monitoring | `TreasuryHealthService` querying native gas & stablecoin balances, safety floors, and returning HEALTHY / LOW_RESERVE / CRITICAL | M3 | ORIGINAL_REQUEST §R3 |
+| 12 | Automated Circuit Breaker / Pause Gate | Halts automated batch settlements when treasury gas or stablecoin balances fall below safety floor | M3 | ORIGINAL_REQUEST §R3 |
+| 13 | Threshold Filtering & Affiliate Grouping | `BatchSettlementService` querying unpaid earnings meeting minimum threshold (default $50) grouped by affiliate | M4 | ORIGINAL_REQUEST §R2 |
+| 14 | Atomic Double-Entry Ledger Reservation | Atomic two-phase reservation in D1 (`db.batch`): reserving earnings (`is_paid = 0 AND payout_id IS NULL`), creating `payout_batches` and `payouts` | M4 | ORIGINAL_REQUEST §R2 |
+| 15 | Idempotency Safeguards | Deterministic idempotency keys per payout execution preventing duplicate on-chain transfers or multiple ledger debits | M4 | ORIGINAL_REQUEST §R2 |
+| 16 | Ledger Reconciliation & Status Transition | Double-entry commit (`pending` → `processing` → `completed` | `failed`), atomically updating earnings to paid or rolling back on error | M4 | ORIGINAL_REQUEST §R2 |
+| 17 | Admin Batch Payout Endpoint | `POST /api/admin/payouts/batch` for previewing and executing scheduled/manual batches with chain filtering and audit logging | M5 | ORIGINAL_REQUEST §R4 |
+| 18 | Admin Retry & Manual Resolution Endpoint | `POST /api/admin/payouts/retry` for retrying failed payouts with fee re-estimation and resolving stuck transactions | M5 | ORIGINAL_REQUEST §R4 |
+| 19 | Admin Treasury Inspection Endpoint | `GET /api/admin/payouts/treasury` inspecting multi-chain balances, health levels, and pending settlement queues | M5 | ORIGINAL_REQUEST §R4 |
+| 20 | Comprehensive Test Suite & Regression Verification | 100% test pass rate across unit/integration/E2E tests, 0 TypeScript compile errors, and clean Next.js production build | M6 | ORIGINAL_REQUEST Acceptance Criteria |
 
 ## Milestones
 | # | Name | Scope | Dependencies | Status |
 |---|------|-------|-------------|--------|
-| M1 | API Performance, Caching & Database Schema Hardening | F1, F2, F3, F4, F5 | none | DONE |
-| M2 | Comprehensive Documentation & Roadmap Synchronization | F6, F7, F8, F9 | none | DONE |
-| M3 | Master Branch Consolidation & Submodule Hygiene | F10, F11 | M1, M2 | DONE |
-| M4 | Final Go/No-Go Audit, Full E2E Test & Production Build Verification | F12, F13, F14, F15 | M1, M2, M3 | DONE |
+| M1 | Schema Migration & Multi-Chain Types | Migration `023_multichain_payouts.sql`, TypeScript interfaces, Audit Logger | none | DONE |
+| M2 | Multi-Chain Adapters & Payout Router | Edge JSON-RPC client, Keccak-256, Base58, Stellar/Ethereum/Solana adapters, PayoutRouter | M1 | DONE |
+| M3 | Gas Fee Estimation & Treasury Health Monitoring | `TreasuryHealthService`, balance health classifications, automated pause gate | M1, M2 | IN_PROGRESS |
+| M4 | Automated Batch Settlement & Ledger Reconciliation | `BatchSettlementService`, D1 atomic reservation, double-entry safety, idempotency | M1, M2, M3 | PLANNED |
+| M5 | Admin Payout Controls, Retries & Audit APIs | `/api/admin/payouts/batch`, `/api/admin/payouts/retry`, `/api/admin/payouts/treasury` | M1, M2, M3, M4 | PLANNED |
+| M6 | Test Suite & Build Verification | Comprehensive 4-tier test suite, `tsc --noEmit`, clean production build | M1..M5 | PLANNED |
 
 ## Interface Contracts
+### PayoutChainAdapter
+```typescript
+export interface PayoutChainAdapter {
+  readonly chain: 'stellar' | 'ethereum' | 'solana';
+  validateAddress(address: string): boolean;
+  estimateFee(params: FeeEstimateParams): Promise<ChainFeeEstimate>;
+  sendPayout(params: PayoutExecutionParams): Promise<PayoutExecutionResult>;
+  verifyTransaction(transactionId: string): Promise<TransactionVerificationResult>;
+  getTreasuryBalance(): Promise<TreasuryBalanceResult>;
+}
+```
 
-### Cloudflare KV Cache Contract (`src/lib/cache/kv-cache.ts`)
-- `getCached<T>(key: string): Promise<T | null>`
-- Behavior: calls `KV.get(key, 'json')`. If result is string, calls `JSON.parse(result)`. If result is object, returns directly.
-- TTL: 300s (5 minutes) for analytics and affiliate statistics.
-- Headers: `Cache-Control: public, s-maxage=300, stale-while-revalidate=60`, `X-Cache: HIT | MISS`.
+### BatchSettlementService
+```typescript
+export interface BatchSettlementService {
+  previewBatch(options?: BatchPreviewOptions): Promise<BatchPreviewResult>;
+  executeBatch(options?: BatchExecutionOptions): Promise<BatchExecutionResult>;
+  retryPayout(payoutId: string, options?: RetryOptions): Promise<PayoutExecutionResult>;
+}
+```
 
-### Webhook Replay Protection Contract (`src/lib/webhooks/replay-protection.ts`)
-- `checkAndRecordNonce(nonce: string, timestamp: number, ttlSeconds?: number): Promise<boolean>`
-- Key format: `replay:${nonce}`
-- Method: `const existing = await kv.get(key); if (existing) return false; await kv.put(key, '1', { expirationTtl: ttlSeconds }); return true;`
-
-### Database Composite Index Contract (`src/database/migrations/022_performance_optimization_indexes.sql`)
-- `CREATE INDEX IF NOT EXISTS idx_deals_active_created ON deals(is_active, created_at DESC);`
-- `CREATE INDEX IF NOT EXISTS idx_payments_user_created ON payments(user_id, created_at DESC);`
-
-### Git Submodule Contract (`.gitmodules`)
-```ini
-[submodule "apex-os-mobile"]
-	path = apex-os-mobile
-	url = git@github.com:minhlongs/apex-os-mobile.git
+### TreasuryHealthService
+```typescript
+export interface TreasuryHealthService {
+  checkHealth(chain?: SupportedPayoutChain): Promise<TreasuryHealthReport>;
+  canSettle(amountUsd: number, chain: SupportedPayoutChain): Promise<{ allowed: boolean; reason?: string }>;
+}
 ```
 
 ## Code Layout
-- `src/app/api/analytics/` (Deals, Affiliates, Exchanges, Funnel analytics routes)
-- `src/app/api/affiliate/team/route.ts` (Affiliate team downline route)
-- `src/lib/webhooks/replay-protection.ts` (KV replay protection)
-- `src/lib/fraud/fraud-engine.ts` (Fraud velocity detection engine)
-- `src/database/migrations/022_performance_optimization_indexes.sql` (Performance indexes)
-- `src/database/schema-complete.sql` (Canonical baseline schema)
-- `package.json` (Root package metadata & version 1.1.0)
-- `README.md` (Project overview & Q3 feature documentation)
-- `CHANGELOG.md` (Consolidated 1.1.0 release notes)
-- `plans/q3-2026-roadmap.md` & `plans/README-Q3-ROADMAP.md` (Completed roadmap records)
-- `docs/mobile/README.md` (Mobile architecture & build guide)
-- `docs/fraud/README.md` (Fraud anomaly engine guide)
-- `docs/payments/README.md` (NOWPayments & IPN webhook guide)
-- `docs/email/README.md` (Email templates & queue guide)
-- `docs/api-endpoints.md` (Synchronized API directory)
-- `.gitmodules` (Submodule tracking configuration)
+- `src/database/migrations/023_multichain_payouts.sql`: D1 migration file
+- `src/lib/payouts/types.ts`: Shared types, enums, interfaces
+- `src/lib/payouts/audit-service.ts`: Audit logging helper with immutability
+- `src/lib/payouts/rpc/json-rpc-client.ts`: Edge fetch-based JSON-RPC client
+- `src/lib/payouts/crypto/keccak.ts`: Pure TS Keccak-256 & EIP-55 validator
+- `src/lib/payouts/crypto/base58.ts`: Pure TS Base58 validator/codec
+- `src/lib/payouts/adapters/adapter-interface.ts`: `PayoutChainAdapter` interface
+- `src/lib/payouts/adapters/stellar-adapter.ts`: Stellar Horizon adapter
+- `src/lib/payouts/adapters/ethereum-adapter.ts`: EVM ERC-20 adapter
+- `src/lib/payouts/adapters/solana-adapter.ts`: Solana SPL adapter
+- `src/lib/payouts/router.ts`: `PayoutRouter`
+- `src/lib/payouts/treasury-health-service.ts`: Treasury balances & pause gate
+- `src/lib/payouts/batch-settlement-service.ts`: Batch settlement engine
+- `src/app/api/admin/payouts/batch/route.ts`: Admin batch endpoint
+- `src/app/api/admin/payouts/retry/route.ts`: Admin retry endpoint
+- `src/app/api/admin/payouts/treasury/route.ts`: Admin treasury endpoint
+- `src/lib/payouts/__tests__/*`: Comprehensive test files

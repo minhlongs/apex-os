@@ -3,7 +3,7 @@
  * ApexOS Affiliate Cashback System
  *
  * Exports all payout-related functionality including
- * Stellar service, database service, types, and utilities.
+ * Stellar service, database service, multi-chain batch settlement, types, and utilities.
  */
 
 export * from './payouts-service';
@@ -17,7 +17,58 @@ export {
   parseStellarAmount,
 } from './stellar-service';
 
-// Type exports
+// Multi-Chain Batch Settlement Service (Milestone 4)
+export {
+  BatchSettlementService,
+  batchSettlementService,
+  toCents,
+  fromCents,
+  generateBatchNumber,
+  generatePayoutIdempotencyKey,
+  generateRetryIdempotencyKey,
+} from './batch-settlement-service';
+export type { BatchSettlementServiceDependencies } from './batch-settlement-service';
+
+// Multi-Chain Routing, Treasury, and Audit Services
+export { PayoutRouter, payoutRouter } from './router';
+export {
+  TreasuryHealthService,
+  treasuryHealthService,
+} from './treasury-health-service';
+export type { CanSettleResult } from './treasury-health-service';
+export { PayoutAuditService, createAuditStatement, payoutAuditService } from './audit-service';
+
+// Multi-Chain Types
+export type {
+  SupportedPayoutChain,
+  PayoutStatus,
+  BatchStatus,
+  AuditAction,
+  HealthStatusLevel,
+  PayoutChainAdapter,
+  FeeEstimateParams,
+  ChainFeeEstimate,
+  PayoutExecutionParams,
+  PayoutExecutionResult,
+  TransactionVerificationResult,
+  TreasuryBalanceResult,
+  BatchSettlementOptions,
+  BatchPreviewOptions,
+  BatchExecutionOptions,
+  BatchPreviewItem,
+  BatchPreviewResult,
+  BatchExecutionResult,
+  RetryOptions,
+  ChainTreasuryHealth,
+  TreasuryHealthReport,
+  PayoutBatchRecord,
+  PayoutAuditLogRecord,
+  PayoutAuditLogInput,
+  PayoutAuditLogFilter,
+  PaginatedAuditLogs,
+} from './types';
+
+// Type exports from stellar-service
 export type {
   StellarAccount,
   StellarBalance,
