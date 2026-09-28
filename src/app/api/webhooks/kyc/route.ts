@@ -40,14 +40,18 @@ function resolveDatabase(request?: Request): D1Database | null {
  * Detects the appropriate provider adapter from request headers or query params
  */
 function resolveAdapter(request: NextRequest): KycProviderAdapter {
+  const isTestEnv = process.env.NODE_ENV === 'test';
   const url = new URL(request.url);
   const providerParam = url.searchParams.get('provider')?.toLowerCase();
 
+  // 1. Query parameter resolution (mock is strictly disallowed outside of test environment)
   if (providerParam === 'sumsub') return new SumsubAdapter();
   if (providerParam === 'persona') return new PersonaAdapter();
-  if (providerParam === 'mock') return new MockKycAdapter();
+  if (providerParam === 'mock' && isTestEnv) {
+    return new MockKycAdapter();
+  }
 
-  // Header detection
+  // 2. Header detection for production webhook providers
   if (
     request.headers.has('x-payload-digest') ||
     request.headers.has('x-payload-digest-alg')
@@ -62,7 +66,7 @@ function resolveAdapter(request: NextRequest): KycProviderAdapter {
     return new PersonaAdapter();
   }
 
-  // Fallback to environment variable or Mock adapter
+  // 3. Server-side configured KYC_PROVIDER environment variable
   const envProvider =
     typeof process !== 'undefined' && process.env?.KYC_PROVIDER
       ? process.env.KYC_PROVIDER.toLowerCase()
@@ -70,7 +74,15 @@ function resolveAdapter(request: NextRequest): KycProviderAdapter {
 
   if (envProvider === 'sumsub') return new SumsubAdapter();
   if (envProvider === 'persona') return new PersonaAdapter();
-  return new MockKycAdapter();
+  if (envProvider === 'mock' && isTestEnv) {
+    return new MockKycAdapter();
+  }
+
+  // 4. Default fallback: only allow Mock adapter in test environment; default to Sumsub in production / non-test
+  if (isTestEnv) {
+    return new MockKycAdapter();
+  }
+  return new SumsubAdapter();
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -82,11 +94,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 1. Resolve webhook secret
-  const secret =
+  // 1. Resolve webhook secret & enforce production security guard
+  const isProduction = process.env.NODE_ENV === 'production';
+  const configuredSecret =
     process.env.KYC_WEBHOOK_SECRET ||
-    (request as any)?.env?.KYC_WEBHOOK_SECRET ||
-    'test_kyc_webhook_secret';
+    (request as any)?.env?.KYC_WEBHOOK_SECRET;
+
+  if (
+    isProduction &&
+    (!configuredSecret || configuredSecret === 'test_kyc_webhook_secret')
+  ) {
+    logger.error('[KYC Webhook] Insecure or missing webhook secret in production');
+    return NextResponse.json(
+      { error: 'Webhook secret is not configured' },
+      { status: 500 }
+    );
+  }
+
+  const secret = configuredSecret || (isProduction ? '' : 'test_kyc_webhook_secret');
+  if (!secret) {
+    logger.error('[KYC Webhook] Webhook secret is not configured');
+    return NextResponse.json(
+      { error: 'Webhook secret is not configured' },
+      { status: 500 }
+    );
+  }
 
   // 2. Read raw request payload
   let rawBody: string;
@@ -144,21 +176,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    // 5. Query user profile for idempotency check
+    // 5. Query user profile for existence and idempotency check
     const existingProfile = await db
       .prepare('SELECT id, kyc_status, kyc_tier FROM profiles WHERE id = ?')
       .bind(event.userId)
       .first<{ id: string; kyc_status: string; kyc_tier: string }>();
 
-    // Idempotency: If already approved at tier2_enhanced, skip redundant mutations
-    const isAlreadyApproved =
-      existingProfile?.kyc_status === 'approved' &&
-      existingProfile?.kyc_tier === 'tier2_enhanced';
+    // Requirement 5: Profile Existence Validation
+    if (!existingProfile) {
+      logger.warn(`[KYC Webhook] User profile not found for userId: ${event.userId}`);
+      return NextResponse.json(
+        { error: 'User profile not found' },
+        { status: 404 }
+      );
+    }
 
-    if (event.status === 'approved' && isAlreadyApproved) {
-      // Check if any held payouts still need release
-      await releaseHeldPayouts(db, event.userId);
-      logger.info(`[KYC Webhook] Idempotent deduplication for user ${event.userId}`);
+    // Requirement 4: Full Idempotency for ALL Webhook Statuses
+    if (existingProfile.kyc_status === event.status) {
+      logger.info(
+        `[KYC Webhook] Idempotent deduplication for user ${event.userId} (status: ${event.status})`
+      );
       return NextResponse.json(
         { success: true, status: event.status, deduped: true },
         { status: 200 }

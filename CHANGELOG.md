@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-28
+
+### Added
+- **Multi-Exchange Rate & Campaign Crawler Engine**: Pluggable `ExchangeCrawlerAdapter` architecture indexing spot and futures trading fee schedules, VIP volume tiers, and affiliate cashback structures across **Binance**, **Bybit**, **OKX**, and **KuCoin**, with resilient exponential backoff (`withRetry`), rate-limit safety, and edge-compatible fallback fixtures (`fixtures/*`).
+- **Cross-Exchange Arbitrage & Yield Matrix Engine**: Pure TypeScript mathematical engine (`src/lib/arbitrage/math.ts` and `ArbitrageEngine`) computing net trading fees with cashback advantages, preserving maker fee rebates on negative rates, calculating basis point (bps) spreads ($\text{spreadBps} = (\text{netBase} - \text{netTarget}) \times 10,000$), net savings percentages, volume tier projections ($10k, $50k, $250k), and opportunity classification (`FEE_SPREAD`, `CASHBACK_MAX`, `VIP_PROMOTION`).
+- **Real-Time Alert Dispatching & Multi-Channel Push**: `ArbitrageAlertService` detecting high-spread opportunities ($\ge 15\text{ bps}$ or fee savings $\ge 20\%$), dispatching formatted Markdown alerts to Telegram channels via `TelegramNotifier`, pushing alerts to registered mobile devices (`device_tokens`), and enforcing a rolling 1-hour deduplication window with a $\ge 50\%$ spread-widening bypass.
+- **Public & Admin APIs**: Edge runtime compatible public endpoint `GET /api/deals/arbitrage` supporting multi-parameter filtering (`pair`, `market_type`, `min_spread`, `opportunity_type`) and pagination; Admin RBAC endpoints `POST /api/admin/crawler/run` and `GET /api/admin/crawler/status` for triggering manual crawls and monitoring sync run logs.
+- **Interactive Arbitrage & Yield Finder Deals UI**: Interactive component `ArbitrageFinder.tsx` mounted on `/[locale]/deals` with interactive trading volume sliders ($10k-$1M), maker/taker order blend sliders, live fee savings calculators with canonical $810/yr benchmark displays, and 1-click CTA buttons routing directly to affiliate deal links; administrative crawler management page at `/[locale]/admin/crawler`.
+- **D1 Schema Migration 025**: Migration `025_deal_crawler_arbitrage.sql` creating `exchange_rate_cards`, `arbitrage_opportunities`, and `crawler_sync_runs` tables with composite indexes (`idx_arbitrage_active_spread`, `idx_rate_cards_lookup`, `idx_crawler_sync_exchange`, `idx_arbitrage_pair_market`) and automated SQLite update triggers.
+
 ## [1.3.0] - 2026-09-28
 
 ### Added

@@ -60,11 +60,6 @@ export class MockKycAdapter implements KycProviderAdapter {
 
     const cleanedSig = signatureHeader.trim().toLowerCase();
 
-    // Deterministic bypass for explicit mock test harness tokens
-    if (cleanedSig === 'mock_valid_signature' || cleanedSig === 'valid_mock_signature') {
-      return true;
-    }
-
     try {
       const expected = await computeHmacSha256Hex(payload, secret);
       let target = cleanedSig;

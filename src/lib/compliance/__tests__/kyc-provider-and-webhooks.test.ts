@@ -427,17 +427,23 @@ describe('KYC Provider Architecture & Edge Webhook Engine', () => {
   // 3. Mock Adapter & Provider Factory Tests
   // ==========================================================================
   describe('MockKycAdapter & Factory', () => {
-    it('MockKycAdapter verifies valid signature and bypasses test tokens', async () => {
+    it('MockKycAdapter strictly verifies genuine HMAC and rejects bypass tokens', async () => {
       const mock = new MockKycAdapter();
       const payload = JSON.stringify({ userId: 'u1', status: 'approved' });
-      const sig = await computeHmacSha256Hex(payload, TEST_SECRET);
+      const realSig = await computeHmacSha256Hex(payload, TEST_SECRET);
 
-      const validHeaders = new Headers({ 'x-kyc-signature': sig });
+      // 1. Valid genuine HMAC passes
+      const validHeaders = new Headers({ 'x-kyc-signature': realSig });
       expect(await mock.verifySignature(payload, validHeaders, TEST_SECRET)).toBe(true);
 
-      const bypassHeaders = new Headers({ 'x-kyc-signature': 'mock_valid_signature' });
-      expect(await mock.verifySignature(payload, bypassHeaders, TEST_SECRET)).toBe(true);
+      // 2. Former bypass tokens are strictly REJECTED (Integrity violation eliminated)
+      const bypassHeaders1 = new Headers({ 'x-kyc-signature': 'mock_valid_signature' });
+      expect(await mock.verifySignature(payload, bypassHeaders1, TEST_SECRET)).toBe(false);
 
+      const bypassHeaders2 = new Headers({ 'x-kyc-signature': 'valid_mock_signature' });
+      expect(await mock.verifySignature(payload, bypassHeaders2, TEST_SECRET)).toBe(false);
+
+      // 3. Forged signatures are rejected
       const badHeaders = new Headers({ 'x-kyc-signature': 'wrong_sig' });
       expect(await mock.verifySignature(payload, badHeaders, TEST_SECRET)).toBe(false);
     });
@@ -606,14 +612,15 @@ describe('KYC Provider Architecture & Edge Webhook Engine', () => {
       expect(profile.kyc_tier).toBe('tier2_enhanced');
       expect(profile.kyc_verified_at).not.toBeNull();
 
-      // 2. Verify payouts unheld
+      // 2. Verify payouts unheld and transitioned to cancelled to prevent pending inflation
       const heldPayouts = sqlite
-        .prepare('SELECT id, compliance_status, compliance_reason FROM payouts WHERE affiliate_id = ?')
+        .prepare('SELECT id, compliance_status, compliance_reason, status FROM payouts WHERE affiliate_id = ?')
         .all('affiliate_held_1') as any[];
       expect(heldPayouts).toHaveLength(2);
       for (const p of heldPayouts) {
         expect(p.compliance_status).toBe('clean');
-        expect(p.compliance_reason).toBe('KYC_VERIFIED_AUTO_RELEASED');
+        expect(p.compliance_reason).toBe('KYC_VERIFIED_AUTO_RELEASED_REBATCHED');
+        expect(p.status).toBe('cancelled');
       }
 
       // 3. Verify earnings reset back to null payout_id so BatchSettlementService picks them up
@@ -723,6 +730,180 @@ describe('KYC Provider Architecture & Edge Webhook Engine', () => {
         .prepare('SELECT kyc_status FROM profiles WHERE id = ?')
         .get('affiliate_held_1') as any;
       expect(profile.kyc_status).toBe('requires_action');
+    });
+
+    it('handles duplicate rejected webhook callback idempotently without duplicate audit logs', async () => {
+      const payload = JSON.stringify({
+        userId: 'affiliate_held_1',
+        status: 'rejected',
+      });
+      const sig = await computeHmacSha256Hex(payload, TEST_SECRET);
+      const makeReq = () =>
+        new NextRequest('http://localhost:3000/api/webhooks/kyc?provider=mock', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-kyc-signature': sig,
+          },
+          body: payload,
+        });
+
+      // First delivery sets status to rejected
+      const res1 = await webhookRoute(makeReq());
+      expect(res1.status).toBe(200);
+
+      const logsBefore = (sqlite
+        .prepare("SELECT COUNT(*) as count FROM compliance_audit_logs WHERE action = 'admin_reject' AND target_id = 'affiliate_held_1'")
+        .get() as any)?.count ?? 0;
+
+      // Duplicate rejected delivery
+      const res2 = await webhookRoute(makeReq());
+      expect(res2.status).toBe(200);
+      const data2 = await res2.json();
+      expect(data2.success).toBe(true);
+      expect(data2.deduped).toBe(true);
+      expect(data2.status).toBe('rejected');
+
+      const logsAfter = (sqlite
+        .prepare("SELECT COUNT(*) as count FROM compliance_audit_logs WHERE action = 'admin_reject' AND target_id = 'affiliate_held_1'")
+        .get() as any)?.count ?? 0;
+
+      expect(logsAfter).toBe(logsBefore);
+    });
+
+    it('handles duplicate requires_action webhook callback idempotently without duplicate audit logs', async () => {
+      const payload = JSON.stringify({
+        userId: 'affiliate_held_1',
+        status: 'requires_action',
+      });
+      const sig = await computeHmacSha256Hex(payload, TEST_SECRET);
+      const makeReq = () =>
+        new NextRequest('http://localhost:3000/api/webhooks/kyc?provider=mock', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-kyc-signature': sig,
+          },
+          body: payload,
+        });
+
+      // First delivery sets status to requires_action
+      const res1 = await webhookRoute(makeReq());
+      expect(res1.status).toBe(200);
+
+      const logsBefore = (sqlite
+        .prepare("SELECT COUNT(*) as count FROM compliance_audit_logs WHERE action = 'kyc_tier_hold' AND target_id = 'affiliate_held_1'")
+        .get() as any)?.count ?? 0;
+
+      // Duplicate delivery
+      const res2 = await webhookRoute(makeReq());
+      expect(res2.status).toBe(200);
+      const data2 = await res2.json();
+      expect(data2.success).toBe(true);
+      expect(data2.deduped).toBe(true);
+      expect(data2.status).toBe('requires_action');
+
+      const logsAfter = (sqlite
+        .prepare("SELECT COUNT(*) as count FROM compliance_audit_logs WHERE action = 'kyc_tier_hold' AND target_id = 'affiliate_held_1'")
+        .get() as any)?.count ?? 0;
+
+      expect(logsAfter).toBe(logsBefore);
+    });
+
+    it('returns 404 if user profile is not found before auto-release or audit logging', async () => {
+      const payload = JSON.stringify({
+        userId: 'non_existent_user_999',
+        status: 'approved',
+      });
+      const sig = await computeHmacSha256Hex(payload, TEST_SECRET);
+
+      const req = new NextRequest('http://localhost:3000/api/webhooks/kyc?provider=mock', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-kyc-signature': sig,
+        },
+        body: payload,
+      });
+
+      const res = await webhookRoute(req);
+      expect(res.status).toBe(404);
+      const data = await res.json();
+      expect(data.error).toBe('User profile not found');
+
+      // Verify no audit log recorded for non-existent user
+      const audit = sqlite
+        .prepare('SELECT COUNT(*) as count FROM compliance_audit_logs WHERE target_id = ?')
+        .get('non_existent_user_999') as any;
+      expect(Number(audit?.count ?? 0)).toBe(0);
+    });
+
+    it('fails closed with 500 when webhook secret is missing or fallback in production', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      const originalSecret = process.env.KYC_WEBHOOK_SECRET;
+      try {
+        process.env.NODE_ENV = 'production';
+        delete process.env.KYC_WEBHOOK_SECRET;
+
+        const payload = JSON.stringify({ userId: 'affiliate_held_1', status: 'approved' });
+        const req = new NextRequest('http://localhost:3000/api/webhooks/kyc', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+        });
+
+        const res = await webhookRoute(req);
+        expect(res.status).toBe(500);
+        const data = await res.json();
+        expect(data.error).toBe('Webhook secret is not configured');
+
+        // Also test with default test secret in production
+        process.env.KYC_WEBHOOK_SECRET = 'test_kyc_webhook_secret';
+        const resDefault = await webhookRoute(req);
+        expect(resDefault.status).toBe(500);
+        const dataDefault = await resDefault.json();
+        expect(dataDefault.error).toBe('Webhook secret is not configured');
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+        if (originalSecret !== undefined) {
+          process.env.KYC_WEBHOOK_SECRET = originalSecret;
+        } else {
+          delete process.env.KYC_WEBHOOK_SECRET;
+        }
+      }
+    });
+
+    it('disallows ?provider=mock in production environment', async () => {
+      const originalEnv = process.env.NODE_ENV;
+      const originalSecret = process.env.KYC_WEBHOOK_SECRET;
+      try {
+        process.env.NODE_ENV = 'production';
+        process.env.KYC_WEBHOOK_SECRET = 'super_secure_production_secret_12345';
+
+        const payload = JSON.stringify({ userId: 'affiliate_held_1', status: 'approved' });
+        const sig = await computeHmacSha256Hex(payload, 'super_secure_production_secret_12345');
+
+        // Caller attempts to inject ?provider=mock in production
+        const req = new NextRequest('http://localhost:3000/api/webhooks/kyc?provider=mock', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-kyc-signature': sig,
+          },
+          body: payload,
+        });
+
+        // In production, ?provider=mock is ignored and adapter defaults to Sumsub (which rejects missing digest header with 401)
+        const res = await webhookRoute(req);
+        expect(res.status).toBe(401);
+      } finally {
+        process.env.NODE_ENV = originalEnv;
+        if (originalSecret !== undefined) {
+          process.env.KYC_WEBHOOK_SECRET = originalSecret;
+        } else {
+          delete process.env.KYC_WEBHOOK_SECRET;
+        }
+      }
     });
   });
 
@@ -853,5 +1034,46 @@ describe('KYC Provider Architecture & Edge Webhook Engine', () => {
       expect(previewAfter.payoutsPreview[0].affiliateId).toBe('affiliate_auto_1');
       expect(previewAfter.payoutsPreview[0].complianceStatus).toBe('clean');
     });
+
+    it('defensively refuses to release sanctioned payouts with compliance_blocked status', async () => {
+      sqlite
+        .prepare(`
+          INSERT INTO profiles (id, email, full_name, wallet_address, preferred_chain, kyc_status, kyc_tier)
+          VALUES ('affiliate_sanctioned_1', 'sanctioned@example.com', 'Sanctioned Affiliate', '0x9999999999999999999999999999999999999999', 'ethereum', 'approved', 'tier2_enhanced')
+        `)
+        .run();
+
+      sqlite
+        .prepare(`
+          INSERT INTO payouts (id, affiliate_id, amount, net_amount, status, compliance_status, compliance_reason)
+          VALUES ('payout_sanctioned_blocked', 'affiliate_sanctioned_1', 1000.0, 1000.0, 'kyc_required', 'compliance_blocked', 'SANCTIONED_ADDRESS_OFAC')
+        `)
+        .run();
+
+      sqlite
+        .prepare(`
+          INSERT INTO earnings (id, affiliate_id, amount, payout_id, is_paid)
+          VALUES ('earn_sanctioned_1', 'affiliate_sanctioned_1', 1000.0, 'payout_sanctioned_blocked', 0)
+        `)
+        .run();
+
+      const releaseResult = await releaseHeldPayouts(mockDb, 'affiliate_sanctioned_1');
+      expect(releaseResult.releasedPayoutsCount).toBe(0);
+      expect(releaseResult.releasedEarningsCount).toBe(0);
+      expect(releaseResult.totalAmount).toBe(0);
+
+      // Verify payout is still compliance_blocked
+      const payout = sqlite
+        .prepare('SELECT compliance_status, compliance_reason FROM payouts WHERE id = ?')
+        .get('payout_sanctioned_blocked') as any;
+      expect(payout.compliance_status).toBe('compliance_blocked');
+
+      // Verify earning is still tied to payout_sanctioned_blocked
+      const earning = sqlite
+        .prepare('SELECT payout_id FROM earnings WHERE id = ?')
+        .get('earn_sanctioned_1') as any;
+      expect(earning.payout_id).toBe('payout_sanctioned_blocked');
+    });
   });
 });
+
