@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-29
+
+### Added
+- **Telegram Mini App (TMA) Touch Client (`/[locale]/telegram/app`)**: Edge-rendered, touch-optimized WebApp interface (`telegram-app-client.tsx`) designed for the Telegram client with native `--tg-theme-*` CSS variables, `.pt-safe`/`.pb-safe` safe-area padding, and touch targets $\ge 44$px. Includes 4 embedded views: Deals & Arbitrage explorer, Viral Referral sharing & 1-click link generator with HapticFeedback, Olympic Leaderboard, and personal Earnings summary with multi-chain Web3 wallet binding.
+- **Telegram WebApp SDK Integration**: React hook `src/hooks/useTelegramWebApp.ts` supporting safe SSR fallback, viewport height adaptation, theme change event listeners, MainButton and BackButton controls, and native HapticFeedback triggers (`impactOccurred`, `notificationOccurred`).
+- **Cryptographic `initData` Authentication & Account Binding**: Edge runtime endpoint `POST /api/auth/telegram` verifying Telegram `initData` HMAC-SHA256 signatures via Web Crypto `SubtleCrypto` with constant-time equality comparisons (`timingSafeEqual`) and 24-hour replay attack prevention. Supports linking existing ApexOS profiles, auto-provisioning new accounts with synthetic emails (`tg_{id}@telegram.apexos.io`), issuing 30-day session tokens in `sessions`, and validating multi-chain wallet addresses (Ethereum, Solana, Stellar).
+- **Telegram Bot Webhook & Social Referral Engine**: Edge runtime webhook `POST /api/webhooks/telegram` validating `X-Telegram-Bot-Api-Secret-Token`. Features deep-link referral onboarding (`/start ref_<code`) binding referees in `telegram_referrals` and `referral_tree`, awarding social referral bonuses (\$5.00), preventing self-referrals and duplicate links, interactive inline queries (`@ApexOSBot <query>`) returning rich article share cards with deal rates and referral deep links, and bot commands (`/deals`, `/earnings`, `/leaderboard`, `/link`, `/help`).
+- **D1 Schema Migration 026**: Migration `026_telegram_mini_app.sql` introducing `telegram_users`, `telegram_referrals`, and `telegram_bot_events` tables with composite indexes (`idx_telegram_users_tg_id`, `idx_telegram_users_user_id`, `idx_telegram_referrals_code`, `idx_telegram_bot_events_type_created`) and SQLite database engine triggers (`trg_telegram_bot_events_no_update`, `trg_telegram_bot_events_no_delete`) enforcing tamper-proof audit trails.
+- **Direct Personal Chat Notifications & Leaderboard**: Extended `TelegramNotifier` supporting direct chat notifications (cashback confirmations, referral activations, and payout dispatches) with user ID resolution, markdown formatting, deep-link CTA buttons, and resilient error handling; edge API `GET /api/telegram/leaderboard` and Olympic podium UI component `TelegramLeaderboard.tsx` for tracking top viral affiliates.
+
 ## [1.4.0] - 2026-09-28
 
 ### Added
