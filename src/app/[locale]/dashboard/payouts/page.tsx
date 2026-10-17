@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
+import { StitchObsidianBanner } from '@/components/stitch/StitchObsidianBanner';
 import PayoutsClient from './payouts-client';
 
 type Props = {
@@ -39,6 +40,12 @@ export default async function PayoutsPage({ params, searchParams }: Props) {
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        <StitchObsidianBanner
+          locale={locale}
+          targetTab="payouts"
+          screenLabel="Screen 3 · Multi-Chain Payout Rails & Treasury Circuit Breaker"
+        />
+
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold text-gray-900">{t('title')}</h1>

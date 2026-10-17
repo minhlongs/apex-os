@@ -1,0 +1,111 @@
+{
+  "projectId": "11542622336933833737",
+  "designSystemAssetId": "assets/16812736714591355271",
+  "generatedAt": "2026-10-17T10:03:15.335Z",
+  "screens": [
+    {
+      "index": 1,
+      "page": "index",
+      "file": "index.html",
+      "title": "ApexOS - Executive Cashback & Affiliate Cockpit",
+      "deviceType": "DESKTOP",
+      "screenId": "dba3be1aab6c47e9a70c314f39a7c877",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=dba3be1aab6c47e9a70c314f39a7c877",
+      "queueHtml": "/Users/macbook/apex-os/queue/index.html",
+      "queuePng": "/Users/macbook/apex-os/queue/index.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/index.html",
+      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-index.png"
+    },
+    {
+      "index": 2,
+      "page": "arbitrage-deals",
+      "file": "arbitrage-deals.html",
+      "title": "ApexOS - Cross-Exchange Arbitrage & High-Yield Deal Crawler Matrix",
+      "deviceType": "DESKTOP",
+      "screenId": "02984cc58005482e900bebb9a136929f",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=02984cc58005482e900bebb9a136929f",
+      "queueHtml": "/Users/macbook/apex-os/queue/arbitrage-deals.html",
+      "queuePng": "/Users/macbook/apex-os/queue/arbitrage-deals.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/arbitrage-deals.html",
+      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-arbitrage-deals.png"
+    },
+    {
+      "index": 3,
+      "page": "multichain-payouts",
+      "file": "multichain-payouts.html",
+      "title": "ApexOS - Multi-Chain Automated Payout Rails & Treasury Health Console",
+      "deviceType": "DESKTOP",
+      "screenId": "53abd8e29f434dfcba0c956707e07b1d",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=53abd8e29f434dfcba0c956707e07b1d",
+      "queueHtml": "/Users/macbook/apex-os/queue/multichain-payouts.html",
+      "queuePng": "/Users/macbook/apex-os/queue/multichain-payouts.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/multichain-payouts.html",
+      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-multichain-payouts.png"
+    },
+    {
+      "index": 4,
+      "page": "compliance-fraud",
+      "file": "compliance-fraud.html",
+      "title": "ApexOS - KYC Compliance, OFAC Sanctions Screening & Fraud Anomaly Command",
+      "deviceType": "DESKTOP",
+      "screenId": "5f9ae96775c14d46b812ac5126dd5916",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=5f9ae96775c14d46b812ac5126dd5916",
+      "queueHtml": "/Users/macbook/apex-os/queue/compliance-fraud.html",
+      "queuePng": "/Users/macbook/apex-os/queue/compliance-fraud.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/compliance-fraud.html",
+      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-compliance-fraud.png"
+    },
+    {
+      "index": 5,
+      "page": "telegram-mini-app",
+      "file": "telegram-mini-app.html",
+      "title": "ApexOS - Telegram Mini App Touch Client & Social Referral Bot",
+      "deviceType": "MOBILE",
+      "screenId": "1cacd26543d84119a4455bf669605261",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=1cacd26543d84119a4455bf669605261",
+      "queueHtml": "/Users/macbook/apex-os/queue/telegram-mini-app.html",
+      "queuePng": "/Users/macbook/apex-os/queue/telegram-mini-app.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/telegram-mini-app.html",
+      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-telegram-mini-app.png"
+    },
+    {
+      "index": 6,
+      "page": "style-guide",
+      "file": "style-guide.html",
+      "title": "ApexOS - Component Style Guide & Fintech Design Tokens",
+      "deviceType": "DESKTOP",
+      "screenId": "4f54ec05c0af428e9981de78569100f4",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=4f54ec05c0af428e9981de78569100f4",
+      "queueHtml": "/Users/macbook/apex-os/queue/style-guide.html",
+      "queuePng": "/Users/macbook/apex-os/queue/style-guide.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/style-guide.html",
+      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-style-guide.png"
+    },
+    {
+      "index": 7,
+      "page": "webhook-replay-sandbox",
+      "file": "webhook-replay-sandbox.html",
+      "title": "ApexOS - Interactive Multi-Exchange Webhook Replay & HMAC Verification Sandbox",
+      "deviceType": "DESKTOP",
+      "screenId": "5107ac145136463bac751876243e8bc6",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=5107ac145136463bac751876243e8bc6",
+      "queueHtml": "/Users/macbook/apex-os/queue/webhook-replay-sandbox.html",
+      "queuePng": "/Users/macbook/apex-os/queue/webhook-replay-sandbox.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/webhook-replay-sandbox.html",
+      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-webhook-replay-sandbox.png"
+    },
+    {
+      "index": 8,
+      "page": "fee-surge-simulator",
+      "file": "fee-surge-simulator.html",
+      "title": "ApexOS - Fee Surge Simulator & Treasury Circuit Breaker Chaos Lab",
+      "deviceType": "DESKTOP",
+      "screenId": "0785ce0d6ef3426bb87ab8187f6123ed",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=0785ce0d6ef3426bb87ab8187f6123ed",
+      "queueHtml": "/Users/macbook/apex-os/queue/fee-surge-simulator.html",
+      "queuePng": "/Users/macbook/apex-os/queue/fee-surge-simulator.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/fee-surge-simulator.html",
+      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-fee-surge-simulator.png"
+    }
+  ]
+}

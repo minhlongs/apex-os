@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS - KYC Compliance, OFAC Sanctions Screening &amp; Fraud Anomaly Command</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            surface: "#020617",
+            "surface-variant": "#0F172A",
+            "card-border": "#1E293B",
+            "card-highlight": "rgba(255, 255, 255, 0.04)",
+            primary: "#818cf8",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8",
+            "outline-variant": "#1E293B",
+            accent: "#38bdf8",
+            danger: "#ef4444",
+            warning: "#f59e0b",
+            success: "#10b981",
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 3px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+    .card-quant {
+      background: #0F172A;
+      border: 1px solid #1E293B;
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+    }
+    .card-quant-danger {
+      background: radial-gradient(circle at top right, rgba(239, 68, 68, 0.08), transparent 70%), #0F172A;
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      box-shadow: inset 0 1px 0 0 rgba(239, 68, 68, 0.15);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface font-body min-h-screen flex selection:bg-indigo-500/30 selection:text-indigo-200">
+<!-- ==================== SIDE NAVIGATION BAR ==================== -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-surface border-r border-outline-variant shadow-sm flex flex-col justify-between p-4">
+<!-- Header / Brand -->
+<div>
+<div class="flex items-center justify-between pb-4 border-b border-outline-variant">
+<div class="flex items-center gap-3">
+<div class="w-9 h-9 rounded bg-indigo-950/80 border border-indigo-500/30 flex items-center justify-center text-primary font-mono font-bold text-sm shadow-inner">
+            Ω
+          </div>
+<div>
+<div class="font-headline text-base font-bold tracking-wider text-on-surface flex items-center gap-1.5">
+              ApexOS Terminal
+            </div>
+<div class="font-label text-xs text-on-surface-variant tracking-wide">
+              Arbitrage &amp; Settlement Hub
+            </div>
+</div>
+</div>
+</div>
+<!-- Node Telemetry Status Ribbon -->
+<div class="mt-3 px-3 py-2 bg-surface-variant/80 border border-outline-variant rounded flex items-center justify-between font-mono text-xs">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+<span class="text-on-surface-variant font-medium">SG-01</span>
+</div>
+<span class="text-emerald-400 font-semibold">38ms</span>
+</div>
+<!-- Navigation Links -->
+<nav class="mt-5 space-y-1">
+<!-- 1: Cashback Cockpit -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors" href="index.html">
+<span class="material-symbols-outlined text-[20px]">dashboard</span>
+<span class="font-body text-sm font-medium">Cashback Cockpit</span>
+</a>
+<!-- 2: Arbitrage & Deal Crawler -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors" href="arbitrage-deals.html">
+<span class="material-symbols-outlined text-[20px]">query_stats</span>
+<span class="font-body text-sm font-medium">Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- 3: Multi-Chain Payouts -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors" href="multichain-payouts.html">
+<span class="material-symbols-outlined text-[20px]">currency_exchange</span>
+<span class="font-body text-sm font-medium">Multi-Chain Payouts</span>
+</a>
+<!-- 4: KYC & Fraud Command (ACTIVE) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-primary bg-primary/10 font-medium border border-primary/20 shadow-sm transition-all duration-150 ease-in-out" href="compliance-fraud.html">
+<span class="material-symbols-outlined text-[20px] text-primary" style="font-variation-settings: 'FILL' 1;">shield</span>
+<span class="font-body text-sm font-semibold tracking-wide">KYC &amp; Fraud Command</span>
+</a>
+<!-- 5: Telegram Mini App -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors" href="telegram-mini-app.html">
+<span class="material-symbols-outlined text-[20px]">send</span>
+<span class="font-body text-sm font-medium">Telegram Mini App</span>
+</a>
+<!-- 6: Style Guide -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors" href="style-guide.html">
+<span class="material-symbols-outlined text-[20px]">palette</span>
+<span class="font-body text-sm font-medium">Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Sidebar Bottom: CTA & Footers -->
+<div class="space-y-3 pt-4 border-t border-outline-variant">
+<button class="w-full py-2.5 px-3 bg-surface-variant hover:bg-slate-800 border border-outline-variant rounded text-xs font-label uppercase tracking-wider text-on-surface font-semibold flex items-center justify-center gap-2 transition-colors">
+<span class="material-symbols-outlined text-sm text-accent">hub</span>
+        Connect Node
+      </button>
+<div class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant text-xs hover:bg-surface-variant hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+<span class="font-body">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant text-xs hover:bg-surface-variant hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+<span class="font-body">Documentation</span>
+</a>
+</div>
+<div class="px-3 pt-2 text-[10px] font-mono text-slate-500 flex justify-between items-center">
+<span>commit <span class="text-slate-400">#b92c4e1</span></span>
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+</div>
+</div>
+</aside>
+<!-- ==================== MAIN CONTENT WRAPPER ==================== -->
+<div class="ml-64 flex-1 flex flex-col min-w-0 bg-surface">
+<!-- ==================== TOP COMMAND BAR ==================== -->
+<header class="h-16 fixed top-0 right-0 left-64 z-30 bg-surface border-b border-outline-variant flex justify-between items-center px-6">
+<!-- Search on Left -->
+<div class="w-96 flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-surface-variant/90 border border-outline-variant text-on-surface-variant focus-within:border-primary focus-within:ring-1 focus-within:ring-primary">
+<span class="material-symbols-outlined text-[18px] text-slate-400">search</span>
+<input class="bg-transparent border-0 p-0 text-xs text-on-surface focus:ring-0 placeholder:text-slate-500 w-full font-mono outline-none" placeholder="Search address, hash, affiliate ID, or IP..." type="text"/>
+<kbd class="px-1.5 py-0.5 text-[10px] font-mono bg-slate-800 text-slate-400 rounded border border-slate-700">⌘K</kbd>
+</div>
+<!-- Right Trailing Clusters -->
+<div class="flex items-center gap-3">
+<!-- Status Indicator Badges -->
+<div class="flex items-center gap-2">
+<div class="px-2.5 py-1 rounded bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 font-mono text-xs flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            3/3 Chains HEALTHY
+          </div>
+<div class="px-2.5 py-1 rounded bg-indigo-950/50 border border-indigo-500/40 text-indigo-300 font-label font-bold text-xs uppercase tracking-wider">
+            MASTER TIER
+          </div>
+</div>
+<div class="h-5 w-px bg-outline-variant mx-1"></div>
+<!-- Trailing Actions -->
+<button class="px-2 py-1 text-xs font-mono text-slate-400 hover:text-on-surface bg-surface-variant border border-outline-variant rounded transition-colors">
+          EN/VI
+        </button>
+<button class="relative p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-variant rounded transition-colors" title="Notifications">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-danger"></span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-on-surface hover:bg-surface-variant rounded transition-colors" title="Terminal Logs">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+</button>
+<!-- Connected Wallet Badge -->
+<div class="flex items-center gap-2 pl-2">
+<div class="px-3 py-1.5 rounded bg-surface-variant border border-outline-variant flex items-center gap-2">
+<div class="flex -space-x-1">
+<span class="w-3.5 h-3.5 rounded-full bg-indigo-500/40 border border-indigo-400 flex items-center justify-center text-[8px] text-white">E</span>
+<span class="w-3.5 h-3.5 rounded-full bg-cyan-500/40 border border-cyan-400 flex items-center justify-center text-[8px] text-white">S</span>
+</div>
+<div class="text-left font-mono">
+<div class="text-xs font-semibold text-slate-200">0x8F94...c4B2</div>
+<div class="text-[9px] text-slate-400 leading-none">SOLANA &amp; EVM CONNECTED</div>
+</div>
+</div>
+</div>
+</div>
+</header>
+<!-- ==================== MAIN SCROLLABLE CANVAS ==================== -->
+<main class="mt-16 p-6 space-y-6 custom-scrollbar pb-16">
+<!-- 1. Header Section -->
+<section class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 pb-4 border-b border-outline-variant">
+<div>
+<div class="flex items-center gap-3">
+<h1 class="font-headline text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+              KYC Compliance, OFAC Sanctions &amp; Fraud Command
+            </h1>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono uppercase bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
+              v4.8-PROD
+            </span>
+</div>
+<p class="font-body text-xs text-on-surface-variant mt-1 max-w-4xl">
+            Institutional sanctions pre-flight screener, HMAC-SHA256 KYC auto-release webhook rails, and real-time velocity burst anti-sybil matrix.
+          </p>
+<div class="flex flex-wrap items-center gap-2.5 mt-3 font-mono text-[11px]">
+<span class="px-2.5 py-1 rounded bg-emerald-950/40 border border-emerald-500/30 text-emerald-400 flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+              SANCTIONS ENGINE: ACTIVE (OFAC SDN v2026.3)
+            </span>
+<span class="px-2.5 py-1 rounded bg-indigo-950/40 border border-indigo-500/30 text-indigo-300 flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">verified</span>
+              KYC WEBHOOK: HMAC-SHA256 VERIFIED
+            </span>
+<span class="px-2.5 py-1 rounded bg-amber-950/40 border border-amber-500/30 text-amber-300 flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">bolt</span>
+              FRAUD DEFENSE: REAL-TIME
+            </span>
+</div>
+</div>
+<!-- Header Actions -->
+<div class="flex items-center gap-2.5 shrink-0">
+<button class="px-3 py-2 bg-surface-variant hover:bg-slate-800 border border-outline-variant rounded text-xs font-medium text-slate-300 flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[16px]">file_download</span>
+            Export Compliance Audit (CSV)
+          </button>
+<button class="px-3 py-2 bg-surface-variant hover:bg-slate-800 border border-outline-variant rounded text-xs font-medium text-slate-300 flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[16px]">science</span>
+            Simulate Screening Vector
+          </button>
+<button class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-indigo-600/20 transition-colors">
+<span class="material-symbols-outlined text-[16px]">radar</span>
+            Run Ad-hoc Sanctions Sweep
+          </button>
+</div>
+</section>
+<!-- 2. Top Section: 30-Day Rolling KYC Payout Ceiling & Auto-Release Ribbon -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+<!-- 3 Tier Gate Cards (9 cols) -->
+<div class="lg:col-span-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+<!-- Tier 0 -->
+<div class="card-quant rounded-xl p-4 flex flex-col justify-between relative overflow-hidden">
+<div class="absolute top-0 right-0 w-24 h-24 bg-slate-700/5 rounded-full blur-xl pointer-events-none"></div>
+<div>
+<div class="flex items-center justify-between">
+<span class="font-headline font-semibold text-xs tracking-wide text-slate-400 uppercase">Tier 0: Unverified</span>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-red-950/50 text-red-400 border border-red-500/30">Restrictive</span>
+</div>
+<div class="mt-2 text-xl font-headline font-bold text-white font-mono">$500 <span class="text-xs font-normal text-slate-400 font-body">/ 30d Rolling Ceiling</span></div>
+<p class="text-xs text-slate-400 mt-1">Auto-release: <span class="text-slate-300 font-mono">Disabled</span></p>
+</div>
+<div class="mt-4 pt-3 border-t border-card-border">
+<div class="flex justify-between text-xs font-mono mb-1.5">
+<span class="text-slate-400">Active Users</span>
+<span class="text-slate-200 font-semibold">1,420</span>
+</div>
+<div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
+<div class="bg-amber-500 h-1.5 rounded-full" style="width: 78%"></div>
+</div>
+<div class="text-[10px] text-slate-500 font-mono mt-1 text-right">78% volume saturation</div>
+</div>
+</div>
+<!-- Tier 1 -->
+<div class="card-quant rounded-xl p-4 flex flex-col justify-between relative overflow-hidden">
+<div>
+<div class="flex items-center justify-between">
+<span class="font-headline font-semibold text-xs tracking-wide text-indigo-300 uppercase">Tier 1: Basic Verified</span>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-950/50 text-indigo-400 border border-indigo-500/30">Active</span>
+</div>
+<div class="mt-2 text-xl font-headline font-bold text-white font-mono">$2,500 <span class="text-xs font-normal text-slate-400 font-body">/ 30d Rolling Ceiling</span></div>
+<p class="text-xs text-slate-400 mt-1">Auto-release: <span class="text-indigo-300 font-mono">Tier 1 Only</span></p>
+</div>
+<div class="mt-4 pt-3 border-t border-card-border">
+<div class="flex justify-between text-xs font-mono mb-1.5">
+<span class="text-slate-400">Active Users</span>
+<span class="text-slate-200 font-semibold">840</span>
+</div>
+<div class="flex items-center gap-1.5 text-[11px] text-emerald-400 font-mono">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+                ID Document &amp; Liveness Pass
+              </div>
+</div>
+</div>
+<!-- Tier 2 -->
+<div class="card-quant rounded-xl p-4 flex flex-col justify-between border-indigo-500/40 relative overflow-hidden bg-gradient-to-br from-indigo-950/20 to-slate-900">
+<div class="absolute -top-10 -right-10 w-24 h-24 bg-indigo-500/10 rounded-full blur-xl pointer-events-none"></div>
+<div>
+<div class="flex items-center justify-between">
+<span class="font-headline font-semibold text-xs tracking-wide text-cyan-400 uppercase">Tier 2: Enhanced KYC</span>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950/60 text-emerald-300 border border-emerald-500/40 font-bold">UNRESTRICTED</span>
+</div>
+<div class="mt-2 text-xl font-headline font-bold text-white font-mono">$50,000+ <span class="text-xs font-normal text-slate-400 font-body">Ceiling (Institutional)</span></div>
+<p class="text-xs text-slate-400 mt-1">AutoReleaseService: <span class="text-emerald-400 font-mono font-semibold">ENABLED (Armed)</span></p>
+</div>
+<div class="mt-4 pt-3 border-t border-card-border">
+<div class="flex justify-between text-xs font-mono mb-1.5">
+<span class="text-slate-400">Institutional Cohort</span>
+<span class="text-slate-200 font-semibold">142 Entities</span>
+</div>
+<div class="flex items-center justify-between text-[11px] font-mono text-cyan-300">
+<span>Proof of Address + AML</span>
+<span class="text-xs text-emerald-400 font-bold">100% PASS</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Live Webhook Ribbon & Auto-Release Status (4 cols) -->
+<div class="lg:col-span-4 card-quant rounded-xl p-4 flex flex-col justify-between border-indigo-500/30">
+<div>
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+<span class="font-mono text-xs font-bold text-slate-200">POST /api/webhooks/kyc</span>
+</div>
+<span class="text-[10px] font-mono bg-indigo-950/60 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">
+                HMAC-SHA256 Verified
+              </span>
+</div>
+<div class="mt-3 p-3 rounded-lg bg-surface border border-outline-variant space-y-2">
+<div class="flex items-center justify-between text-xs">
+<span class="text-slate-400">Pending Escrow Auto-Release:</span>
+<span class="text-emerald-400 font-mono font-bold">$9,840.00 USDC</span>
+</div>
+<div class="text-[11px] text-slate-300">
+<span class="text-emerald-400 font-semibold">14 Held Payouts</span> automatically dispatched upon Tier 2 upgrade confirmation.
+              </div>
+</div>
+</div>
+<div class="mt-3 pt-3 border-t border-card-border flex items-center justify-between font-mono text-[10px] text-slate-400">
+<span class="truncate">batch_hash: sha256_e49b81f9a...c082</span>
+<span class="text-slate-500">Triggered 42s ago</span>
+</div>
+</div>
+</section>
+<!-- 3. Center Section: 2-Column Split (6 cols / 6 cols) -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- LEFT COLUMN: On-Chain Sanctions & AML Pre-Flight Screener -->
+<div class="lg:col-span-6 space-y-4">
+<div class="card-quant rounded-xl p-5 space-y-4">
+<!-- Header -->
+<div class="flex items-center justify-between border-b border-card-border pb-3">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded bg-red-950/50 border border-red-500/30 flex items-center justify-center text-red-400">
+<span class="material-symbols-outlined text-[18px]">gavel</span>
+</div>
+<div>
+<h2 class="font-headline text-base font-bold text-white">On-Chain Sanctions &amp; AML Pre-Flight Screener</h2>
+<div class="font-mono text-[11px] text-slate-400">SanctionsScreeningService • Real-Time Engine</div>
+</div>
+</div>
+<div class="flex items-center gap-1.5 font-mono text-[10px] text-slate-400">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                EIP-55 • Solana Base58 • StrKey
+              </div>
+</div>
+<!-- Blocked Payout Incident Card -->
+<div class="card-quant-danger rounded-xl p-4 space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="relative flex h-2.5 w-2.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+</span>
+<span class="font-mono text-xs font-bold text-red-400">BLOCKED PAYOUT: #PO-8841</span>
+</div>
+<span class="px-2.5 py-0.5 rounded text-[10px] font-mono uppercase bg-red-900/60 text-red-200 border border-red-500/50 font-bold">
+                  Status: compliance_blocked
+                </span>
+</div>
+<div class="grid grid-cols-2 gap-3 text-xs font-mono pt-1">
+<div class="bg-surface/80 p-2.5 rounded border border-card-border">
+<div class="text-slate-500 text-[10px]">Recipient Entity</div>
+<div class="text-slate-200 font-semibold mt-0.5">Anonymized_Whale_Node #AFF-4412</div>
+<div class="text-slate-400 text-[10px] mt-0.5 truncate">0x7F21...3b9a (Solana SPL)</div>
+</div>
+<div class="bg-surface/80 p-2.5 rounded border border-card-border">
+<div class="text-slate-500 text-[10px]">Pending Settlement Payout</div>
+<div class="text-red-400 font-bold text-sm mt-0.5">$12,450.00 USDC</div>
+<div class="text-slate-400 text-[10px] mt-0.5">Automated Escrow Hold</div>
+</div>
+</div>
+<div class="p-2.5 bg-red-950/30 rounded border border-red-500/20 text-xs">
+<div class="flex items-center justify-between text-red-300 font-mono">
+<span class="font-semibold flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px]">warning</span>
+                    Risk Factor: 99.8% Tornado Cash / Mixer Hop Association
+                  </span>
+<span class="font-bold">CRITICAL</span>
+</div>
+<p class="text-[11px] text-slate-300 mt-1 font-body">
+                  Pre-flight crawler detected direct inbound cluster settlement from OFAC-sanctioned tumbler proxy contract within 3 hops.
+                </p>
+<div class="mt-2 text-[10px] font-mono text-slate-400 truncate border-t border-red-900/40 pt-1.5">
+                  compliance_audit_logs: ref_blk_99812_sha256 written to SQLite D1
+                </div>
+</div>
+<!-- Payout Action Strip -->
+<div class="flex items-center gap-2 pt-1">
+<button class="flex-1 py-1.5 px-3 bg-surface hover:bg-slate-800 border border-card-border rounded text-xs font-mono text-slate-200 flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">search_insights</span>
+                  Inspect On-Chain Proof
+                </button>
+<button class="flex-1 py-1.5 px-3 bg-red-950/70 hover:bg-red-900/80 border border-red-500/40 rounded text-xs font-mono text-red-200 flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">lock</span>
+                  Quarantine Funds
+                </button>
+<button class="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-xs font-mono text-slate-300 flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">flag</span>
+                  File SAR Report
+                </button>
+</div>
+</div>
+<!-- Recent AML Screening Feed -->
+<div>
+<div class="flex items-center justify-between mb-2">
+<span class="font-headline text-xs font-bold uppercase tracking-wider text-slate-400">Recent Automated Sanctions Sweeps</span>
+<span class="font-mono text-[10px] text-slate-500">Live Queue (Sub-second)</span>
+</div>
+<div class="space-y-1.5 font-mono text-xs">
+<!-- Pass 1 -->
+<div class="px-3 py-2 bg-surface rounded border border-card-border flex items-center justify-between">
+<div class="flex items-center gap-2.5 truncate">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+<span class="text-slate-300 truncate">Solana Base58: 4uH8...99Xk (Affiliate #AFF-1092)</span>
+</div>
+<div class="flex items-center gap-3 shrink-0">
+<span class="text-slate-400">$3,420 USDC</span>
+<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-500/30">CLEAN PASS</span>
+</div>
+</div>
+<!-- Pass 2 -->
+<div class="px-3 py-2 bg-surface rounded border border-card-border flex items-center justify-between">
+<div class="flex items-center gap-2.5 truncate">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+<span class="text-slate-300 truncate">Ethereum EIP-55: 0x4D1...71Ac (Affiliate #AFF-3011)</span>
+</div>
+<div class="flex items-center gap-3 shrink-0">
+<span class="text-slate-400">$850 USDT</span>
+<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-500/30">CLEAN PASS</span>
+</div>
+</div>
+<!-- Block 1 -->
+<div class="px-3 py-2 bg-red-950/20 rounded border border-red-500/30 flex items-center justify-between">
+<div class="flex items-center gap-2.5 truncate">
+<span class="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+<span class="text-red-300 truncate">Stellar: GAHK...219P (Affiliate #AFF-9912)</span>
+</div>
+<div class="flex items-center gap-3 shrink-0">
+<span class="text-red-400">$5,200 XLM</span>
+<span class="px-2 py-0.5 rounded text-[10px] bg-red-950/80 text-red-400 border border-red-500/40">OFAC MATCH (SDN)</span>
+</div>
+</div>
+<!-- Pass 3 -->
+<div class="px-3 py-2 bg-surface rounded border border-card-border flex items-center justify-between">
+<div class="flex items-center gap-2.5 truncate">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+<span class="text-slate-300 truncate">Arbitrum: 0x99B...E112 (Affiliate #AFF-8820)</span>
+</div>
+<div class="flex items-center gap-3 shrink-0">
+<span class="text-slate-400">$1,890 USDC</span>
+<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-500/30">CLEAN PASS</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- RIGHT COLUMN: Click Fraud & Velocity Burst Defense Engine -->
+<div class="lg:col-span-6 space-y-4">
+<div class="card-quant rounded-xl p-5 space-y-4">
+<!-- Header -->
+<div class="flex items-center justify-between border-b border-card-border pb-3">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded bg-amber-950/50 border border-amber-500/30 flex items-center justify-center text-amber-400">
+<span class="material-symbols-outlined text-[18px]">security</span>
+</div>
+<div>
+<h2 class="font-headline text-base font-bold text-white">Click Fraud &amp; Velocity Burst Defense Engine</h2>
+<div class="font-mono text-[11px] text-slate-400">/admin/fraud • Sybil Resistance Matrix</div>
+</div>
+</div>
+<div class="px-2.5 py-0.5 rounded text-[10px] font-mono bg-amber-950/50 text-amber-300 border border-amber-500/30 font-semibold">
+                CIRCUIT BREAKER: ARMED
+              </div>
+</div>
+<!-- Telemetry Gauges Grid -->
+<div class="grid grid-cols-2 gap-3">
+<!-- Hour Window -->
+<div class="bg-surface p-3.5 rounded-lg border border-card-border">
+<div class="flex items-center justify-between text-xs">
+<span class="text-slate-400">Hourly Window Limit</span>
+<span class="font-mono font-bold text-amber-400">84 / 100</span>
+</div>
+<div class="w-full bg-slate-800 rounded-full h-1.5 mt-2">
+<div class="bg-amber-400 h-1.5 rounded-full" style="width: 84%"></div>
+</div>
+<div class="flex justify-between text-[10px] font-mono text-slate-500 mt-1.5">
+<span>Amber Warning Threshold</span>
+<span>150/hr Auto-Block</span>
+</div>
+</div>
+<!-- Day Window -->
+<div class="bg-surface p-3.5 rounded-lg border border-card-border">
+<div class="flex items-center justify-between text-xs">
+<span class="text-slate-400">Daily Rolling Velocity</span>
+<span class="font-mono font-bold text-emerald-400">412 / 1,000</span>
+</div>
+<div class="w-full bg-slate-800 rounded-full h-1.5 mt-2">
+<div class="bg-emerald-400 h-1.5 rounded-full" style="width: 41.2%"></div>
+</div>
+<div class="flex justify-between text-[10px] font-mono text-slate-500 mt-1.5">
+<span>Nominal Sybil Rate</span>
+<span>Safe Bandwidth</span>
+</div>
+</div>
+</div>
+<!-- Anomaly Detection Meters -->
+<div class="grid grid-cols-2 gap-3 font-mono text-xs">
+<div class="bg-surface p-3 rounded border border-card-border">
+<div class="text-[10px] text-slate-400 flex items-center justify-between">
+<span>VELOCITY BURST</span>
+<span class="text-red-400 font-bold">&lt; 2.0s INTERVAL</span>
+</div>
+<div class="mt-1 text-slate-200 font-bold">1.2s Burst Interval</div>
+<div class="text-[10px] text-red-400 mt-0.5 truncate">Flagged on IP: 182.16.4.99</div>
+</div>
+<div class="bg-surface p-3 rounded border border-card-border">
+<div class="text-[10px] text-slate-400 flex items-center justify-between">
+<span>CONVERSION SKEW</span>
+<span class="text-amber-400 font-bold">&gt; 10:1 SKEW ALERT</span>
+</div>
+<div class="mt-1 text-amber-300 font-bold">42:1 Anomaly Ratio</div>
+<div class="text-[10px] text-slate-400 mt-0.5 truncate">Affiliate #AFF-7721 Flagged</div>
+</div>
+</div>
+<!-- Flagged High-Velocity Incident Card -->
+<div class="p-4 rounded-xl bg-gradient-to-b from-surface-variant to-surface border border-red-500/30 space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px] text-red-400">public_off</span>
+<span class="font-mono text-xs font-bold text-white">185.220.101.44</span>
+<span class="px-1.5 py-0.2 rounded text-[9px] font-mono bg-red-950 text-red-300 border border-red-500/30">TOR EXIT NODE</span>
+</div>
+<span class="text-xs font-mono font-bold text-red-400">312 clicks / 8 min</span>
+</div>
+<div class="text-xs text-slate-300 font-body">
+                Pattern shows automated bot headless browser spoofing browser user-agents across multiple affiliate referral channels.
+              </div>
+<div class="flex items-center gap-2 pt-1 font-mono text-xs">
+<button class="flex-1 py-1.5 px-3 bg-red-600 hover:bg-red-500 text-white font-semibold rounded flex items-center justify-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-[14px]">block</span>
+                  1-Click Block IP
+                </button>
+<button class="flex-1 py-1.5 px-3 bg-surface hover:bg-slate-800 border border-card-border text-slate-300 rounded flex items-center justify-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-[14px]">report</span>
+                  Commit to fraud_reviews
+                </button>
+<button class="py-1.5 px-3 bg-surface hover:bg-slate-800 border border-card-border text-slate-400 hover:text-slate-200 rounded transition-colors" title="Whitelist affiliate">
+                  Whitelist
+                </button>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- 4. Bottom Panel: NOWPayments Crypto Billing & Tier Activation Ledger -->
+<section class="card-quant rounded-xl p-5 space-y-5">
+<!-- Panel Header -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-card-border pb-4">
+<div>
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-primary text-[20px]">payments</span>
+<h2 class="font-headline text-base font-bold text-white">NOWPayments Crypto Billing &amp; Subscription Tier Ledger</h2>
+</div>
+<div class="flex items-center gap-3 mt-1 font-mono text-[11px] text-slate-400">
+<span class="flex items-center gap-1 text-emerald-400">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                POST /api/webhooks/ipn HMAC-SHA512: ACTIVE
+              </span>
+<span>•</span>
+<span class="text-cyan-300">KV 24h Nonce Replay Protection: ENFORCED</span>
+</div>
+</div>
+<div class="font-mono text-xs text-slate-400 bg-surface px-3 py-1.5 rounded border border-card-border flex items-center gap-2">
+<span class="text-slate-500">Ledger Ref:</span>
+<span class="text-slate-200">tier_activations_v2</span>
+</div>
+</div>
+<!-- 4 Subscription Tier Matrix Summary Pills -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+<!-- BASIC -->
+<div class="p-3 bg-surface rounded-lg border border-card-border flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-headline text-xs font-bold text-slate-300">BASIC</span>
+<span class="text-[10px] font-mono text-slate-400">1.2% Fee Rebate</span>
+</div>
+<div class="mt-2 text-base font-mono font-bold text-white">$49<span class="text-xs font-normal text-slate-400">/mo</span></div>
+<div class="mt-1 text-[10px] font-mono text-slate-500">API Standard Access</div>
+</div>
+<!-- PREMIUM -->
+<div class="p-3 bg-surface rounded-lg border border-card-border flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-headline text-xs font-bold text-indigo-300">PREMIUM</span>
+<span class="text-[10px] font-mono text-indigo-400">0.8% Fee Rebate</span>
+</div>
+<div class="mt-2 text-base font-mono font-bold text-white">$199<span class="text-xs font-normal text-slate-400">/mo</span></div>
+<div class="mt-1 text-[10px] font-mono text-slate-500">Priority Deal Crawler</div>
+</div>
+<!-- ENTERPRISE -->
+<div class="p-3 bg-surface rounded-lg border border-card-border flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-headline text-xs font-bold text-cyan-300">ENTERPRISE</span>
+<span class="text-[10px] font-mono text-cyan-400">0.4% Fee Rebate</span>
+</div>
+<div class="mt-2 text-base font-mono font-bold text-white">$599<span class="text-xs font-normal text-slate-400">/mo</span></div>
+<div class="mt-1 text-[10px] font-mono text-slate-500">Dedicated Node Webhook</div>
+</div>
+<!-- MASTER -->
+<div class="p-3 bg-indigo-950/20 rounded-lg border border-indigo-500/40 flex flex-col justify-between relative overflow-hidden">
+<div class="flex items-center justify-between">
+<span class="font-headline text-xs font-bold text-white">MASTER</span>
+<span class="text-[10px] font-mono text-emerald-400 font-semibold">Zero-Fee Max</span>
+</div>
+<div class="mt-2 text-base font-mono font-bold text-white">$1,499<span class="text-xs font-normal text-slate-400">/mo</span></div>
+<div class="mt-1 text-[10px] font-mono text-indigo-300">Arbitrage Engine Full Pipeline</div>
+</div>
+</div>
+<!-- Recent IPN Webhook Transaction Feed -->
+<div class="overflow-x-auto">
+<table class="w-full text-left font-mono text-xs">
+<thead>
+<tr class="text-slate-500 border-b border-card-border uppercase text-[10px]">
+<th class="pb-2 font-medium">Invoice ID</th>
+<th class="pb-2 font-medium">Plan Tier</th>
+<th class="pb-2 font-medium">Settlement Rail</th>
+<th class="pb-2 font-medium">Amount</th>
+<th class="pb-2 font-medium">KV Nonce Replay Check</th>
+<th class="pb-2 font-medium">Status</th>
+<th class="pb-2 font-medium text-right">Age</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-card-border text-slate-300">
+<!-- Row 1 -->
+<tr class="hover:bg-slate-900/50 transition-colors">
+<td class="py-3 font-semibold text-white">#NP-90422</td>
+<td class="py-3">
+<span class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold">MASTER</span>
+</td>
+<td class="py-3 text-slate-400">USDT (TRC-20) / USDC (Solana)</td>
+<td class="py-3 font-bold text-emerald-400">$1,499.00</td>
+<td class="py-3 text-slate-400 text-[11px] truncate max-w-[160px]">kv_nonce_98f411b089c2</td>
+<td class="py-3">
+<span class="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-500/30 text-[10px] flex items-center gap-1 w-fit">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    CONFIRMED_ON_CHAIN
+                  </span>
+</td>
+<td class="py-3 text-right text-slate-500">4 mins ago</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-slate-900/50 transition-colors">
+<td class="py-3 font-semibold text-white">#NP-90418</td>
+<td class="py-3">
+<span class="px-2 py-0.5 rounded bg-surface-variant text-slate-300 border border-card-border text-[10px]">PREMIUM</span>
+</td>
+<td class="py-3 text-slate-400">ETH (Ethereum Mainnet)</td>
+<td class="py-3 font-bold text-emerald-400">$199.00</td>
+<td class="py-3 text-slate-400 text-[11px] truncate max-w-[160px]">kv_nonce_44a709d11e84</td>
+<td class="py-3">
+<span class="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-500/30 text-[10px] flex items-center gap-1 w-fit">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    CONFIRMED_ON_CHAIN
+                  </span>
+</td>
+<td class="py-3 text-right text-slate-500">19 mins ago</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-slate-900/50 transition-colors">
+<td class="py-3 font-semibold text-white">#NP-90412</td>
+<td class="py-3">
+<span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/30 text-[10px]">ENTERPRISE</span>
+</td>
+<td class="py-3 text-slate-400">USDC (Polygon PoS)</td>
+<td class="py-3 font-bold text-emerald-400">$599.00</td>
+<td class="py-3 text-slate-400 text-[11px] truncate max-w-[160px]">kv_nonce_77b102ef190a</td>
+<td class="py-3">
+<span class="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-500/30 text-[10px] flex items-center gap-1 w-fit">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    CONFIRMED_ON_CHAIN
+                  </span>
+</td>
+<td class="py-3 text-right text-slate-500">1 hour ago</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</main>
+</div>
+<!-- Micro-interactions Script -->
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Small simulated pulse on live elements
+      const elements = document.querySelectorAll('.animate-pulse');
+      elements.forEach(el => {
+        el.style.opacity = '1';
+      });
+    });
+  </script>
+
+<!-- ApexOS Stitch-Loop Unified Navigation Ribbon -->
+<div style="position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(2,6,23,0.94);backdrop-filter:blur(14px);border:1px solid rgba(99,102,241,0.35);border-radius:9999px;padding:6px 16px;display:flex;gap:8px;align-items:center;font-family:'Inter',system-ui,sans-serif;font-size:12px;box-shadow:0 12px 32px rgba(0,0,0,0.7);white-space:nowrap;max-width:96vw;overflow-x:auto;">
+  <span style="color:#06B6D4;font-weight:700;padding-right:8px;border-right:1px solid #334155;display:inline-flex;align-items:center;gap:6px;">
+    <span style="width:7px;height:7px;border-radius:9999px;background:#10B981;display:inline-block;"></span>
+    ApexOS · Stitch-Loop
+  </span>
+  <a href="index.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">1. Cashback Cockpit</a>
+  <a href="arbitrage-deals.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">2. Arbitrage & Deals</a>
+  <a href="multichain-payouts.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">3. Multi-Chain Payouts</a>
+  <a href="compliance-fraud.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">4. KYC & Fraud Shield</a>
+  <a href="telegram-mini-app.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">5. Telegram Mini App</a>
+  <a href="style-guide.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">6. Style Guide</a>
+  <a href="webhook-replay-sandbox.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">7. Webhook Sandbox</a>
+  <a href="fee-surge-simulator.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">8. Fee Surge Simulator</a>
+  <a href="immutable-d1-audit-explorer.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">9. D1 Audit Explorer</a>
+  <a href="byok-encryption-vault.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">10. BYOK Key Vault</a>
+</div>
+</body></html>

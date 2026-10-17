@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS — Component Style Guide &amp; Fintech Design Tokens (DESIGN.md Visual Contract)</title>
+<!-- Google Fonts: Space Grotesk, Inter, Public Sans, JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;500;600;700;800&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS with Forms and Container Queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Theme Configuration verbatim per prompt & tokens -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            // Obsidian & Slate Surface matrix
+            surface: "#020617",
+            "surface-panel": "#0F172A",
+            "surface-interactive": "#1E293B",
+            "outline-variant": "#334155",
+            "outline-subtle": "#1E293B",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8",
+            "on-surface-muted": "#64748B",
+            
+            // Brand & Quant Highlight tokens
+            primary: "#6366F1",
+            "primary-focus": "#4F46E5",
+            "accent-violet": "#8B5CF6",
+            "cyan-glow": "#06B6D4",
+
+            // Multi-chain & Settlement Semantics
+            "semantic-emerald": "#10B981",
+            "semantic-amber": "#F59E0B",
+            "semantic-crimson": "#EF4444",
+            "chain-stellar": "#14B8A6",
+            "chain-circle": "#2775CA",
+            "chain-solana": "#14F195",
+          },
+          borderRadius: {
+            DEFAULT: "0.5rem",
+            lg: "1rem",
+            xl: "1.5rem",
+            full: "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 9999px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+    /* Ambient glow for terminal headers */
+    .glow-cyan {
+      box-shadow: 0 0 25px -5px rgba(6, 182, 212, 0.25);
+    }
+    .glow-indigo {
+      box-shadow: 0 0 30px -5px rgba(99, 102, 241, 0.3);
+    }
+  </style>
+</head>
+<body class="bg-surface text-on-surface font-body antialiased selection:bg-primary selection:text-white custom-scrollbar min-h-screen">
+<!-- ========================================================================= -->
+<!-- SHARED COMPONENT 1: SideNavBar (ApexOS Terminal Standard)                  -->
+<!-- ========================================================================= -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 border-r border-outline-variant bg-surface shadow-sm flex flex-col justify-between p-4">
+<!-- Top Header Node Profile -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-3 px-2 py-1">
+<div class="relative w-9 h-9 rounded-lg bg-surface-interactive border border-outline-variant flex items-center justify-center glow-indigo">
+<span class="material-symbols-outlined text-primary text-xl" data-icon="terminal">terminal</span>
+<span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-semantic-emerald border-2 border-surface"></span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline text-base font-bold tracking-wider text-on-surface truncate">ApexOS Terminal</span>
+<span class="font-label uppercase text-[10px] tracking-widest text-on-surface-muted truncate">Arbitrage &amp; Settlement Hub</span>
+</div>
+</div>
+<!-- Quick Action / Status CTA -->
+<div class="px-2">
+<button class="w-full flex items-center justify-between px-3 py-1.5 rounded bg-surface-interactive/80 border border-outline-variant/60 hover:border-primary/50 text-xs font-mono text-on-surface-variant transition-all group">
+<span class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-cyan-glow animate-pulse"></span>
+<span>NODE_CLUSTER_01</span>
+</span>
+<span class="text-[11px] text-primary group-hover:underline">Connect Node</span>
+</button>
+</div>
+<div class="h-px bg-outline-variant/50 mx-2 my-1"></div>
+<!-- Navigation Tabs (tab_labels & tab_icons from JSON) -->
+<nav class="flex flex-col gap-1">
+<!-- 1. Cashback Cockpit (Inactive) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-interactive hover:text-on-surface transition-all duration-150 ease-in-out font-normal text-sm group" href="#cashback">
+<span class="material-symbols-outlined text-[20px] text-on-surface-muted group-hover:text-on-surface transition-colors" data-icon="dashboard">dashboard</span>
+<span class="font-body">Cashback Cockpit</span>
+</a>
+<!-- 2. Arbitrage & Deal Crawler (Inactive) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-interactive hover:text-on-surface transition-all duration-150 ease-in-out font-normal text-sm group" href="#arbitrage">
+<span class="material-symbols-outlined text-[20px] text-on-surface-muted group-hover:text-on-surface transition-colors" data-icon="query_stats">query_stats</span>
+<span class="font-body">Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- 3. Multi-Chain Payouts (Inactive) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-interactive hover:text-on-surface transition-all duration-150 ease-in-out font-normal text-sm group" href="#payouts">
+<span class="material-symbols-outlined text-[20px] text-on-surface-muted group-hover:text-on-surface transition-colors" data-icon="currency_exchange">currency_exchange</span>
+<span class="font-body">Multi-Chain Payouts</span>
+</a>
+<!-- 4. KYC & Fraud Command (Inactive) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-interactive hover:text-on-surface transition-all duration-150 ease-in-out font-normal text-sm group" href="#fraud">
+<span class="material-symbols-outlined text-[20px] text-on-surface-muted group-hover:text-on-surface transition-colors" data-icon="shield">shield</span>
+<span class="font-body">KYC &amp; Fraud Command</span>
+</a>
+<!-- 5. Telegram Mini App (Inactive) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-interactive hover:text-on-surface transition-all duration-150 ease-in-out font-normal text-sm group" href="#telegram">
+<span class="material-symbols-outlined text-[20px] text-on-surface-muted group-hover:text-on-surface transition-colors" data-icon="send">send</span>
+<span class="font-body">Telegram Mini App</span>
+</a>
+<!-- 6. Style Guide (ACTIVE TAB MATCHING CONTEXT per Semantic Shell Mandate) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-primary bg-primary/10 font-medium text-sm transition-all duration-150 ease-in-out border border-primary/20" href="#styleguide">
+<span class="material-symbols-outlined text-[20px] text-primary" data-icon="palette">palette</span>
+<span class="font-body font-medium">Style Guide</span>
+<span class="ml-auto w-1.5 h-1.5 rounded-full bg-primary"></span>
+</a>
+</nav>
+</div>
+<!-- Bottom Footer Links from JSON -->
+<div class="flex flex-col gap-2 pt-4 border-t border-outline-variant/60">
+<div class="bg-surface-panel/80 rounded p-2.5 border border-outline-variant/40 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-semantic-emerald"></span>
+<span class="text-[11px] font-mono text-on-surface-variant">EIP-155 / RPC OK</span>
+</div>
+<span class="text-[10px] font-mono text-cyan-glow bg-cyan-glow/10 px-1.5 py-0.5 rounded">v2.4.9</span>
+</div>
+<nav class="flex flex-col gap-0.5">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-interactive hover:text-on-surface transition-colors text-xs font-normal" href="#settings">
+<span class="material-symbols-outlined text-[18px] text-on-surface-muted" data-icon="settings">settings</span>
+<span class="font-body">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-interactive hover:text-on-surface transition-colors text-xs font-normal" href="#documentation">
+<span class="material-symbols-outlined text-[18px] text-on-surface-muted" data-icon="menu_book">menu_book</span>
+<span class="font-body">Documentation</span>
+<span class="material-symbols-outlined text-xs ml-auto text-on-surface-muted" data-icon="open_in_new">open_in_new</span>
+</a>
+</nav>
+</div>
+</aside>
+<!-- ========================================================================= -->
+<!-- SHARED COMPONENT 2: TopNavBar                                             -->
+<!-- ========================================================================= -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 border-b border-outline-variant bg-surface/95 backdrop-blur-md shadow-sm">
+<div class="flex justify-between items-center px-6 h-16 w-full">
+<!-- Left: Status Cluster & Context breadcrumb -->
+<div class="flex items-center gap-4">
+<!-- Status Pill: 3/3 Chains HEALTHY -->
+<div class="flex items-center gap-2 px-3 py-1 rounded bg-semantic-emerald/10 border border-semantic-emerald/30 text-semantic-emerald text-xs font-mono font-medium">
+<span class="w-2 h-2 rounded-full bg-semantic-emerald animate-pulse"></span>
+<span>3/3 Chains HEALTHY</span>
+</div>
+<!-- Master Tier Badge -->
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-accent-violet/10 border border-accent-violet/30 text-accent-violet text-xs font-mono font-medium tracking-wide">
+<span class="material-symbols-outlined text-sm" data-icon="stars">stars</span>
+<span>MASTER TIER</span>
+</div>
+<!-- Divider -->
+<span class="h-4 w-px bg-outline-variant"></span>
+<!-- Active View Tag -->
+<div class="hidden xl:flex items-center gap-2 text-xs font-mono text-on-surface-muted">
+<span class="text-on-surface-variant font-semibold">DESIGN.md</span>
+<span>/</span>
+<span class="text-primary font-mono">SPEC_V4.2.0</span>
+</div>
+</div>
+<!-- Right: Action Bar, Wallet & Profile -->
+<div class="flex items-center gap-3">
+<!-- EN/VI Switcher -->
+<button class="px-2.5 py-1 rounded bg-surface-interactive border border-outline-variant text-xs font-mono text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1.5" id="langSwitcher">
+<span class="font-bold text-primary">EN</span>
+<span class="text-outline-variant">/</span>
+<span class="text-on-surface-muted">VI</span>
+</button>
+<!-- Icon Actions: Notifications & Terminal toggle -->
+<button class="relative p-2 rounded text-on-surface-variant hover:bg-surface-interactive hover:text-on-surface transition-colors" title="Notifications">
+<span class="material-symbols-outlined text-[20px]" data-icon="notifications">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-cyan-glow ring-2 ring-surface"></span>
+</button>
+<button class="p-2 rounded text-on-surface-variant hover:bg-surface-interactive hover:text-on-surface transition-colors" title="Debug Terminal Console">
+<span class="material-symbols-outlined text-[20px]" data-icon="terminal">terminal</span>
+</button>
+<!-- Divider -->
+<span class="h-5 w-px bg-outline-variant"></span>
+<!-- Connected Wallet Button -->
+<div class="flex items-center gap-2 pl-1">
+<button class="flex items-center gap-2.5 px-3 py-1.5 rounded-lg bg-surface-panel border border-outline-variant hover:border-primary/50 transition-all group">
+<span class="w-2 h-2 rounded-full bg-semantic-emerald"></span>
+<div class="flex flex-col items-start leading-none text-left">
+<span class="text-[11px] font-mono text-on-surface font-semibold group-hover:text-primary transition-colors">0x8F94...c4B2</span>
+<span class="text-[9px] font-mono text-on-surface-muted">Solana &amp; EVM Connected</span>
+</div>
+<span class="material-symbols-outlined text-on-surface-muted text-sm ml-1 group-hover:text-on-surface" data-icon="wallet">wallet</span>
+</button>
+<!-- User Avatar -->
+<div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-primary to-accent-violet p-0.5 cursor-pointer ring-1 ring-outline-variant hover:ring-primary transition-all">
+<div class="w-full h-full rounded-[6px] bg-surface flex items-center justify-center font-mono text-xs font-bold text-on-surface">
+              OP
+            </div>
+</div>
+</div>
+</div>
+</div>
+</header>
+<!-- ========================================================================= -->
+<!-- MAIN CANVAS: Component Style Guide & Fintech Tokens (DESIGN.md Contract)  -->
+<!-- ========================================================================= -->
+<main class="ml-64 pt-20 px-8 pb-16 min-h-screen">
+<div class="max-w-[1440px] mx-auto space-y-12">
+<!-- ===================================================================== -->
+<!-- HERO HEADER: Title, Subtitle, Quick Spec Utility Actions              -->
+<!-- ===================================================================== -->
+<section class="border-b border-outline-variant/80 pb-8 pt-2">
+<div class="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
+<div class="space-y-2 max-w-4xl">
+<div class="flex items-center gap-3">
+<span class="px-2.5 py-0.5 rounded text-[10px] font-mono font-bold tracking-wider uppercase bg-primary/20 text-primary border border-primary/30">
+                LIVING VISUAL CONTRACT
+              </span>
+<span class="text-xs font-mono text-on-surface-muted">v4.2.1 • WCAG AAA CERTIFIED</span>
+</div>
+<h1 class="font-headline text-3xl lg:text-4xl font-bold tracking-tight text-on-surface">
+              ApexOS Component Style Guide &amp; Fintech Design Tokens
+            </h1>
+<p class="font-body text-sm text-on-surface-variant leading-relaxed">
+              Obsidian Quant &amp; Cyber-Cashback Terminal Visual Contract (DESIGN.md System Tokens &amp; Multi-Chain UI Specs).
+              Engineering authoritative specs for high-frequency settlement, multi-rail routing, and dark-mode telemetry.
+            </p>
+</div>
+<!-- Utility Action Buttons -->
+<div class="flex flex-wrap items-center gap-2.5">
+<button class="flex items-center gap-2 px-3.5 py-2 rounded bg-surface-panel border border-outline-variant hover:border-primary text-xs font-mono text-on-surface transition-all hover:bg-surface-interactive group" onclick="downloadDesignSpec()">
+<span class="material-symbols-outlined text-sm text-primary group-hover:scale-110 transition-transform" data-icon="policy">policy</span>
+<span>Download DESIGN.md (Spec)</span>
+</button>
+<button class="flex items-center gap-2 px-3.5 py-2 rounded bg-surface-panel border border-outline-variant hover:border-cyan-glow text-xs font-mono text-on-surface transition-all hover:bg-surface-interactive group" onclick="copyTokensJSON()">
+<span class="material-symbols-outlined text-sm text-cyan-glow group-hover:scale-110 transition-transform" data-icon="content_copy">content_copy</span>
+<span id="copyTokensText">Copy Hex Tokens (JSON)</span>
+</button>
+<button class="flex items-center gap-2 px-3.5 py-2 rounded bg-primary/10 border border-primary/40 hover:bg-primary/20 text-xs font-mono text-primary font-medium transition-all group" onclick="exportTailwindConfig()">
+<span class="material-symbols-outlined text-sm group-hover:rotate-45 transition-transform" data-icon="bolt">bolt</span>
+<span>Export Tailwind Config</span>
+</button>
+</div>
+</div>
+</section>
+<!-- ===================================================================== -->
+<!-- SECTION 01 // ARCHITECTURE & SEMANTIC SWATCH GRID                     -->
+<!-- ===================================================================== -->
+<section class="space-y-6">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+<div class="flex items-center gap-3">
+<span class="font-mono text-xs font-bold text-cyan-glow bg-cyan-glow/10 px-2 py-0.5 rounded">SECTION 01</span>
+<h2 class="font-headline text-xl font-bold tracking-tight text-on-surface">Architecture &amp; Semantic Swatch Grid</h2>
+</div>
+<span class="text-xs font-mono text-on-surface-muted">Base Target: #020617 (Night Sky Obsidian) / #0F172A (Slate Panel)</span>
+</div>
+<!-- 3 Swatch Cluster Cards -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- Group 1: Base & Obsidian Surfaces (Structural) -->
+<div class="bg-surface-panel rounded-xl p-5 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-on-surface-variant"></span>
+<h3 class="font-headline text-sm font-bold text-on-surface uppercase tracking-wider">Group 1: Base &amp; Obsidian Surfaces</h3>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">Structural Rails</span>
+</div>
+<div class="space-y-3">
+<!-- Swatch 1.1 -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded bg-[#020617] border border-outline-variant flex-shrink-0 flex items-center justify-center text-[10px] font-mono text-on-surface-muted">
+                    #02
+                  </div>
+<div>
+<div class="text-xs font-mono font-semibold text-on-surface">Night Sky Obsidian</div>
+<div class="text-[11px] font-mono text-on-surface-muted">#020617 • --color-neutral-950</div>
+</div>
+</div>
+<div class="text-right">
+<span class="text-[10px] font-mono text-cyan-glow bg-cyan-glow/10 px-1.5 py-0.5 rounded">Canvas 1:1</span>
+</div>
+</div>
+<!-- Swatch 1.2 -->
+<div class="p-3 rounded-lg bg-surface-interactive border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded bg-[#0F172A] border border-outline-variant flex-shrink-0 flex items-center justify-center text-[10px] font-mono text-on-surface-muted">
+                    #0F
+                  </div>
+<div>
+<div class="text-xs font-mono font-semibold text-on-surface">Slate Panel</div>
+<div class="text-[11px] font-mono text-on-surface-muted">#0F172A • --color-neutral-900</div>
+</div>
+</div>
+<div class="text-right">
+<span class="text-[10px] font-mono text-on-surface-variant bg-surface px-1.5 py-0.5 rounded">12px Rad</span>
+</div>
+</div>
+<!-- Swatch 1.3 -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded bg-[#1E293B] border border-outline-variant flex-shrink-0 flex items-center justify-center text-[10px] font-mono text-on-surface-muted">
+                    #1E
+                  </div>
+<div>
+<div class="text-xs font-mono font-semibold text-on-surface">Interactive Well</div>
+<div class="text-[11px] font-mono text-on-surface-muted">#1E293B • --color-neutral-800</div>
+</div>
+</div>
+<div class="text-right">
+<span class="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">Hover/Active</span>
+</div>
+</div>
+<!-- Swatch 1.4 -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded bg-[#334155] border border-outline-variant flex-shrink-0 flex items-center justify-center text-[10px] font-mono text-on-surface-muted">
+                    #33
+                  </div>
+<div>
+<div class="text-xs font-mono font-semibold text-on-surface">Hairline Border &amp; Text</div>
+<div class="text-[11px] font-mono text-on-surface-muted">#334155 / Text #F8FAFC</div>
+</div>
+</div>
+<div class="text-right">
+<span class="text-[10px] font-mono text-semantic-emerald bg-semantic-emerald/10 px-1.5 py-0.5 rounded">18.2:1 AAA</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Group 2: Brand & Quant Highlights -->
+<div class="bg-surface-panel rounded-xl p-5 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<h3 class="font-headline text-sm font-bold text-on-surface uppercase tracking-wider">Group 2: Brand &amp; Quant Highlights</h3>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">Specular Tokens</span>
+</div>
+<div class="space-y-3">
+<!-- Swatch 2.1 -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded bg-primary shadow-lg shadow-primary/30 flex-shrink-0 flex items-center justify-center text-[10px] font-mono font-bold text-white">
+                    #63
+                  </div>
+<div>
+<div class="text-xs font-mono font-semibold text-on-surface">Apex Indigo</div>
+<div class="text-[11px] font-mono text-on-surface-muted">#6366F1 • Master Nav &amp; CTAs</div>
+</div>
+</div>
+<div class="text-right">
+<span class="text-[10px] font-mono text-primary bg-primary/10 px-1.5 py-0.5 rounded">WCAG 5.2:1 AA</span>
+</div>
+</div>
+<!-- Swatch 2.2 -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded bg-accent-violet shadow-lg shadow-accent-violet/30 flex-shrink-0 flex items-center justify-center text-[10px] font-mono font-bold text-white">
+                    #8B
+                  </div>
+<div>
+<div class="text-xs font-mono font-semibold text-on-surface">Neural Violet</div>
+<div class="text-[11px] font-mono text-on-surface-muted">#8B5CF6 • VIP &amp; Specular</div>
+</div>
+</div>
+<div class="text-right">
+<span class="text-[10px] font-mono text-accent-violet bg-accent-violet/10 px-1.5 py-0.5 rounded">WCAG 4.8:1 AA</span>
+</div>
+</div>
+<!-- Swatch 2.3 -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded bg-cyan-glow shadow-lg shadow-cyan-glow/30 flex-shrink-0 flex items-center justify-center text-[10px] font-mono font-bold text-black">
+                    #06
+                  </div>
+<div>
+<div class="text-xs font-mono font-semibold text-on-surface">Cyber Cyan</div>
+<div class="text-[11px] font-mono text-on-surface-muted">#06B6D4 • Spreads &amp; Micro-Glow</div>
+</div>
+</div>
+<div class="text-right">
+<span class="text-[10px] font-mono text-cyan-glow bg-cyan-glow/10 px-1.5 py-0.5 rounded">WCAG 7.9:1 AAA</span>
+</div>
+</div>
+<!-- Specular Gradient preview banner -->
+<div class="p-3 rounded-lg bg-gradient-to-r from-primary via-accent-violet to-cyan-glow p-[1px]">
+<div class="bg-surface p-2.5 rounded-[7px] flex items-center justify-between">
+<span class="text-xs font-mono text-on-surface font-medium">Specular Linear Gradient Spec</span>
+<span class="text-[10px] font-mono text-cyan-glow">135deg Tri-Point</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Group 3: Multi-Chain & Settlement Semantics -->
+<div class="bg-surface-panel rounded-xl p-5 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-semantic-emerald"></span>
+<h3 class="font-headline text-sm font-bold text-on-surface uppercase tracking-wider">Group 3: Multi-Chain &amp; Settlement</h3>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">Execution Semantics</span>
+</div>
+<div class="grid grid-cols-2 gap-2.5">
+<!-- USDC Emerald -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-full bg-semantic-emerald flex-shrink-0"></span>
+<span class="text-xs font-mono font-semibold text-on-surface">USDC Emerald</span>
+</div>
+<div class="mt-1 text-[10px] font-mono text-on-surface-muted">#10B981 • Disbursements</div>
+</div>
+<!-- Floor Amber -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-full bg-semantic-amber flex-shrink-0"></span>
+<span class="text-xs font-mono font-semibold text-on-surface">Floor Amber</span>
+</div>
+<div class="mt-1 text-[10px] font-mono text-on-surface-muted">#F59E0B • Low Reserve</div>
+</div>
+<!-- Crimson Block -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-full bg-semantic-crimson flex-shrink-0"></span>
+<span class="text-xs font-mono font-semibold text-on-surface">Crimson Block</span>
+</div>
+<div class="mt-1 text-[10px] font-mono text-on-surface-muted">#EF4444 • OFAC / Sybil Flag</div>
+</div>
+<!-- Stellar XLM -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-full bg-chain-stellar flex-shrink-0"></span>
+<span class="text-xs font-mono font-semibold text-on-surface">Stellar XLM</span>
+</div>
+<div class="mt-1 text-[10px] font-mono text-on-surface-muted">#14B8A6 • Horizon Rail</div>
+</div>
+<!-- Circle USDC -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-full bg-chain-circle flex-shrink-0"></span>
+<span class="text-xs font-mono font-semibold text-on-surface">Circle USDC</span>
+</div>
+<div class="mt-1 text-[10px] font-mono text-on-surface-muted">#2775CA • EIP-155 Multi</div>
+</div>
+<!-- Solana SPL -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="w-3.5 h-3.5 rounded-full bg-chain-solana flex-shrink-0"></span>
+<span class="text-xs font-mono font-semibold text-on-surface">Solana SPL</span>
+</div>
+<div class="mt-1 text-[10px] font-mono text-on-surface-muted">#14F195 • Zero-Dust Rail</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ===================================================================== -->
+<!-- SECTION 02 // TYPOGRAPHY & MONOSPACE SYSTEMS                          -->
+<!-- ===================================================================== -->
+<section class="space-y-6">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+<div class="flex items-center gap-3">
+<span class="font-mono text-xs font-bold text-primary bg-primary/10 px-2 py-0.5 rounded">SECTION 02</span>
+<h2 class="font-headline text-xl font-bold tracking-tight text-on-surface">Typography &amp; Monospace Systems</h2>
+</div>
+<span class="text-xs font-mono text-on-surface-muted">Space Grotesk • Inter • JetBrains Mono</span>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Left Column: Display Specimens & Monospace Details (7 cols) -->
+<div class="lg:col-span-7 space-y-6">
+<!-- Display / Headings Hierarchy Panel -->
+<div class="bg-surface-panel rounded-xl p-6 border border-outline-variant space-y-5">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<h3 class="font-headline text-sm font-bold text-on-surface">Display / Heading System (Space Grotesk, -0.02em Tracking)</h3>
+<span class="text-[11px] font-mono text-on-surface-muted">Leading-tight Hierarchy</span>
+</div>
+<!-- Display H1 -->
+<div class="p-3.5 rounded-lg bg-surface border border-outline-variant/70 space-y-1">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-cyan-glow uppercase tracking-wider font-semibold">Display H1 // 30px / 36px</span>
+<span class="text-[10px] font-mono text-on-surface-muted">tracking-[-0.02em] • font-bold</span>
+</div>
+<div class="font-headline text-[30px] leading-[36px] font-bold text-on-surface tracking-[-0.02em]">
+                  Apex Arbitrage
+                </div>
+</div>
+<!-- Section H2 -->
+<div class="p-3.5 rounded-lg bg-surface border border-outline-variant/70 space-y-1">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-primary uppercase tracking-wider font-semibold">Section H2 // 24px / 30px</span>
+<span class="text-[10px] font-mono text-on-surface-muted">tracking-[-0.02em] • font-bold</span>
+</div>
+<div class="font-headline text-[24px] leading-[30px] font-bold text-on-surface tracking-[-0.02em]">
+                  Liquidity Vault v4
+                </div>
+</div>
+<!-- Subsection H3 -->
+<div class="p-3.5 rounded-lg bg-surface border border-outline-variant/70 space-y-1">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-accent-violet uppercase tracking-wider font-semibold">Subsection H3 // 18px / 24px</span>
+<span class="text-[10px] font-mono text-on-surface-muted">tracking-[-0.01em] • font-semibold</span>
+</div>
+<div class="font-headline text-[18px] leading-[24px] font-semibold text-on-surface">
+                  Multi-Rail Routing Engine
+                </div>
+</div>
+<!-- Label Caps Specimen -->
+<div class="p-3.5 rounded-lg bg-surface border border-outline-variant/70 space-y-1">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-semantic-emerald uppercase tracking-wider font-semibold">Label Caps // 11px / 14px tracking-wider</span>
+<span class="text-[10px] font-mono text-on-surface-muted">font-label • uppercase</span>
+</div>
+<div class="font-label text-[11px] leading-[14px] font-extrabold tracking-widest text-on-surface-variant uppercase">
+                  WCAG AAA ZERO-LATENCY SETTLEMENT GUARANTEE
+                </div>
+</div>
+</div>
+<!-- Tabular Monospace Specs (JetBrains Mono tabular-nums) -->
+<div class="bg-surface-panel rounded-xl p-6 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-cyan-glow" data-icon="query_stats">query_stats</span>
+<h3 class="font-headline text-sm font-bold text-on-surface">Tabular Monospace Specs (JetBrains Mono tabular-nums)</h3>
+</div>
+<span class="text-[10px] font-mono text-cyan-glow bg-cyan-glow/10 px-2 py-0.5 rounded">Exact Precision</span>
+</div>
+<!-- Spread Data Grid -->
+<div class="grid grid-cols-3 gap-3 font-mono">
+<div class="p-3 rounded bg-surface border border-outline-variant">
+<div class="text-[10px] text-on-surface-muted uppercase">Binance/Coinbase Spread</div>
+<div class="text-base font-bold text-semantic-emerald mt-1 tabular-nums">+24.5 bps</div>
+<div class="text-[10px] text-on-surface-variant mt-0.5">Latency: 14ms</div>
+</div>
+<div class="p-3 rounded bg-surface border border-outline-variant">
+<div class="text-[10px] text-on-surface-muted uppercase">Slippage Tolerance</div>
+<div class="text-base font-bold text-semantic-crimson mt-1 tabular-nums">-0.0050%</div>
+<div class="text-[10px] text-on-surface-variant mt-0.5">Hard Limit Bound</div>
+</div>
+<div class="p-3 rounded bg-surface border border-outline-variant">
+<div class="text-[10px] text-on-surface-muted uppercase">Stellar-Orca Route</div>
+<div class="text-base font-bold text-cyan-glow mt-1 tabular-nums">+31.8 bps</div>
+<div class="text-[10px] text-on-surface-variant mt-0.5">Net Arbitrage Delta</div>
+</div>
+</div>
+<!-- Checksum Addresses & Idempotency Hash -->
+<div class="space-y-2 text-xs font-mono">
+<!-- EIP-55 -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant/80 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-bold">EIP-55</span>
+<span class="text-on-surface select-all">0x71C838961F3A172EB3ec77A8cC86780c128D9A4F</span>
+</div>
+<span class="text-[10px] text-semantic-emerald font-semibold">CHECKSUM_VALID</span>
+</div>
+<!-- Solana Base58 -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant/80 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-chain-solana/10 text-chain-solana font-bold">Base58</span>
+<span class="text-on-surface select-all">HN7c5ULMVGCSKu16G5n17B9p3p54p7M924P9q</span>
+</div>
+<span class="text-[10px] text-chain-solana font-semibold">SPL_ROUTED</span>
+</div>
+<!-- Stellar StrKey -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant/80 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-chain-stellar/10 text-chain-stellar font-bold">StrKey</span>
+<span class="text-on-surface select-all">GCFX7K2442NW3QCV335Y7QW665Q4B5MW9</span>
+</div>
+<span class="text-[10px] text-chain-stellar font-semibold">HORIZON_OK</span>
+</div>
+<!-- Idempotency Hash -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant/80 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-[10px] px-1.5 py-0.5 rounded bg-accent-violet/10 text-accent-violet font-bold">SHA-256</span>
+<span class="text-on-surface-variant select-all">idem_sha256_9f8a371c4e2098d7b3a9856ef937a0...4c2e</span>
+</div>
+<span class="text-[10px] text-on-surface-muted font-mono">NONCE_LOCK</span>
+</div>
+</div>
+<!-- Settlement Ledger Amounts -->
+<div class="p-3 rounded-lg bg-surface-interactive/60 border border-outline-variant flex items-center justify-between text-xs font-mono">
+<div class="flex items-center gap-4">
+<span class="text-on-surface font-bold tabular-nums text-semantic-emerald">$18,420.50 USDC</span>
+<span class="text-outline-variant">|</span>
+<span class="text-on-surface font-bold tabular-nums text-chain-stellar">14,250 XLM</span>
+<span class="text-outline-variant">|</span>
+<span class="text-on-surface font-bold tabular-nums text-chain-solana">82.4 SOL</span>
+</div>
+<span class="text-[10px] text-on-surface-muted uppercase">Atomic Settlement Pool</span>
+</div>
+</div>
+</div>
+<!-- Right Column: Bilingual UI Specimen Pairs (5 cols) -->
+<div class="lg:col-span-5 bg-surface-panel rounded-xl p-6 border border-outline-variant flex flex-col justify-between">
+<div class="space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="sync_alt">sync_alt</span>
+<h3 class="font-headline text-sm font-bold text-on-surface">Bilingual UI Specimen Pairs (Inter)</h3>
+</div>
+<span class="text-[10px] font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">EN / VI PARALLEL</span>
+</div>
+<p class="text-xs text-on-surface-variant font-body">
+                Authoritative translations for high-stakes financial operations, eliminating ambiguity across cross-border settlement rails.
+              </p>
+<!-- Pair 1 -->
+<div class="p-3.5 rounded-lg bg-surface border border-outline-variant space-y-1.5">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-cyan-glow font-bold uppercase">PAIR 01 // DISBURSEMENT</span>
+<span class="text-[10px] font-mono text-on-surface-muted">Strict 1:1</span>
+</div>
+<div class="text-xs font-semibold text-on-surface font-body">
+                  BATCH DISBURSEMENT
+                </div>
+<div class="text-xs font-normal text-on-surface-variant font-body italic">
+                  Quyết toán tức thì theo lô
+                </div>
+</div>
+<!-- Pair 2 -->
+<div class="p-3.5 rounded-lg bg-surface border border-outline-variant space-y-1.5">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-primary font-bold uppercase">PAIR 02 // ARBITRAGE ENGINE</span>
+<span class="text-[10px] font-mono text-on-surface-muted">Quant Crawl</span>
+</div>
+<div class="text-xs font-semibold text-on-surface font-body">
+                  SPREAD DETECTION
+                </div>
+<div class="text-xs text-on-surface-muted font-body">
+                  Cross-Exchange Arbitrage &amp; High-Yield Deal Crawler
+                </div>
+<div class="text-xs font-normal text-on-surface-variant font-body italic pt-0.5">
+                  Trinh sát chênh lệch giá &amp; hoàn tiền tức thì
+                </div>
+</div>
+<!-- Pair 3 -->
+<div class="p-3.5 rounded-lg bg-surface border border-outline-variant space-y-1.5">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-semantic-amber font-bold uppercase">PAIR 03 // COMPLIANCE</span>
+<span class="text-[10px] font-mono text-on-surface-muted">AML/OFAC</span>
+</div>
+<div class="text-xs font-semibold text-on-surface font-body">
+                  COMPLIANCE SENTINEL
+                </div>
+<div class="text-xs text-on-surface-muted font-body">
+                  KYC Compliance &amp; OFAC Sanctions Screening
+                </div>
+<div class="text-xs font-normal text-on-surface-variant font-body italic pt-0.5">
+                  Tuân thủ KYC &amp; Sàng lọc cấm vận OFAC
+                </div>
+</div>
+<!-- Pair 4 -->
+<div class="p-3.5 rounded-lg bg-surface border border-outline-variant space-y-1.5">
+<div class="flex items-center justify-between">
+<span class="text-[10px] font-mono text-accent-violet font-bold uppercase">PAIR 04 // VIRAL GROWTH</span>
+<span class="text-[10px] font-mono text-on-surface-muted">TMA Micro</span>
+</div>
+<div class="text-xs font-semibold text-on-surface font-body">
+                  VIRAL GROWTH ENGINE
+                </div>
+<div class="text-xs text-on-surface-muted font-body">
+                  Telegram Mini App Viral Referral Bot
+                </div>
+<div class="text-xs font-normal text-on-surface-variant font-body italic pt-0.5">
+                  Bot giới thiệu lan truyền qua Telegram Mini App
+                </div>
+</div>
+</div>
+<!-- Footer note in card -->
+<div class="mt-4 pt-3 border-t border-outline-variant/40 flex items-center justify-between text-[11px] font-mono text-on-surface-muted">
+<span>Encoding: UTF-8</span>
+<span class="text-semantic-emerald">VIETNAMESE_DIACRITICS_PASS</span>
+</div>
+</div>
+</div>
+</section>
+<!-- ===================================================================== -->
+<!-- SECTION 03 // INTERACTION ENGINE & COMPONENT MATRIX                   -->
+<!-- ===================================================================== -->
+<section class="space-y-6">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+<div class="flex items-center gap-3">
+<span class="font-mono text-xs font-bold text-accent-violet bg-accent-violet/10 px-2 py-0.5 rounded">SECTION 03</span>
+<h2 class="font-headline text-xl font-bold tracking-tight text-on-surface">Interaction Engine &amp; Component Matrix</h2>
+</div>
+<span class="text-xs font-mono text-on-surface-muted">5 Strict Lifecycle States: Default • Hover • Focus • Active • Disabled</span>
+</div>
+<!-- 5-State Button & Pill Matrix -->
+<div class="space-y-4">
+<!-- Button State Matrix: Apex Indigo -> Neural Violet CTA Gradient -->
+<div class="bg-surface-panel rounded-xl p-6 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div>
+<h3 class="font-headline text-sm font-bold text-on-surface">1. Primary Specular Gradient CTA Button</h3>
+<p class="text-xs text-on-surface-muted font-mono">bg-gradient-to-r from-primary to-accent-violet with specular rim</p>
+</div>
+<span class="text-[10px] font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">Action Matrix</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+<!-- Default -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-on-surface-muted font-semibold">1. Default</span>
+<button class="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-primary to-accent-violet text-white text-xs font-headline font-semibold shadow-md shadow-primary/20 transition-all">
+                  Execute Arbitrage
+                </button>
+</div>
+<!-- Hover State -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-cyan-glow font-semibold">2. Hover State</span>
+<button class="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-[#4F46E5] to-[#7C3AED] text-white text-xs font-headline font-semibold shadow-lg shadow-primary/40 brightness-110 scale-[1.02] transition-all">
+                  Execute Arbitrage
+                </button>
+</div>
+<!-- Focus State -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-primary font-semibold">3. Focus (Ring 2px)</span>
+<button class="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-primary to-accent-violet text-white text-xs font-headline font-semibold ring-2 ring-primary ring-offset-2 ring-offset-surface">
+                  Execute Arbitrage
+                </button>
+</div>
+<!-- Active / Pressed -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-semantic-emerald font-semibold">4. Active (Pressed)</span>
+<button class="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-[#4338CA] to-[#6D28D9] text-white text-xs font-headline font-semibold scale-[0.97] brightness-90">
+                  Execute Arbitrage
+                </button>
+</div>
+<!-- Disabled State -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-on-surface-muted font-semibold">5. Disabled (0.4 op)</span>
+<button class="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-primary to-accent-violet text-white/50 text-xs font-headline font-semibold opacity-40 cursor-not-allowed" disabled="">
+                  Execute Arbitrage
+                </button>
+</div>
+</div>
+</div>
+<!-- Secondary Pill State Matrix: Cyber Cyan Arbitrage Action Pill -->
+<div class="bg-surface-panel rounded-xl p-6 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div>
+<h3 class="font-headline text-sm font-bold text-on-surface">2. Cyber Cyan Arbitrage Action Pill / Secondary Outline</h3>
+<p class="text-xs text-on-surface-muted font-mono">border border-cyan-glow/40 text-cyan-glow</p>
+</div>
+<span class="text-[10px] font-mono text-cyan-glow bg-cyan-glow/10 px-2 py-0.5 rounded">Secondary Matrix</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-5 gap-4">
+<!-- Default -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-on-surface-muted font-semibold">1. Default</span>
+<button class="w-full py-2 px-3 rounded-full border border-cyan-glow/50 bg-cyan-glow/5 text-cyan-glow text-xs font-mono font-medium flex items-center justify-center gap-1.5 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="query_stats">query_stats</span>
+<span>Crawl Pairs</span>
+</button>
+</div>
+<!-- Hover Cyan Border -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-cyan-glow font-semibold">2. Hover State</span>
+<button class="w-full py-2 px-3 rounded-full border border-cyan-glow bg-cyan-glow/20 text-cyan-glow text-xs font-mono font-medium flex items-center justify-center gap-1.5 shadow-md shadow-cyan-glow/20 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="query_stats">query_stats</span>
+<span>Crawl Pairs</span>
+</button>
+</div>
+<!-- Focus State -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-primary font-semibold">3. Focus State</span>
+<button class="w-full py-2 px-3 rounded-full border border-cyan-glow bg-cyan-glow/10 text-cyan-glow text-xs font-mono font-medium flex items-center justify-center gap-1.5 ring-2 ring-cyan-glow ring-offset-2 ring-offset-surface">
+<span class="material-symbols-outlined text-sm" data-icon="query_stats">query_stats</span>
+<span>Crawl Pairs</span>
+</button>
+</div>
+<!-- Active Fill -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-semantic-emerald font-semibold">4. Active Fill</span>
+<button class="w-full py-2 px-3 rounded-full border border-cyan-glow bg-cyan-glow text-black font-semibold text-xs font-mono flex items-center justify-center gap-1.5">
+<span class="material-symbols-outlined text-sm" data-icon="query_stats">query_stats</span>
+<span>Crawl Pairs</span>
+</button>
+</div>
+<!-- Disabled -->
+<div class="p-4 rounded-lg bg-surface border border-outline-variant flex flex-col items-center justify-center gap-3">
+<span class="text-[10px] font-mono uppercase text-on-surface-muted font-semibold">5. Disabled</span>
+<button class="w-full py-2 px-3 rounded-full border border-outline-variant bg-surface-interactive/30 text-on-surface-muted text-xs font-mono flex items-center justify-center gap-1.5 opacity-40 cursor-not-allowed" disabled="">
+<span class="material-symbols-outlined text-sm" data-icon="query_stats">query_stats</span>
+<span>Crawl Pairs</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Multi-Chain Badges, Treasury Chips, & KYC Tiers -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- 3. Multi-Chain Settlement Protocol Badges -->
+<div class="bg-surface-panel rounded-xl p-5 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<h3 class="font-headline text-sm font-bold text-on-surface">3. Multi-Chain Protocol Badges</h3>
+<span class="text-[10px] font-mono text-cyan-glow">Speed / TPS</span>
+</div>
+<div class="space-y-3">
+<!-- Stellar Horizon -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded bg-chain-stellar/10 border border-chain-stellar/30 flex items-center justify-center text-chain-stellar">
+<span class="material-symbols-outlined text-base" data-icon="hub">hub</span>
+</div>
+<div>
+<div class="text-xs font-mono font-bold text-on-surface">Stellar Horizon</div>
+<div class="text-[10px] font-mono text-on-surface-muted">Sub-cent Micro-routing</div>
+</div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-chain-stellar/15 text-chain-stellar border border-chain-stellar/30">
+                    120 TPS
+                  </span>
+</div>
+</div>
+<!-- Ethereum & Circle EIP-155 -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded bg-chain-circle/10 border border-chain-circle/30 flex items-center justify-center text-chain-circle">
+<span class="material-symbols-outlined text-base" data-icon="token">token</span>
+</div>
+<div>
+<div class="text-xs font-mono font-bold text-on-surface">Ethereum &amp; Circle</div>
+<div class="text-[10px] font-mono text-on-surface-muted">EIP-155 Base / Arbitrum / Mainnet</div>
+</div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-chain-circle/15 text-chain-circle border border-chain-circle/30">
+                    EIP-155 OK
+                  </span>
+</div>
+</div>
+<!-- Solana SPL -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded bg-chain-solana/10 border border-chain-solana/30 flex items-center justify-center text-chain-solana">
+<span class="material-symbols-outlined text-base" data-icon="bolt">bolt</span>
+</div>
+<div>
+<div class="text-xs font-mono font-bold text-on-surface">Solana SPL High-Speed</div>
+<div class="text-[10px] font-mono text-on-surface-muted">Zero-Dust Parallel Batching</div>
+</div>
+</div>
+<div class="text-right">
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-chain-solana/15 text-chain-solana border border-chain-solana/30">
+                    2,400 TPS
+                  </span>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. Treasury Health Status Chips -->
+<div class="bg-surface-panel rounded-xl p-5 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<h3 class="font-headline text-sm font-bold text-on-surface">4. Treasury Health Status Chips</h3>
+<span class="text-[10px] font-mono text-semantic-emerald">Gas Reserve Telemetry</span>
+</div>
+<div class="space-y-3">
+<!-- HEALTHY -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<span class="w-3 h-3 rounded-full bg-semantic-emerald animate-pulse"></span>
+<div>
+<div class="text-xs font-mono font-bold text-semantic-emerald">HEALTHY / DISPENSING</div>
+<div class="text-[10px] font-mono text-on-surface-muted">Gas Reserves &gt; 98.4%</div>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-semantic-emerald/10 text-semantic-emerald border border-semantic-emerald/30">
+                  NORMAL
+                </span>
+</div>
+<!-- LOW RESERVE -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<span class="w-3 h-3 rounded-full bg-semantic-amber"></span>
+<div>
+<div class="text-xs font-mono font-bold text-semantic-amber">LOW_RESERVE / WARNING</div>
+<div class="text-[10px] font-mono text-on-surface-muted">Gas Floor &lt; $1,000 Threshold</div>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-semantic-amber/10 text-semantic-amber border border-semantic-amber/30">
+                  REFUEL
+                </span>
+</div>
+<!-- CRITICAL -->
+<div class="p-3 rounded-lg bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<span class="w-3 h-3 rounded-full bg-semantic-crimson"></span>
+<div>
+<div class="text-xs font-mono font-bold text-semantic-crimson">CRITICAL / CIRCUIT-BREAKER</div>
+<div class="text-[10px] font-mono text-on-surface-muted">Execution Halted • Safeguard Triggered</div>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-semantic-crimson/10 text-semantic-crimson border border-semantic-crimson/30">
+                  HALTED
+                </span>
+</div>
+</div>
+</div>
+<!-- 5. KYC & Tier Badges -->
+<div class="bg-surface-panel rounded-xl p-5 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<h3 class="font-headline text-sm font-bold text-on-surface">5. KYC &amp; Account Tier Badges</h3>
+<span class="text-[10px] font-mono text-accent-violet">Limits &amp; Fees</span>
+</div>
+<div class="space-y-2.5">
+<!-- Tier 0 -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-xs font-mono font-bold text-on-surface-muted">Tier 0</span>
+<span class="text-[11px] font-mono text-on-surface">Unverified</span>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted bg-surface-interactive px-2 py-0.5 rounded">$0 Limit</span>
+</div>
+<!-- Tier 1 -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-xs font-mono font-bold text-cyan-glow">Tier 1</span>
+<span class="text-[11px] font-mono text-on-surface">Basic Verified</span>
+</div>
+<span class="text-[10px] font-mono text-cyan-glow bg-cyan-glow/10 px-2 py-0.5 rounded">$2,500 Daily Limit</span>
+</div>
+<!-- Tier 2 -->
+<div class="p-2.5 rounded bg-surface border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="text-xs font-mono font-bold text-primary">Tier 2</span>
+<span class="text-[11px] font-mono text-on-surface">Enhanced KYC</span>
+</div>
+<span class="text-[10px] font-mono text-primary bg-primary/10 px-2 py-0.5 rounded">$50,000+ Unrestricted</span>
+</div>
+<!-- Master Tier -->
+<div class="p-2.5 rounded bg-surface border border-accent-violet/40 flex items-center justify-between bg-gradient-to-r from-accent-violet/10 to-transparent">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-accent-violet" data-icon="stars">stars</span>
+<span class="text-xs font-mono font-bold text-accent-violet">Master Tier</span>
+</div>
+<span class="text-[10px] font-mono text-accent-violet bg-accent-violet/20 px-2 py-0.5 rounded border border-accent-violet/40">
+                  VIP 0% Fee
+                </span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ===================================================================== -->
+<!-- SECTION 04 // ICONOGRAPHY DIRECTORY & GRID PREVIEW                    -->
+<!-- ===================================================================== -->
+<section class="space-y-6">
+<div class="flex items-center justify-between border-b border-outline-variant/60 pb-3">
+<div class="flex items-center gap-3">
+<span class="font-mono text-xs font-bold text-cyan-glow bg-cyan-glow/10 px-2 py-0.5 rounded">SECTION 04</span>
+<h2 class="font-headline text-xl font-bold tracking-tight text-on-surface">Iconography Directory &amp; Grid Preview</h2>
+</div>
+<span class="text-xs font-mono text-on-surface-muted">Google Material Symbols (Literal Transcription)</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<!-- Command Cluster -->
+<div class="bg-surface-panel rounded-xl p-5 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-primary" data-icon="terminal">terminal</span>
+<h3 class="font-headline text-xs font-bold text-on-surface uppercase tracking-wider">Command Cluster</h3>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">8 glyphs</span>
+</div>
+<div class="grid grid-cols-4 gap-2.5">
+<!-- dashboard -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="dashboard">dashboard</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">dashboard</span>
+</div>
+<!-- query_stats -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="query_stats">query_stats</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">query_stats</span>
+</div>
+<!-- currency_exchange -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="currency_exchange">currency_exchange</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">currency_ex</span>
+</div>
+<!-- shield -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="shield">shield</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">shield</span>
+</div>
+<!-- send -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="send">send</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">send</span>
+</div>
+<!-- palette -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-primary" data-icon="palette">palette</span>
+<span class="text-[9px] font-mono text-primary truncate w-full text-center">palette</span>
+</div>
+<!-- settings -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="settings">settings</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">settings</span>
+</div>
+<!-- terminal -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="terminal">terminal</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">terminal</span>
+</div>
+</div>
+</div>
+<!-- Crypto/Settlement Cluster -->
+<div class="bg-surface-panel rounded-xl p-5 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-cyan-glow" data-icon="token">token</span>
+<h3 class="font-headline text-xs font-bold text-on-surface uppercase tracking-wider">Settlement Cluster</h3>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">8 glyphs</span>
+</div>
+<div class="grid grid-cols-4 gap-2.5">
+<!-- wallet -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-cyan-glow/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-cyan-glow transition-colors" data-icon="wallet">wallet</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">wallet</span>
+</div>
+<!-- token -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-cyan-glow/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-cyan-glow transition-colors" data-icon="token">token</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">token</span>
+</div>
+<!-- sync_alt -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-cyan-glow/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-cyan-glow transition-colors" data-icon="sync_alt">sync_alt</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">sync_alt</span>
+</div>
+<!-- bolt -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-cyan-glow/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-cyan-glow transition-colors" data-icon="bolt">bolt</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">bolt</span>
+</div>
+<!-- hub -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-cyan-glow/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-cyan-glow transition-colors" data-icon="hub">hub</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">hub</span>
+</div>
+<!-- lock_open -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-cyan-glow/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-cyan-glow transition-colors" data-icon="lock_open">lock_open</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">lock_open</span>
+</div>
+<!-- policy -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-cyan-glow/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-cyan-glow transition-colors" data-icon="policy">policy</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">policy</span>
+</div>
+<!-- verified_user -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-cyan-glow/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-cyan-glow transition-colors" data-icon="verified_user">verified_user</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">verified_user</span>
+</div>
+</div>
+</div>
+<!-- Status/Affiliate Cluster -->
+<div class="bg-surface-panel rounded-xl p-5 border border-outline-variant space-y-4">
+<div class="flex items-center justify-between border-b border-outline-variant/40 pb-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-semantic-emerald" data-icon="check_circle">check_circle</span>
+<h3 class="font-headline text-xs font-bold text-on-surface uppercase tracking-wider">Status Cluster</h3>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">8 glyphs</span>
+</div>
+<div class="grid grid-cols-4 gap-2.5">
+<!-- check_circle -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-semantic-emerald/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-semantic-emerald" data-icon="check_circle">check_circle</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">check_circle</span>
+</div>
+<!-- warning -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-semantic-amber/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-semantic-amber" data-icon="warning">warning</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">warning</span>
+</div>
+<!-- block -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-semantic-crimson/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-semantic-crimson" data-icon="block">block</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">block</span>
+</div>
+<!-- stars -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-accent-violet/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-accent-violet" data-icon="stars">stars</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">stars</span>
+</div>
+<!-- content_copy -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="content_copy">content_copy</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">copy</span>
+</div>
+<!-- open_in_new -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="open_in_new">open_in_new</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">open_new</span>
+</div>
+<!-- search -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="search">search</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">search</span>
+</div>
+<!-- notifications -->
+<div class="p-3 rounded bg-surface border border-outline-variant/60 flex flex-col items-center justify-center gap-1.5 hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-xl text-on-surface-variant group-hover:text-primary transition-colors" data-icon="notifications">notifications</span>
+<span class="text-[9px] font-mono text-on-surface-muted truncate w-full text-center">alerts</span>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- ===================================================================== -->
+<!-- FOOTER INFO STRIP                                                     -->
+<!-- ===================================================================== -->
+<footer class="pt-8 border-t border-outline-variant/60">
+<div class="p-4 rounded-xl bg-surface-panel border border-outline-variant flex flex-col md:flex-row items-center justify-between gap-4 text-xs font-mono text-on-surface-muted">
+<div class="flex items-center gap-3">
+<span class="w-2 h-2 rounded-full bg-cyan-glow"></span>
+<span class="font-semibold text-on-surface">ApexOS Visual Engine</span>
+<span>•</span>
+<span class="text-primary">Commit c81df3e</span>
+<span>•</span>
+<span class="text-on-surface-variant">Strict DESIGN.md Alignment</span>
+</div>
+<div class="flex items-center gap-4 text-[11px]">
+<span class="text-semantic-emerald">WCAG 2.1 AAA Spec</span>
+<span>•</span>
+<span class="text-chain-circle">EIP-155 Protocol</span>
+<span>•</span>
+<span class="text-chain-stellar">Stellar Horizon v2</span>
+</div>
+</div>
+</footer>
+</div>
+</main>
+<!-- ========================================================================= -->
+<!-- MICRO-INTERACTIONS & UTILITY SCRIPTS                                      -->
+<!-- ========================================================================= -->
+<script>
+    // Copy Hex Tokens to Clipboard
+    function copyTokensJSON() {
+      const tokens = {
+        surfaces: {
+          nightSkyObsidian: "#020617",
+          slatePanel: "#0F172A",
+          interactiveWell: "#1E293B",
+          hairlineBorder: "#334155",
+          onSurface: "#F8FAFC"
+        },
+        brand: {
+          apexIndigo: "#6366F1",
+          neuralViolet: "#8B5CF6",
+          cyberCyan: "#06B6D4"
+        },
+        semantics: {
+          usdcEmerald: "#10B981",
+          floorAmber: "#F59E0B",
+          crimsonBlock: "#EF4444",
+          stellarXLM: "#14B8A6",
+          circleUSDC: "#2775CA",
+          solanaSPL: "#14F195"
+        }
+      };
+
+      navigator.clipboard.writeText(JSON.stringify(tokens, null, 2)).then(() => {
+        const btnText = document.getElementById('copyTokensText');
+        const original = btnText.innerText;
+        btnText.innerText = "Copied to Clipboard!";
+        btnText.classList.add("text-semantic-emerald");
+        setTimeout(() => {
+          btnText.innerText = original;
+          btnText.classList.remove("text-semantic-emerald");
+        }, 2200);
+      });
+    }
+
+    // Spec File Downloader Simulator
+    function downloadDesignSpec() {
+      const markdownContent = `# ApexOS — Component Style Guide & Fintech Design Tokens (DESIGN.md Visual Contract)
+Version: v4.2.1
+Status: AUTHORITATIVE_SPEC
+Chains: EVM (EIP-155) / Solana SPL / Stellar Horizon
+
+## 1. Surfaces
+- Night Sky Obsidian: #020617 (--color-neutral-950)
+- Slate Panel: #0F172A (--color-neutral-900)
+- Interactive Well: #1E293B (--color-neutral-800)
+- Hairline Border: #334155 (--color-neutral-700)
+- Text Core: #F8FAFC (Primary 18.2:1 AAA)
+
+## 2. Quant Highlights
+- Apex Indigo: #6366F1
+- Neural Violet: #8B5CF6
+- Cyber Cyan: #06B6D4
+
+## 3. Settlements
+- USDC Emerald: #10B981
+- Floor Amber: #F59E0B
+- Crimson Block: #EF4444
+- Stellar XLM: #14B8A6
+- Circle USDC: #2775CA
+- Solana SPL: #14F195
+
+Generated via ApexOS Visual Engine c81df3e.`;
+
+      const blob = new Blob([markdownContent], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'DESIGN.md';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // Export Tailwind Config Toast
+    function exportTailwindConfig() {
+      const configStr = `tailwind.config = {
+  darkMode: "class",
+  theme: {
+    extend: {
+      colors: {
+        surface: "#020617",
+        "surface-panel": "#0F172A",
+        "surface-interactive": "#1E293B",
+        "outline-variant": "#334155",
+        primary: "#6366F1",
+        "accent-violet": "#8B5CF6",
+        "cyan-glow": "#06B6D4",
+        "semantic-emerald": "#10B981",
+        "semantic-amber": "#F59E0B",
+        "semantic-crimson": "#EF4444"
+      }
+    }
+  }
+};`;
+      navigator.clipboard.writeText(configStr).then(() => {
+        alert("Tailwind CSS configuration copied to clipboard!");
+      });
+    }
+
+    // Bilingual switcher micro-toggle
+    const switcher = document.getElementById('langSwitcher');
+    if (switcher) {
+      let isEn = true;
+      switcher.addEventListener('click', () => {
+        isEn = !isEn;
+        if (isEn) {
+          switcher.innerHTML = `<span class="font-bold text-primary">EN</span><span class="text-outline-variant">/</span><span class="text-on-surface-muted">VI</span>`;
+        } else {
+          switcher.innerHTML = `<span class="text-on-surface-muted">EN</span><span class="text-outline-variant">/</span><span class="font-bold text-primary">VI</span>`;
+        }
+      });
+    }
+  </script>
+</body></html>

@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS Terminal — BYOK AES-GCM-256 Vault &amp; Rotation Console</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            canvas: "#020617",
+            surface: "#0F172A",
+            "surface-variant": "#1E293B",
+            "outline-variant": "#1E293B",
+            primary: "#6366F1",
+            "on-primary": "#FFFFFF",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8",
+            neural: "#8B5CF6",
+            cyan: "#06B6D4",
+            emerald: "#10B981",
+            crimson: "#EF4444",
+            amber: "#F59E0B"
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "0.75rem", // 12px panel radius per requirements
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #0F172A;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 9999px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+  </style>
+</head>
+<body class="bg-canvas text-on-surface font-body antialiased min-h-screen flex selection:bg-primary/30 selection:text-white">
+<!-- ================= 248px Left Navigation Sidebar ================= -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-surface border-r border-outline-variant flex flex-col justify-between p-4 shadow-sm select-none">
+<div class="flex flex-col gap-6">
+<!-- Terminal Brand Node -->
+<div class="flex items-center gap-3 px-2 py-1">
+<div class="w-9 h-9 rounded-lg bg-gradient-to-br from-primary via-neural to-cyan flex items-center justify-center p-0.5 shadow-lg shadow-primary/20">
+<div class="w-full h-full bg-surface rounded-[6px] flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-xl" style="font-variation-settings: 'FILL' 1;">security</span>
+</div>
+</div>
+<div class="flex flex-col">
+<div class="font-headline font-bold text-base tracking-tight text-on-surface flex items-center gap-1.5">
+            ApexOS Terminal
+            <span class="text-[10px] font-mono font-medium px-1.5 py-0.2 bg-primary/20 text-primary rounded">v4.9</span>
+</div>
+<span class="font-body text-xs text-on-surface-variant">Arbitrage &amp; Settlement Hub</span>
+</div>
+</div>
+<!-- Action Button: Connect Node -->
+<button class="w-full py-2.5 px-4 bg-primary/10 hover:bg-primary/20 border border-primary/30 hover:border-primary/50 text-primary font-headline font-bold text-xs uppercase tracking-wider rounded-lg transition-all duration-150 flex items-center justify-center gap-2 group shadow-sm">
+<span class="material-symbols-outlined text-sm group-hover:rotate-45 transition-transform">bolt</span>
+        Connect Node
+      </button>
+<!-- Navigation Links -->
+<nav class="flex flex-col gap-1.5">
+<div class="px-2 pb-1 text-[10px] font-label font-bold uppercase tracking-wider text-on-surface-variant/60">Core Modules</div>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface font-normal text-sm transition-colors" href="#cockpit">
+<span class="material-symbols-outlined text-lg">dashboard</span>
+<span>Cashback Cockpit</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface font-normal text-sm transition-colors" href="#crawler">
+<span class="material-symbols-outlined text-lg">query_stats</span>
+<span>Arbitrage &amp; Deal Crawler</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface font-normal text-sm transition-colors" href="#payouts">
+<span class="material-symbols-outlined text-lg">currency_exchange</span>
+<span>Multi-Chain Payouts</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface font-normal text-sm transition-colors" href="#kyc">
+<span class="material-symbols-outlined text-lg">shield</span>
+<span>KYC &amp; Fraud Command</span>
+</a>
+<!-- ACTIVE TAB: BYOK Key Vault -->
+<a class="flex items-center justify-between px-3 py-2.5 rounded-lg text-primary bg-primary/10 border border-primary/25 font-medium text-sm transition-colors shadow-inner" href="#vault">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">vpn_key</span>
+<span>BYOK Key Vault</span>
+</div>
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface font-normal text-sm transition-colors" href="#telegram">
+<span class="material-symbols-outlined text-lg">send</span>
+<span>Telegram Mini App</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded-lg text-on-surface-variant hover:bg-surface-variant hover:text-on-surface font-normal text-sm transition-colors" href="#styleguide">
+<span class="material-symbols-outlined text-lg">palette</span>
+<span>Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Footer System Status & WORM Info -->
+<div class="flex flex-col gap-3 pt-3 border-t border-outline-variant">
+<div class="p-2.5 rounded-lg bg-surface-variant/40 border border-outline-variant flex flex-col gap-1.5 font-mono text-[11px]">
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span>
+            Cloudflare D1 WORM
+          </span>
+<span class="text-emerald font-bold">SECURE</span>
+</div>
+<div class="text-[10px] text-on-surface-variant/70 truncate flex items-center gap-1">
+<span class="material-symbols-outlined text-xs">dns</span>
+          sin-d1-node-09.apex
+        </div>
+</div>
+<div class="flex items-center justify-between text-on-surface-variant text-xs px-1">
+<a class="flex items-center gap-1.5 hover:text-on-surface transition-colors" href="#settings">
+<span class="material-symbols-outlined text-base">settings</span>
+          Settings
+        </a>
+<a class="flex items-center gap-1.5 hover:text-on-surface transition-colors" href="#docs">
+<span class="material-symbols-outlined text-base">menu_book</span>
+          Docs
+        </a>
+</div>
+</div>
+</aside>
+<!-- ================= Main Content Container ================= -->
+<div class="flex-1 ml-64 flex flex-col min-h-screen">
+<!-- Top Command Bar (64px) -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-surface/95 backdrop-blur-md border-b border-outline-variant flex items-center justify-between px-8">
+<!-- Search Box -->
+<div class="flex items-center gap-3 w-96">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+<input class="w-full bg-surface-variant/60 border border-outline-variant rounded-lg pl-9 pr-8 py-1.5 text-xs text-on-surface placeholder-on-surface-variant/60 focus:outline-none focus:border-primary transition-all font-body" placeholder="Search key fingerprints, exchange endpoints, audit tags..." type="text"/>
+<kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono bg-canvas border border-outline-variant px-1.5 py-0.5 rounded text-on-surface-variant">⌘K</kbd>
+</div>
+</div>
+<!-- Trailing Action Badges & Identity -->
+<div class="flex items-center gap-4">
+<!-- 3/3 Chains HEALTHY pill -->
+<div class="flex items-center gap-2 px-3 py-1 bg-emerald/10 border border-emerald/30 text-emerald text-xs rounded-full font-mono font-medium">
+<span class="w-2 h-2 rounded-full bg-emerald animate-ping"></span>
+<span>3/3 Chains HEALTHY</span>
+</div>
+<!-- MASTER TIER badge -->
+<div class="px-2.5 py-0.5 bg-gradient-to-r from-primary to-neural text-white font-label font-bold text-[10px] uppercase tracking-wider rounded shadow-sm">
+          MASTER TIER
+        </div>
+<div class="h-4 w-px bg-outline-variant"></div>
+<!-- Language Switcher -->
+<div class="flex items-center text-xs font-mono font-medium text-on-surface-variant bg-surface-variant/50 rounded-md p-0.5 border border-outline-variant">
+<button class="px-2 py-0.5 rounded bg-surface text-on-surface shadow-xs font-bold">EN</button>
+<button class="px-2 py-0.5 rounded hover:text-on-surface transition-colors">VI</button>
+</div>
+<!-- Icon Buttons -->
+<button class="text-on-surface-variant hover:text-on-surface p-1.5 rounded-lg hover:bg-surface-variant transition-colors relative" title="Notifications">
+<span class="material-symbols-outlined text-xl">notifications</span>
+<span class="absolute top-1 right-1 w-2 h-2 bg-crimson rounded-full ring-2 ring-surface"></span>
+</button>
+<button class="text-on-surface-variant hover:text-on-surface p-1.5 rounded-lg hover:bg-surface-variant transition-colors" title="Debug Terminal Console">
+<span class="material-symbols-outlined text-xl">terminal</span>
+</button>
+<!-- Operator Wallet Identity -->
+<div class="flex items-center gap-2.5 pl-2 border-l border-outline-variant">
+<div class="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan via-primary to-neural flex items-center justify-center p-0.5 text-canvas">
+<span class="material-symbols-outlined text-sm font-bold">fingerprint</span>
+</div>
+<div class="flex flex-col text-left">
+<span class="text-xs font-mono font-semibold text-on-surface tracking-tight">0x8F94...c4B2</span>
+<span class="text-[10px] font-mono text-emerald flex items-center gap-1 leading-tight">
+<span class="w-1 h-1 rounded-full bg-emerald"></span> HSM Authorized
+            </span>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Workspace (scrollable canvas) -->
+<main class="flex-1 mt-16 p-8 flex flex-col gap-8 custom-scrollbar">
+<!-- ================= 1. Header & Quick Actions ================= -->
+<section class="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pb-2 border-b border-outline-variant/60">
+<div class="flex flex-col gap-2 max-w-4xl">
+<!-- Breadcrumbs/Badges -->
+<div class="flex items-center gap-2 font-mono text-[11px] font-medium tracking-wide">
+<span class="px-2 py-0.5 rounded bg-primary/20 text-primary border border-primary/30">VAULT V4.9-SEC</span>
+<span class="text-on-surface-variant/40">•</span>
+<span class="px-2 py-0.5 rounded bg-cyan/15 text-cyan border border-cyan/30">ZERO-KNOWLEDGE CLIENT ENCRYPTION</span>
+<span class="text-on-surface-variant/40">•</span>
+<span class="px-2 py-0.5 rounded bg-surface-variant text-on-surface-variant border border-outline-variant">D1 HSM ISOLATION</span>
+</div>
+<!-- Main Title -->
+<h1 class="text-2xl lg:text-3xl font-headline font-bold text-on-surface tracking-tight">
+            BYOK AES-GCM-256 Exchange API Key Vault &amp; Zero-Knowledge Rotation Console
+          </h1>
+<!-- Bilingual Vietnamese Subtext -->
+<p class="text-xs text-on-surface-variant font-body leading-relaxed">
+            Kho lưu trữ khóa API sàn giao dịch mã hóa AES-GCM-256 phía máy khách (BYOK) &amp; Bảng điều khiển xoay khóa không tiết lộ tri thức (ZK).
+          </p>
+</div>
+<!-- Top Actions -->
+<div class="flex items-center flex-wrap gap-3 self-start lg:self-center">
+<button class="px-3.5 py-2 rounded-lg bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono font-medium text-on-surface flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-sm text-cyan">published_with_changes</span>
+            Simulate Key Rotation
+          </button>
+<button class="px-3.5 py-2 rounded-lg bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono font-medium text-on-surface flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-sm text-amber">file_download</span>
+            Export Audit Manifest (JSON)
+          </button>
+<!-- Primary Specular Gradient CTA -->
+<button class="px-4 py-2 rounded-lg bg-gradient-to-r from-primary via-indigo-500 to-cyan text-white text-xs font-headline font-bold tracking-wide uppercase shadow-lg shadow-primary/25 hover:shadow-primary/40 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-base" style="font-variation-settings: 'FILL' 1;">key</span>
+            Seal &amp; Bind New Exchange Key
+          </button>
+</div>
+</section>
+<!-- ================= 2. Envelope Encryption Telemetry Cards (4 Hero KPIs) ================= -->
+<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+<!-- Card 1: Active Encrypted Keys -->
+<div class="bg-surface border border-outline-variant rounded-lg p-5 flex flex-col justify-between relative overflow-hidden group hover:border-emerald/40 transition-all">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald/5 rounded-full blur-xl group-hover:bg-emerald/10 transition-all"></div>
+<div>
+<div class="flex items-center justify-between mb-3">
+<span class="p-2 rounded-lg bg-emerald/10 text-emerald">
+<span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">vpn_key</span>
+</span>
+<span class="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30">
+                100% WORM Sealed
+              </span>
+</div>
+<span class="text-xs font-label uppercase tracking-wider text-on-surface-variant font-medium">Active Encrypted Keys</span>
+<div class="text-2xl font-headline font-bold text-on-surface mt-1">4/4 Exchanges Bound</div>
+<div class="text-[11px] font-mono text-cyan/90 mt-0.5">Binance • Bybit • OKX • KuCoin</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant/60 text-[11px] text-on-surface-variant flex items-center gap-1.5">
+<span class="material-symbols-outlined text-emerald text-sm">verified_user</span>
+            0 Unencrypted Secrets in D1 / Zero Plaintext Leakage
+          </div>
+</div>
+<!-- Card 2: WebCrypto Cipher Suite -->
+<div class="bg-surface border border-outline-variant rounded-lg p-5 flex flex-col justify-between relative overflow-hidden group hover:border-cyan/40 transition-all">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-cyan/5 rounded-full blur-xl group-hover:bg-cyan/10 transition-all"></div>
+<div>
+<div class="flex items-center justify-between mb-3">
+<span class="p-2 rounded-lg bg-cyan/10 text-cyan">
+<span class="material-symbols-outlined text-xl">enhanced_encryption</span>
+</span>
+<span class="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-cyan/10 text-cyan border border-cyan/30">
+                FIPS 140-3 Mode
+              </span>
+</div>
+<span class="text-xs font-label uppercase tracking-wider text-on-surface-variant font-medium">WebCrypto Cipher Suite</span>
+<div class="text-2xl font-headline font-bold text-on-surface mt-1 font-mono">AES-GCM-256</div>
+<div class="text-[11px] font-mono text-on-surface-variant mt-0.5">96-bit Random IV • 128-bit Polyval Auth Tag</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant/60 text-[11px] text-on-surface-variant flex items-center gap-1.5 font-mono">
+<span class="material-symbols-outlined text-cyan text-sm">memory</span>
+            PBKDF2 Master Derivation (100k rounds)
+          </div>
+</div>
+<!-- Card 3: Read-Only Scope Guard -->
+<div class="bg-surface border border-outline-variant rounded-lg p-5 flex flex-col justify-between relative overflow-hidden group hover:border-crimson/40 transition-all">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-crimson/5 rounded-full blur-xl group-hover:bg-crimson/10 transition-all"></div>
+<div>
+<div class="flex items-center justify-between mb-3">
+<span class="p-2 rounded-lg bg-crimson/10 text-crimson">
+<span class="material-symbols-outlined text-xl">lock</span>
+</span>
+<span class="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-crimson/10 text-crimson border border-crimson/30">
+                STRICT ABORT
+              </span>
+</div>
+<span class="text-xs font-label uppercase tracking-wider text-on-surface-variant font-medium">Read-Only Scope Guard</span>
+<div class="text-2xl font-headline font-bold text-crimson mt-1 font-mono">100% Policy Blocked</div>
+<div class="text-[11px] text-on-surface-variant mt-0.5">Zero-Withdrawal Hard Assertion Active</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant/60 text-[11px] text-on-surface-variant flex items-center gap-1.5">
+<span class="material-symbols-outlined text-crimson text-sm">gpp_bad</span>
+            Pre-flight regex rejects WITHDRAWAL / TRANSFER
+          </div>
+</div>
+<!-- Card 4: Automated Key Rotation SLA -->
+<div class="bg-surface border border-outline-variant rounded-lg p-5 flex flex-col justify-between relative overflow-hidden group hover:border-amber/40 transition-all">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-amber/5 rounded-full blur-xl group-hover:bg-amber/10 transition-all"></div>
+<div>
+<div class="flex items-center justify-between mb-3">
+<span class="p-2 rounded-lg bg-amber/10 text-amber">
+<span class="material-symbols-outlined text-xl">sync</span>
+</span>
+<span class="text-[10px] font-mono font-bold uppercase px-2 py-0.5 rounded bg-amber/10 text-amber border border-amber/30">
+                SLA ACTIVE
+              </span>
+</div>
+<span class="text-xs font-label uppercase tracking-wider text-on-surface-variant font-medium">Automated Key Rotation SLA</span>
+<div class="text-2xl font-headline font-bold text-on-surface mt-1 font-mono">23 Days Avg Age</div>
+<div class="text-[11px] font-mono text-amber mt-0.5">Next Epoch: Binance (in 7 days)</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant/60 text-[11px] text-on-surface-variant flex items-center gap-1.5">
+<span class="material-symbols-outlined text-amber text-sm">schedule</span>
+            Auto-Quarantine after 30 days without rotation
+          </div>
+</div>
+</section>
+<!-- ================= 3. Multi-Exchange BYOK Key Binding Matrix ================= -->
+<section class="flex flex-col gap-4">
+<!-- Header & Filter Chips -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div class="flex items-center gap-3">
+<h2 class="text-lg font-headline font-bold text-on-surface">Multi-Exchange BYOK Key Binding Matrix</h2>
+<span class="px-2 py-0.5 rounded-full bg-surface-variant text-on-surface-variant text-xs font-mono">4 Connected</span>
+</div>
+<div class="flex items-center flex-wrap gap-2">
+<div class="flex items-center bg-surface border border-outline-variant rounded-lg p-1 text-xs font-mono">
+<button class="px-3 py-1 rounded bg-primary/20 text-primary font-semibold">All Keys (4)</button>
+<button class="px-3 py-1 rounded text-on-surface-variant hover:text-on-surface">Binance (1)</button>
+<button class="px-3 py-1 rounded text-on-surface-variant hover:text-on-surface">Bybit (1)</button>
+<button class="px-3 py-1 rounded text-on-surface-variant hover:text-on-surface">OKX (1)</button>
+<button class="px-3 py-1 rounded text-on-surface-variant hover:text-on-surface">KuCoin (1)</button>
+</div>
+<!-- Strict Policy Banner Tag -->
+<div class="px-3 py-1 bg-crimson/10 border border-crimson/30 text-crimson text-xs rounded-lg font-mono flex items-center gap-1.5 font-medium">
+<span class="material-symbols-outlined text-sm">shield</span>
+              Strict No-Withdraw Policy Active
+            </div>
+</div>
+</div>
+<!-- 4 Exchange Cards (2x2 Grid) -->
+<div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+<!-- Exchange 1: Binance Global -->
+<div class="bg-surface border border-outline-variant rounded-lg p-5 flex flex-col justify-between gap-4 hover:border-outline-variant/80 transition-all">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-surface-variant flex items-center justify-center font-bold text-amber text-lg font-mono border border-outline-variant">
+                  BN
+                </div>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-base text-on-surface">Binance Global</span>
+<span class="px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30 text-[10px] font-mono">HEALTHY</span>
+</div>
+<div class="text-xs font-mono text-on-surface-variant/70 flex items-center gap-2 mt-0.5">
+<span>Key Fingerprint:</span>
+<span class="text-cyan font-mono">sha256:4f9a71b...8c21e0</span>
+</div>
+</div>
+</div>
+<div class="text-right font-mono">
+<span class="text-[11px] text-on-surface-variant">HMAC Ping</span>
+<div class="text-sm font-semibold text-emerald flex items-center justify-end gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span> 1.2ms
+                </div>
+</div>
+</div>
+<!-- Metadata & Permissions -->
+<div class="bg-surface-variant/40 rounded-lg p-3 border border-outline-variant flex flex-col gap-2.5">
+<div class="flex items-center justify-between text-xs text-on-surface-variant">
+<span>Created: <strong class="text-on-surface font-mono">14 days ago</strong></span>
+<span>Algorithm: <strong class="text-on-surface font-mono">AES-GCM-256</strong></span>
+<span>Storage: <strong class="text-emerald font-mono">D1 WORM</strong></span>
+</div>
+<!-- Permissions Tags -->
+<div class="flex items-center flex-wrap gap-1.5 pt-1 border-t border-outline-variant/50">
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30">READ_SPOT: ALLOW</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30">READ_FUTURES: ALLOW</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-crimson/15 text-crimson line-through border border-crimson/30">WITHDRAW: REJECTED_BY_POLICY</span>
+</div>
+</div>
+<!-- Card Actions -->
+<div class="flex items-center justify-end gap-2 pt-1">
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono text-on-surface-variant hover:text-on-surface transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">speed</span>
+                Test Latency
+              </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono text-on-surface-variant hover:text-on-surface transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-cyan">autorenew</span>
+                Rotate Key
+              </button>
+<button class="px-3 py-1.5 rounded-lg bg-crimson/10 hover:bg-crimson/20 border border-crimson/30 text-xs font-mono text-crimson transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">link_off</span>
+                Revoke
+              </button>
+</div>
+</div>
+<!-- Exchange 2: Bybit Unified -->
+<div class="bg-surface border border-outline-variant rounded-lg p-5 flex flex-col justify-between gap-4 hover:border-outline-variant/80 transition-all">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-surface-variant flex items-center justify-center font-bold text-primary text-lg font-mono border border-outline-variant">
+                  BY
+                </div>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-base text-on-surface">Bybit Unified</span>
+<span class="px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30 text-[10px] font-mono">HEALTHY</span>
+</div>
+<div class="text-xs font-mono text-on-surface-variant/70 flex items-center gap-2 mt-0.5">
+<span>Key Fingerprint:</span>
+<span class="text-cyan font-mono">sha256:b8214ea...190c74</span>
+</div>
+</div>
+</div>
+<div class="text-right font-mono">
+<span class="text-[11px] text-on-surface-variant">HMAC Ping</span>
+<div class="text-sm font-semibold text-emerald flex items-center justify-end gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span> 2.1ms
+                </div>
+</div>
+</div>
+<!-- Metadata & Permissions -->
+<div class="bg-surface-variant/40 rounded-lg p-3 border border-outline-variant flex flex-col gap-2.5">
+<div class="flex items-center justify-between text-xs text-on-surface-variant">
+<span>Created: <strong class="text-on-surface font-mono">8 days ago</strong></span>
+<span>Algorithm: <strong class="text-on-surface font-mono">AES-GCM-256</strong></span>
+<span>Storage: <strong class="text-emerald font-mono">D1 WORM</strong></span>
+</div>
+<!-- Permissions Tags -->
+<div class="flex items-center flex-wrap gap-1.5 pt-1 border-t border-outline-variant/50">
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30">READ_UNIFIED: ALLOW</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30">READ_POSITIONS: ALLOW</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-crimson/15 text-crimson line-through border border-crimson/30">TRANSFER: REJECTED_BY_POLICY</span>
+</div>
+</div>
+<!-- Card Actions -->
+<div class="flex items-center justify-end gap-2 pt-1">
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono text-on-surface-variant hover:text-on-surface transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">speed</span>
+                Test Latency
+              </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono text-on-surface-variant hover:text-on-surface transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-cyan">autorenew</span>
+                Rotate Key
+              </button>
+<button class="px-3 py-1.5 rounded-lg bg-crimson/10 hover:bg-crimson/20 border border-crimson/30 text-xs font-mono text-crimson transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">link_off</span>
+                Revoke
+              </button>
+</div>
+</div>
+<!-- Exchange 3: OKX Pro (Rotate Soon Warning) -->
+<div class="bg-surface border border-outline-variant rounded-lg p-5 flex flex-col justify-between gap-4 hover:border-amber/40 transition-all relative">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-surface-variant flex items-center justify-center font-bold text-neural text-lg font-mono border border-outline-variant">
+                  OK
+                </div>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-base text-on-surface">OKX Pro</span>
+<span class="px-2 py-0.5 rounded bg-amber/15 text-amber border border-amber/30 text-[10px] font-mono font-semibold flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-amber animate-pulse"></span> ROTATE SOON
+                    </span>
+</div>
+<div class="text-xs font-mono text-on-surface-variant/70 flex items-center gap-2 mt-0.5">
+<span>Key Fingerprint:</span>
+<span class="text-cyan font-mono">sha256:77c19ad...55d21b</span>
+</div>
+</div>
+</div>
+<div class="text-right font-mono">
+<span class="text-[11px] text-on-surface-variant">HMAC Ping</span>
+<div class="text-sm font-semibold text-emerald flex items-center justify-end gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span> 1.8ms
+                </div>
+</div>
+</div>
+<!-- Metadata & Permissions -->
+<div class="bg-surface-variant/40 rounded-lg p-3 border border-outline-variant flex flex-col gap-2.5">
+<div class="flex items-center justify-between text-xs text-on-surface-variant">
+<span>Created: <strong class="text-amber font-mono">22 days ago (8d left)</strong></span>
+<span>Algorithm: <strong class="text-on-surface font-mono">AES-GCM-256</strong></span>
+<span>Storage: <strong class="text-emerald font-mono">D1 WORM</strong></span>
+</div>
+<!-- Permissions Tags -->
+<div class="flex items-center flex-wrap gap-1.5 pt-1 border-t border-outline-variant/50">
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30">READ_BALANCES: ALLOW</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30">READ_TRADES: ALLOW</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-crimson/15 text-crimson line-through border border-crimson/30">WITHDRAW: REJECTED_BY_POLICY</span>
+</div>
+</div>
+<!-- Card Actions -->
+<div class="flex items-center justify-end gap-2 pt-1">
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono text-on-surface-variant hover:text-on-surface transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">speed</span>
+                Test Latency
+              </button>
+<button class="px-3 py-1.5 rounded-lg bg-amber/15 hover:bg-amber/25 border border-amber/40 text-xs font-mono text-amber font-medium transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">autorenew</span>
+                Rotate Key
+              </button>
+<button class="px-3 py-1.5 rounded-lg bg-crimson/10 hover:bg-crimson/20 border border-crimson/30 text-xs font-mono text-crimson transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">link_off</span>
+                Revoke
+              </button>
+</div>
+</div>
+<!-- Exchange 4: KuCoin Exchange -->
+<div class="bg-surface border border-outline-variant rounded-lg p-5 flex flex-col justify-between gap-4 hover:border-outline-variant/80 transition-all">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-surface-variant flex items-center justify-center font-bold text-cyan text-lg font-mono border border-outline-variant">
+                  KC
+                </div>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-headline font-bold text-base text-on-surface">KuCoin Exchange</span>
+<span class="px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30 text-[10px] font-mono">HEALTHY</span>
+</div>
+<div class="text-xs font-mono text-on-surface-variant/70 flex items-center gap-2 mt-0.5">
+<span>Key Fingerprint:</span>
+<span class="text-cyan font-mono">sha256:1a90fe3...d8339c</span>
+</div>
+</div>
+</div>
+<div class="text-right font-mono">
+<span class="text-[11px] text-on-surface-variant">HMAC Ping</span>
+<div class="text-sm font-semibold text-emerald flex items-center justify-end gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span> 3.4ms
+                </div>
+</div>
+</div>
+<!-- Metadata & Permissions -->
+<div class="bg-surface-variant/40 rounded-lg p-3 border border-outline-variant flex flex-col gap-2.5">
+<div class="flex items-center justify-between text-xs text-on-surface-variant">
+<span>Created: <strong class="text-on-surface font-mono">2 days ago</strong></span>
+<span>Algorithm: <strong class="text-on-surface font-mono">AES-GCM-256</strong></span>
+<span>Storage: <strong class="text-emerald font-mono">D1 WORM</strong></span>
+</div>
+<!-- Permissions Tags -->
+<div class="flex items-center flex-wrap gap-1.5 pt-1 border-t border-outline-variant/50">
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30">READ_MARKET: ALLOW</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30">READ_AFFILIATE: ALLOW</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-crimson/15 text-crimson line-through border border-crimson/30">WITHDRAW: REJECTED_BY_POLICY</span>
+</div>
+</div>
+<!-- Card Actions -->
+<div class="flex items-center justify-end gap-2 pt-1">
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono text-on-surface-variant hover:text-on-surface transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">speed</span>
+                Test Latency
+              </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono text-on-surface-variant hover:text-on-surface transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-cyan">autorenew</span>
+                Rotate Key
+              </button>
+<button class="px-3 py-1.5 rounded-lg bg-crimson/10 hover:bg-crimson/20 border border-crimson/30 text-xs font-mono text-crimson transition-all flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm">link_off</span>
+                Revoke
+              </button>
+</div>
+</div>
+</div>
+</section>
+<!-- ================= 4. Interactive Client-Side WebCrypto Workbench ================= -->
+<section class="bg-surface border border-outline-variant rounded-lg p-6 flex flex-col gap-6 shadow-sm">
+<div class="flex flex-col md:flex-row md:items-center justify-between pb-4 border-b border-outline-variant gap-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-primary/20 text-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-lg">code</span>
+</div>
+<div>
+<h3 class="text-base font-headline font-bold text-on-surface">Client-Side WebCrypto AES-GCM-256 Envelope Inspector</h3>
+<p class="text-xs text-on-surface-variant">Zero-Knowledge envelope generation via browser SubtleCrypto before network transmission to Cloudflare D1</p>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-emerald animate-ping"></span>
+<span class="text-xs font-mono text-emerald font-semibold uppercase tracking-wider bg-emerald/10 border border-emerald/30 px-2.5 py-1 rounded">
+              WEB_CRYPTO ENVELOPE VALIDATED (0.28ms)
+            </span>
+</div>
+</div>
+<!-- Cryptographic Flow Diagram Banner -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-2 py-3 px-4 rounded-lg bg-surface-variant/50 border border-outline-variant font-mono text-xs items-center">
+<div class="flex items-center gap-2 text-on-surface-variant justify-start">
+<span class="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[10px] font-bold">1</span>
+<span class="truncate">Plaintext Key (Memory)</span>
+</div>
+<div class="flex items-center gap-2 text-cyan justify-start">
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+<span class="truncate">WebCrypto AES-256 + IV</span>
+</div>
+<div class="flex items-center gap-2 text-neural justify-start">
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+<span class="truncate">Auth Tag Validation</span>
+</div>
+<div class="flex items-center gap-2 text-emerald justify-start">
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+<span class="truncate">CF D1 WORM Vault</span>
+</div>
+</div>
+<!-- 2-Column Cryptographic Workbench -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+<!-- Left Column: Plaintext API Secret Ingestion Form (5 cols) -->
+<div class="lg:col-span-5 flex flex-col gap-4 bg-canvas/60 p-5 rounded-lg border border-outline-variant">
+<div class="flex items-center justify-between">
+<span class="text-xs font-headline font-bold uppercase tracking-wider text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-primary">input</span>
+                Key Ingestion Form
+              </span>
+<span class="text-[11px] font-mono text-cyan bg-cyan/10 px-2 py-0.5 rounded border border-cyan/20">Client Local Only</span>
+</div>
+<!-- Exchange Selector Dropdown -->
+<div class="flex flex-col gap-1.5">
+<label class="text-xs font-mono text-on-surface-variant">Target Exchange Provider</label>
+<select class="w-full bg-surface-variant/70 border border-outline-variant rounded-lg px-3 py-2 text-xs font-mono text-on-surface focus:outline-none focus:border-primary">
+<option selected="" value="binance">Binance Global (Spot &amp; Futures read)</option>
+<option value="bybit">Bybit Unified V5</option>
+<option value="okx">OKX API v5 (Multi-Account)</option>
+<option value="kucoin">KuCoin Exchange API v3</option>
+</select>
+</div>
+<!-- API Key Input -->
+<div class="flex flex-col gap-1.5">
+<label class="text-xs font-mono text-on-surface-variant">Exchange API Key</label>
+<div class="relative">
+<input class="w-full bg-surface-variant/70 border border-outline-variant rounded-lg px-3 py-2 text-xs font-mono text-on-surface focus:outline-none focus:border-primary" type="text" value="binance_api_key_8849c71e0b3fa47"/>
+<span class="material-symbols-outlined absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-base cursor-pointer hover:text-on-surface">check_circle</span>
+</div>
+</div>
+<!-- API Secret Input with Eye Toggle -->
+<div class="flex flex-col gap-1.5">
+<label class="text-xs font-mono text-on-surface-variant flex items-center justify-between">
+<span>API Secret Key</span>
+<span class="text-[10px] text-emerald flex items-center gap-1 font-sans">
+<span class="w-1 h-1 rounded-full bg-emerald"></span> Policy Verified
+                </span>
+</label>
+<div class="relative">
+<input class="w-full bg-surface-variant/70 border border-outline-variant rounded-lg pl-3 pr-9 py-2 text-xs font-mono text-on-surface focus:outline-none focus:border-primary" type="password" value="secret_payload_f482a09c21b44781e09cfa3"/>
+<button class="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant hover:text-on-surface" type="button">
+<span class="material-symbols-outlined text-base">visibility</span>
+</button>
+</div>
+</div>
+<!-- Passphrase / Master Secret Key prompt -->
+<div class="flex flex-col gap-1.5">
+<label class="text-xs font-mono text-on-surface-variant">Master PBKDF2 Vault Passphrase</label>
+<input class="w-full bg-surface-variant/70 border border-outline-variant rounded-lg px-3 py-2 text-xs font-mono text-on-surface focus:outline-none focus:border-primary" type="password" value="••••••••••••••••••••••••••••••••"/>
+</div>
+<!-- Zero-Knowledge Assertion Checklist -->
+<div class="bg-surface-variant/40 rounded p-3 border border-outline-variant/70 flex flex-col gap-1.5 text-[11px] font-mono text-on-surface-variant">
+<div class="flex items-center gap-2 text-emerald">
+<span class="material-symbols-outlined text-xs">check</span>
+<span>Client-side WebCrypto SubtleCrypto only</span>
+</div>
+<div class="flex items-center gap-2 text-emerald">
+<span class="material-symbols-outlined text-xs">check</span>
+<span>Never sent unencrypted across wire</span>
+</div>
+<div class="flex items-center gap-2 text-emerald">
+<span class="material-symbols-outlined text-xs">check</span>
+<span>Cloudflare D1 receives ciphertext only</span>
+</div>
+</div>
+<!-- Buttons -->
+<div class="flex items-center gap-2 pt-2">
+<button class="flex-1 py-2 px-3 bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant rounded-lg text-xs font-mono text-on-surface transition-all flex items-center justify-center gap-1.5">
+<span class="material-symbols-outlined text-sm">casino</span>
+                Mock Key
+              </button>
+<button class="flex-2 py-2 px-4 bg-primary hover:bg-primary/90 text-white rounded-lg text-xs font-headline font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-md shadow-primary/20">
+<span class="material-symbols-outlined text-sm">lock</span>
+                Encrypt &amp; Seal Payload
+              </button>
+</div>
+</div>
+<!-- Right Column: Sealed Envelope Payload & D1 Storage Packet Inspector (7 cols) -->
+<div class="lg:col-span-7 flex flex-col gap-3 bg-canvas/90 p-5 rounded-lg border border-outline-variant font-mono">
+<div class="flex items-center justify-between pb-2 border-b border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-emerald">data_object</span>
+<span class="text-xs font-bold text-on-surface uppercase tracking-wider">Sealed Envelope JSON Payload</span>
+</div>
+<div class="flex items-center gap-2 text-[11px]">
+<span class="text-on-surface-variant">Format: <span class="text-on-surface">RFC-5116 GCM</span></span>
+<button class="text-cyan hover:text-white flex items-center gap-1 ml-2">
+<span class="material-symbols-outlined text-xs">content_copy</span> Copy
+                </button>
+</div>
+</div>
+<!-- JSON Telemetry View with Syntax Coloring -->
+<pre class="text-xs text-on-surface-variant leading-relaxed custom-scrollbar overflow-x-auto p-3 bg-surface-variant/30 rounded border border-outline-variant/60 font-mono"><span class="text-on-surface-variant">{</span>
+  <span class="text-cyan">"exchange"</span><span class="text-on-surface-variant">:</span> <span class="text-amber">"binance"</span><span class="text-on-surface-variant">,</span>
+  <span class="text-cyan">"key_fingerprint"</span><span class="text-on-surface-variant">:</span> <span class="text-emerald">"sha256:4f9a71b3e8c21...8c21e0"</span><span class="text-on-surface-variant">,</span>
+  <span class="text-cyan">"cipher_suite"</span><span class="text-on-surface-variant">:</span> <span class="text-amber">"AES-GCM-256"</span><span class="text-on-surface-variant">,</span>
+  <span class="text-cyan">"pbkdf2_iterations"</span><span class="text-on-surface-variant">:</span> <span class="text-primary font-bold">100000</span><span class="text-on-surface-variant">,</span>
+  <span class="text-cyan">"iv_base64"</span><span class="text-on-surface-variant">:</span> <span class="text-neural">"v3n92kJL81vK29=="</span><span class="text-on-surface-variant">,</span>
+  <span class="text-cyan">"ciphertext_base64"</span><span class="text-on-surface-variant">:</span> <span class="text-cyan">"98aF10c7e2b109dc8871ab9938c4109ba2f918..."</span><span class="text-on-surface-variant">,</span>
+  <span class="text-cyan">"auth_tag_base64"</span><span class="text-on-surface-variant">:</span> <span class="text-neural">"4k88A1bZ0890q=="</span><span class="text-on-surface-variant">,</span>
+  <span class="text-cyan">"policy_assertion"</span><span class="text-on-surface-variant">:</span> <span class="text-on-surface-variant">{</span>
+    <span class="text-cyan">"allow_trade"</span><span class="text-on-surface-variant">:</span> <span class="text-emerald font-bold">true</span><span class="text-on-surface-variant">,</span>
+    <span class="text-cyan">"allow_read"</span><span class="text-on-surface-variant">:</span> <span class="text-emerald font-bold">true</span><span class="text-on-surface-variant">,</span>
+    <span class="text-cyan">"allow_withdraw"</span><span class="text-on-surface-variant">:</span> <span class="text-crimson font-bold">false</span>
+  <span class="text-on-surface-variant">},</span>
+  <span class="text-cyan">"d1_worm_status"</span><span class="text-on-surface-variant">:</span> <span class="text-emerald font-bold">"COMMITTED_WRITE_ONCE"</span><span class="text-on-surface-variant">,</span>
+  <span class="text-cyan">"target_shard"</span><span class="text-on-surface-variant">:</span> <span class="text-amber">"sin-d1-node-09.apex"</span>
+<span class="text-on-surface-variant">}</span></pre>
+<!-- Verification & Storage Status Footnote -->
+<div class="flex items-center justify-between text-[11px] text-on-surface-variant pt-2 border-t border-outline-variant">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-emerald text-sm">lock_clock</span>
+                Write-Once Read-Many (WORM) SQLite D1 Enforced
+              </span>
+<span class="text-cyan font-semibold">Zero Server Decryption Capability</span>
+</div>
+</div>
+</div>
+</section>
+<!-- ================= 5. Vault Security Audit & Tamper Log ================= -->
+<section class="bg-surface border border-outline-variant rounded-lg p-5 flex flex-col gap-3 font-mono text-xs">
+<div class="flex items-center justify-between pb-3 border-b border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-base text-cyan">history_edu</span>
+<span class="font-headline font-bold text-sm text-on-surface uppercase tracking-wide">Vault Security Audit &amp; Tamper Log</span>
+</div>
+<span class="text-[11px] text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span>
+            Real-Time D1 Immutable Stream
+          </span>
+</div>
+<div class="flex flex-col gap-2 font-mono">
+<!-- Log 1: SEC_GUARD -->
+<div class="flex flex-col md:flex-row md:items-center justify-between p-2 rounded bg-surface-variant/30 border border-outline-variant/50 hover:bg-surface-variant/60 transition-colors">
+<div class="flex items-start md:items-center gap-2 text-on-surface-variant">
+<span class="text-primary font-bold">[08:14:22]</span>
+<span class="px-1.5 py-0.2 rounded bg-primary/20 text-primary font-bold text-[10px]">SEC_GUARD</span>
+<span class="text-on-surface">Binance API key rotation initiated by operator <strong class="text-cyan font-medium">0x8F94...c4B2</strong>. Old key revoked.</span>
+</div>
+<span class="text-[10px] text-emerald mt-1 md:mt-0 font-semibold">SUCCESS_WORM_COMMIT</span>
+</div>
+<!-- Log 2: SCOPE_ASSERTION -->
+<div class="flex flex-col md:flex-row md:items-center justify-between p-2 rounded bg-crimson/5 border border-crimson/20 hover:bg-crimson/10 transition-colors">
+<div class="flex items-start md:items-center gap-2 text-on-surface-variant">
+<span class="text-crimson font-bold">[07:55:10]</span>
+<span class="px-1.5 py-0.2 rounded bg-crimson/20 text-crimson font-bold text-[10px]">SCOPE_ASSERTION</span>
+<span class="text-on-surface">Attempted withdrawal permission on OKX key blocked and rejected by client-side regex policy.</span>
+</div>
+<span class="text-[10px] text-crimson font-semibold">REJECT_POLICY_ABORT</span>
+</div>
+<!-- Log 3: HEALTH_CHECK -->
+<div class="flex flex-col md:flex-row md:items-center justify-between p-2 rounded bg-surface-variant/30 border border-outline-variant/50 hover:bg-surface-variant/60 transition-colors">
+<div class="flex items-start md:items-center gap-2 text-on-surface-variant">
+<span class="text-emerald font-bold">[06:30:00]</span>
+<span class="px-1.5 py-0.2 rounded bg-emerald/20 text-emerald font-bold text-[10px]">HEALTH_CHECK</span>
+<span class="text-on-surface">Automated HMAC latency test passed across <strong class="text-emerald">4/4 bound exchanges</strong> (avg 2.1ms).</span>
+</div>
+<span class="text-[10px] text-on-surface-variant">ALL_SYSTEMS_NOMINAL</span>
+</div>
+</div>
+</section>
+</main>
+</div>
+
+<!-- ApexOS Stitch-Loop Unified Navigation Ribbon -->
+<div style="position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(2,6,23,0.94);backdrop-filter:blur(14px);border:1px solid rgba(99,102,241,0.35);border-radius:9999px;padding:6px 16px;display:flex;gap:8px;align-items:center;font-family:'Inter',system-ui,sans-serif;font-size:12px;box-shadow:0 12px 32px rgba(0,0,0,0.7);white-space:nowrap;max-width:96vw;overflow-x:auto;">
+  <span style="color:#06B6D4;font-weight:700;padding-right:8px;border-right:1px solid #334155;display:inline-flex;align-items:center;gap:6px;">
+    <span style="width:7px;height:7px;border-radius:9999px;background:#10B981;display:inline-block;"></span>
+    ApexOS · Stitch-Loop
+  </span>
+  <a href="index.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">1. Cashback Cockpit</a>
+  <a href="arbitrage-deals.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">2. Arbitrage & Deals</a>
+  <a href="multichain-payouts.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">3. Multi-Chain Payouts</a>
+  <a href="compliance-fraud.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">4. KYC & Fraud Shield</a>
+  <a href="telegram-mini-app.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">5. Telegram Mini App</a>
+  <a href="style-guide.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">6. Style Guide</a>
+  <a href="webhook-replay-sandbox.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">7. Webhook Sandbox</a>
+  <a href="fee-surge-simulator.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">8. Fee Surge Simulator</a>
+  <a href="immutable-d1-audit-explorer.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">9. D1 Audit Explorer</a>
+  <a href="byok-encryption-vault.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">10. BYOK Key Vault</a>
+</div>
+</body></html>

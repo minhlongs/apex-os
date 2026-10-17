@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS - Executive Cashback, 3-Tier Affiliate &amp; Multi-Exchange Earnings Cockpit</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS v3 -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Configuration -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            surface: "#0F172A",
+            "surface-variant": "#1E293B",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8",
+            "outline-variant": "#1E293B",
+            primary: "#6366F1",
+            "primary-container": "#1E1B4B",
+            "on-primary-container": "#C7D2FE",
+            accent: "#8B5CF6",
+            cyan: {
+              DEFAULT: "#06B6D4",
+              glow: "#22D3EE"
+            },
+            emerald: {
+              DEFAULT: "#10B981",
+              glow: "#34D399"
+            },
+            darkBg: "#020617"
+          },
+          borderRadius: {
+            DEFAULT: "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    /* Custom terminal accents & sleek scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+    .specular-border {
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.07);
+    }
+    .glow-cyan {
+      box-shadow: 0 0 20px -3px rgba(6, 182, 212, 0.35);
+    }
+    .glow-indigo {
+      box-shadow: 0 0 25px -4px rgba(99, 102, 241, 0.35);
+    }
+  </style>
+</head>
+<body class="bg-darkBg text-on-surface font-body antialiased min-h-screen flex selection:bg-primary/30 selection:text-cyan">
+<!-- ================= SIDEBAR NAVIGATION ================= -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-surface dark:bg-surface border-r border-outline-variant dark:border-outline-variant shadow-sm dark:shadow-none flex flex-col justify-between p-4">
+<!-- Header Node / Brand -->
+<div>
+<div class="flex items-center gap-3 px-2 py-3 mb-4">
+<div class="w-10 h-10 rounded-lg bg-gradient-to-br from-primary via-accent to-cyan flex items-center justify-center shadow-lg shadow-primary/20">
+<span class="material-symbols-outlined text-white text-2xl" data-icon="terminal">terminal</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline text-lg font-bold tracking-wider text-on-surface dark:text-on-surface">ApexOS Terminal</span>
+<span class="font-label tracking-wide uppercase text-xs text-on-surface-variant flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-glow animate-pulse"></span>
+            Arbitrage &amp; Settlement Hub
+          </span>
+</div>
+</div>
+<!-- Action Button / Connect Node CTA -->
+<button class="w-full mb-6 bg-surface-variant hover:bg-surface-variant/80 text-on-surface border border-outline-variant/80 rounded py-2 px-3 text-xs font-label uppercase tracking-wider flex items-center justify-center gap-2 transition-all duration-150">
+<span class="material-symbols-outlined text-sm text-cyan" data-icon="cable">cable</span>
+<span>Connect Node</span>
+</button>
+<!-- Primary Tabs -->
+<nav class="space-y-1">
+<!-- 1: Cashback Cockpit (Active) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-primary dark:text-primary bg-primary/10 font-medium transition-all duration-150 ease-in-out border-l-2 border-primary" href="#cockpit">
+<span class="material-symbols-outlined text-lg" data-icon="dashboard">dashboard</span>
+<span class="font-body text-sm">Cashback Cockpit</span>
+</a>
+<!-- 2: Arbitrage & Deal Crawler -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors transition-all duration-150 ease-in-out" href="#crawler">
+<span class="material-symbols-outlined text-lg" data-icon="query_stats">query_stats</span>
+<span class="font-body text-sm">Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- 3: Multi-Chain Payouts -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors transition-all duration-150 ease-in-out" href="#payouts">
+<span class="material-symbols-outlined text-lg" data-icon="currency_exchange">currency_exchange</span>
+<span class="font-body text-sm">Multi-Chain Payouts</span>
+</a>
+<!-- 4: KYC & Fraud Command -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors transition-all duration-150 ease-in-out" href="#fraud">
+<span class="material-symbols-outlined text-lg" data-icon="shield">shield</span>
+<span class="font-body text-sm">KYC &amp; Fraud Command</span>
+</a>
+<!-- 5: Telegram Mini App -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors transition-all duration-150 ease-in-out" href="#telegram">
+<span class="material-symbols-outlined text-lg" data-icon="send">send</span>
+<span class="font-body text-sm">Telegram Mini App</span>
+</a>
+<!-- 6: Style Guide -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors transition-all duration-150 ease-in-out" href="#style-guide">
+<span class="material-symbols-outlined text-lg" data-icon="palette">palette</span>
+<span class="font-body text-sm">Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Sidebar Footer -->
+<div class="border-t border-outline-variant pt-4 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors text-sm" href="#settings">
+<span class="material-symbols-outlined text-lg" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors text-sm" href="#docs">
+<span class="material-symbols-outlined text-lg" data-icon="menu_book">menu_book</span>
+<span>Documentation</span>
+</a>
+<!-- Node Ping Mini Status -->
+<div class="mt-3 p-2.5 rounded bg-darkBg/60 border border-outline-variant/60 flex items-center justify-between text-xs font-mono">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+<span class="text-on-surface-variant">NODE: SG-01</span>
+</div>
+<span class="text-cyan">38ms</span>
+</div>
+</div>
+</aside>
+<!-- ================= MAIN LAYOUT WRAPPER ================= -->
+<div class="ml-64 flex-1 flex flex-col min-h-screen">
+<!-- ================= TOP COMMAND BAR ================= -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-surface dark:bg-surface border-b border-outline-variant dark:border-outline-variant shadow-sm dark:shadow-none flex justify-between items-center px-6">
+<!-- Search Terminal Prompt -->
+<div class="flex items-center gap-3 w-96 bg-darkBg/80 border border-outline-variant rounded px-3 py-1.5 focus-within:border-primary/80 transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant text-sm" data-icon="search">search</span>
+<input class="bg-transparent border-none text-xs text-on-surface placeholder:text-on-surface-variant/60 focus:ring-0 p-0 w-full font-mono outline-none" placeholder="Search pairs, trade_id, EIP-55, Solana, HMAC hashes... [Ctrl+K]" type="text"/>
+<kbd class="text-[10px] bg-surface-variant px-1.5 py-0.5 rounded text-on-surface-variant font-mono border border-outline-variant">⌘K</kbd>
+</div>
+<!-- Center & Trailing Actions Cluster -->
+<div class="flex items-center gap-4">
+<!-- Circuit Breaker Status Badge -->
+<div class="flex items-center gap-2 px-3 py-1 bg-emerald-950/40 border border-emerald-500/30 rounded-full">
+<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+<span class="font-mono text-xs font-semibold text-emerald-400 tracking-wide">3/3 Chains HEALTHY</span>
+</div>
+<!-- Master Tier Badge -->
+<div class="px-2.5 py-1 bg-accent/15 border border-accent/40 rounded text-accent font-headline font-bold text-xs tracking-wider flex items-center gap-1.5">
+<span class="material-symbols-outlined text-xs" data-icon="stars">stars</span>
+<span>MASTER TIER</span>
+</div>
+<!-- Divider -->
+<div class="h-5 w-[1px] bg-outline-variant"></div>
+<!-- Bilingual Toggle -->
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-[11px] font-mono text-on-surface font-medium transition-colors">
+<span class="text-primary font-bold">EN</span> <span class="text-on-surface-variant">|</span> VI
+        </button>
+<!-- Notification Trigger -->
+<button class="relative p-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-colors" title="Notifications">
+<span class="material-symbols-outlined text-xl" data-icon="notifications">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-cyan animate-pulse"></span>
+</button>
+<!-- Terminal Quick Drawer Toggle -->
+<button class="p-2 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-variant transition-colors" title="Quick Terminal">
+<span class="material-symbols-outlined text-xl" data-icon="terminal">terminal</span>
+</button>
+<!-- Divider -->
+<div class="h-5 w-[1px] bg-outline-variant"></div>
+<!-- Trailing Connect Wallet / Operator Pill -->
+<div class="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-surface-variant/70 border border-outline-variant hover:border-primary/50 transition-colors cursor-pointer">
+<div class="w-7 h-7 rounded-full bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-xs font-mono font-bold text-white shadow">
+            0x
+          </div>
+<div class="flex flex-col text-left">
+<span class="font-mono text-xs text-on-surface font-semibold leading-tight">0x8F94...c4B2</span>
+<span class="font-label text-[10px] text-cyan leading-tight uppercase font-medium">Solana &amp; EVM Connected</span>
+</div>
+<span class="material-symbols-outlined text-xs text-on-surface-variant ml-1" data-icon="keyboard_arrow_down">keyboard_arrow_down</span>
+</div>
+</div>
+</header>
+<!-- ================= PAGE CONTENT CANVAS ================= -->
+<main class="flex-1 mt-16 p-8 space-y-6 bg-darkBg">
+<!-- 1. HEADER / PAGE INTRO -->
+<section class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-outline-variant/60">
+<div>
+<div class="flex items-center gap-3">
+<h1 class="font-headline font-bold text-2xl tracking-tight text-on-surface">Executive Cashback &amp; Affiliate Cockpit</h1>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-mono bg-cyan/10 text-cyan border border-cyan/30">
+<span class="w-1.5 h-1.5 rounded-full bg-cyan animate-ping"></span>
+              REALTIME FEED: 42ms
+            </span>
+</div>
+<p class="font-body text-xs text-on-surface-variant mt-1">
+            Institutional cashback analytics, 3-tier sub-affiliate tree, and multi-exchange fee rebate attribution matrix.
+          </p>
+</div>
+<!-- Action Toolbar -->
+<div class="flex items-center gap-2.5">
+<!-- Date Filter -->
+<div class="relative">
+<button class="bg-surface border border-outline-variant px-3 py-2 rounded text-xs font-medium text-on-surface flex items-center gap-2 hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-sm text-on-surface-variant" data-icon="calendar_today">calendar_today</span>
+<span>Last 30 Days</span>
+<span class="material-symbols-outlined text-xs text-on-surface-variant" data-icon="arrow_drop_down">arrow_drop_down</span>
+</button>
+</div>
+<!-- Download Settlement CSV -->
+<button class="bg-surface hover:bg-surface-variant border border-outline-variant px-3 py-2 rounded text-xs font-medium text-on-surface flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-sm text-on-surface-variant" data-icon="download">download</span>
+<span>Download Settlement CSV</span>
+</button>
+<!-- Instant Batch Settlement CTA -->
+<button class="bg-gradient-to-r from-primary via-accent to-primary hover:opacity-95 text-white px-4 py-2 rounded text-xs font-label uppercase tracking-wider font-bold flex items-center gap-2 glow-indigo transition-all transform active:scale-95">
+<span class="material-symbols-outlined text-sm" data-icon="bolt">bolt</span>
+<span>Instant Batch Settlement</span>
+<div class="flex items-center gap-1 pl-1 border-l border-white/20">
+<span class="text-[10px] bg-white/20 px-1 py-0.2 rounded font-mono">SOL</span>
+<span class="text-[10px] bg-white/20 px-1 py-0.2 rounded font-mono">ETH</span>
+<span class="text-[10px] bg-white/20 px-1 py-0.2 rounded font-mono">XLM</span>
+</div>
+</button>
+</div>
+</section>
+<!-- 2. TOP 4-CARD BENTO KPI RIBBON -->
+<section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+<!-- Card 1: Total Settled Cashback -->
+<div class="bg-surface border border-outline-variant rounded-xl p-5 specular-border flex flex-col justify-between hover:border-primary/40 transition-colors relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-28 h-28 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition-colors"></div>
+<div>
+<div class="flex items-center justify-between text-on-surface-variant mb-2">
+<span class="font-label uppercase text-xs tracking-wider">Total Settled Cashback</span>
+<span class="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-0.5">
+<span class="material-symbols-outlined text-xs" data-icon="trending_up">trending_up</span>
+                +18.4% MoM
+              </span>
+</div>
+<div class="font-mono text-2xl font-bold text-on-surface tracking-tight mb-2">
+              $28,450.80 <span class="text-xs font-normal text-cyan">USDC</span>
+</div>
+</div>
+<!-- Mini SVG Sparkline & Breakdown -->
+<div class="pt-3 border-t border-outline-variant/60 flex items-end justify-between">
+<div class="text-[11px] font-mono text-on-surface-variant space-y-0.5">
+<div>Spot: <span class="text-on-surface font-semibold">$19,200.40</span></div>
+<div>Perps: <span class="text-on-surface font-semibold">$9,250.40</span></div>
+</div>
+<!-- Sparkline visualization -->
+<svg class="w-24 h-7 stroke-emerald-400 fill-none" viewbox="0 0 100 30">
+<path d="M0,25 Q20,28 35,15 T70,18 T100,5" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+<!-- Card 2: Net Arbitrage & Fee Rebate Savings -->
+<div class="bg-surface border border-outline-variant rounded-xl p-5 specular-border flex flex-col justify-between hover:border-cyan/40 transition-colors relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-28 h-28 bg-cyan/5 rounded-full blur-2xl group-hover:bg-cyan/10 transition-colors"></div>
+<div>
+<div class="flex items-center justify-between text-on-surface-variant mb-2">
+<span class="font-label uppercase text-xs tracking-wider">Net Rebate &amp; Arbitrage</span>
+<span class="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-cyan/15 text-cyan border border-cyan/30">
+                Avg Spread: +21.5 bps
+              </span>
+</div>
+<div class="font-mono text-2xl font-bold text-cyan tracking-tight mb-2">
+              $4,120.50 <span class="text-xs font-normal text-on-surface-variant">USD</span>
+</div>
+</div>
+<div class="pt-3 border-t border-outline-variant/60 flex items-center justify-between text-[11px] font-mono text-on-surface-variant">
+<span>Maker Ratio: <strong class="text-on-surface font-semibold">74.2%</strong></span>
+<span class="text-emerald-400 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="electric_bolt">electric_bolt</span>
+              Saved $438 gas
+            </span>
+</div>
+</div>
+<!-- Card 3: 3-Tier Affiliate Network -->
+<div class="bg-surface border border-outline-variant rounded-xl p-5 specular-border flex flex-col justify-between hover:border-accent/40 transition-colors relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-28 h-28 bg-accent/5 rounded-full blur-2xl group-hover:bg-accent/10 transition-colors"></div>
+<div>
+<div class="flex items-center justify-between text-on-surface-variant mb-2">
+<span class="font-label uppercase text-xs tracking-wider">Affiliate Sub-Network</span>
+<span class="text-[11px] font-mono text-accent font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="account_tree">account_tree</span>
+                Yield: $6,940
+              </span>
+</div>
+<div class="font-mono text-2xl font-bold text-on-surface tracking-tight mb-2">
+              1,284 <span class="text-xs font-normal text-on-surface-variant">Active Traders</span>
+</div>
+</div>
+<!-- Tiered distribution bar -->
+<div class="pt-3 border-t border-outline-variant/60 space-y-1.5">
+<div class="w-full bg-surface-variant h-2 rounded-full overflow-hidden flex">
+<div class="bg-primary h-full" style="width: 65%" title="Tier 1: 30%"></div>
+<div class="bg-accent h-full" style="width: 25%" title="Tier 2: 10%"></div>
+<div class="bg-cyan h-full" style="width: 10%" title="Tier 3: 5%"></div>
+</div>
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant">
+<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-primary"></span>T1: 30%</span>
+<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-accent"></span>T2: 10%</span>
+<span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-cyan"></span>T3: 5%</span>
+</div>
+</div>
+</div>
+<!-- Card 4: Next Multi-Chain Batch Payout -->
+<div class="bg-gradient-to-br from-surface to-surface-variant border border-outline-variant hover:border-cyan/50 rounded-xl p-5 specular-border flex flex-col justify-between relative overflow-hidden">
+<div>
+<div class="flex items-center justify-between text-on-surface-variant mb-2">
+<span class="font-label uppercase text-xs tracking-wider">Pending Batch Payout</span>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Threshold ≥ $50 MET
+              </span>
+</div>
+<div class="font-mono text-2xl font-bold text-white tracking-tight mb-1 flex items-baseline gap-2">
+              $1,840.00 <span class="text-xs font-normal text-cyan">USDC Ready</span>
+</div>
+<div class="text-[11px] font-mono text-on-surface-variant flex items-center gap-1.5 mb-2">
+<span>Route:</span>
+<span class="text-[#14F195] font-semibold flex items-center gap-0.5">
+<span class="material-symbols-outlined text-xs" data-icon="toll">toll</span> Solana SPL USDC
+              </span>
+</div>
+</div>
+<!-- Claim CTA -->
+<div class="pt-2">
+<button class="w-full bg-gradient-to-r from-cyan to-primary hover:opacity-95 text-slate-950 font-label font-bold text-xs uppercase tracking-wider py-2.5 px-3 rounded flex items-center justify-center gap-2 glow-cyan transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="send_money">send_money</span>
+<span>Claim / Settle Now</span>
+<span class="text-[10px] font-mono bg-slate-950/20 text-slate-900 px-1 py-0.5 rounded">0.00005 SOL</span>
+</button>
+</div>
+</div>
+</section>
+<!-- 3. HERO CENTERPIECE — MULTI-EXCHANGE REBATE & WEBHOOK ATTRIBUTION MATRIX -->
+<section class="bg-surface border border-outline-variant rounded-xl p-6 specular-border space-y-5">
+<!-- Table Control Toolbar -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+<div>
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-cyan text-xl" data-icon="dataset">dataset</span>
+<h2 class="font-headline font-bold text-lg text-on-surface">Multi-Exchange Fee Rebate Attribution Matrix</h2>
+</div>
+<p class="font-body text-xs text-on-surface-variant mt-0.5">
+              Deterministic HMAC-SHA256 signature ingestion pipelines with real-time fee tier calculation.
+            </p>
+</div>
+<!-- Status & Test Action Buttons -->
+<div class="flex items-center gap-2">
+<span class="text-xs font-mono text-on-surface-variant flex items-center gap-1.5 mr-2">
+<span class="w-2 h-2 rounded-full bg-emerald-400"></span> 4 Exchanges Synchronized
+            </span>
+<button class="px-2.5 py-1.5 rounded bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono text-cyan flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-xs" data-icon="sync">sync</span>
+<span>Ping Webhooks</span>
+</button>
+<button class="px-2.5 py-1.5 rounded bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-xs font-mono text-on-surface-variant hover:text-on-surface flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-xs" data-icon="tune">tune</span>
+<span>Filter Columns</span>
+</button>
+</div>
+</div>
+<!-- Data Matrix Table -->
+<div class="overflow-x-auto border border-outline-variant/60 rounded-lg">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-darkBg/80 border-b border-outline-variant text-[11px] font-label uppercase tracking-wider text-on-surface-variant font-semibold">
+<th class="py-3.5 px-4">Exchange / Node</th>
+<th class="py-3.5 px-4">Verification State</th>
+<th class="py-3.5 px-4">Cashback Tier</th>
+<th class="py-3.5 px-4 text-right">30D Volume (USD)</th>
+<th class="py-3.5 px-4 text-right">Gross Fees Paid</th>
+<th class="py-3.5 px-4 text-right">Rebate Earned</th>
+<th class="py-3.5 px-4 text-right">Net Effective Cost</th>
+<th class="py-3.5 px-4 text-center">Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/40 font-mono text-xs">
+<!-- Row 1: Binance -->
+<tr class="hover:bg-surface-variant/50 transition-colors group">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded bg-[#F3BA2F]/10 border border-[#F3BA2F]/30 flex items-center justify-center text-[#F3BA2F] font-bold font-headline text-xs">
+                      BN
+                    </div>
+<div>
+<div class="font-headline font-bold text-on-surface group-hover:text-primary transition-colors">Binance Global</div>
+<div class="text-[10px] text-on-surface-variant">EIP-155 / Mainnet ID: 56</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+<span class="material-symbols-outlined text-xs" data-icon="verified">verified</span>
+                    HMAC-SHA256 (42ms)
+                  </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-primary/20 text-primary font-bold border border-primary/30">
+                    45% Cashback
+                  </span>
+</td>
+<td class="py-3.5 px-4 text-right font-medium text-on-surface">$3,450,200.00</td>
+<td class="py-3.5 px-4 text-right text-on-surface-variant">$3,450.20</td>
+<td class="py-3.5 px-4 text-right font-bold text-emerald-400">+$1,552.59</td>
+<td class="py-3.5 px-4 text-right">
+<span class="px-1.5 py-0.5 rounded bg-darkBg text-cyan font-semibold border border-outline-variant">0.055%</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<button class="p-1.5 rounded hover:bg-surface-variant text-on-surface-variant hover:text-cyan transition-colors" title="Inspect Hash Ledger">
+<span class="material-symbols-outlined text-sm" data-icon="data_object">data_object</span>
+</button>
+</td>
+</tr>
+<!-- Row 2: Bybit -->
+<tr class="hover:bg-surface-variant/50 transition-colors group">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded bg-[#F7A600]/10 border border-[#F7A600]/30 flex items-center justify-center text-[#F7A600] font-bold font-headline text-xs">
+                      BY
+                    </div>
+<div>
+<div class="font-headline font-bold text-on-surface group-hover:text-primary transition-colors">Bybit Derivatives</div>
+<div class="text-[10px] text-on-surface-variant">UTA Unified Margin</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-accent/15 text-accent border border-accent/30">
+<span class="material-symbols-outlined text-xs" data-icon="verified_user">verified_user</span>
+                    VIP+1 Promo Active
+                  </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-primary/20 text-primary font-bold border border-primary/30">
+                    40% Cashback
+                  </span>
+</td>
+<td class="py-3.5 px-4 text-right font-medium text-on-surface">$2,180,900.00</td>
+<td class="py-3.5 px-4 text-right text-on-surface-variant">$2,180.90</td>
+<td class="py-3.5 px-4 text-right font-bold text-emerald-400">+$872.36</td>
+<td class="py-3.5 px-4 text-right">
+<span class="px-1.5 py-0.5 rounded bg-darkBg text-cyan font-semibold border border-outline-variant">0.060%</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<button class="p-1.5 rounded hover:bg-surface-variant text-on-surface-variant hover:text-cyan transition-colors" title="Inspect Hash Ledger">
+<span class="material-symbols-outlined text-sm" data-icon="data_object">data_object</span>
+</button>
+</td>
+</tr>
+<!-- Row 3: OKX -->
+<tr class="hover:bg-surface-variant/50 transition-colors group">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded bg-white/10 border border-white/20 flex items-center justify-center text-white font-bold font-headline text-xs">
+                      OK
+                    </div>
+<div>
+<div class="font-headline font-bold text-on-surface group-hover:text-primary transition-colors">OKX Pro Spot/Perp</div>
+<div class="text-[10px] text-on-surface-variant">API V5 REST + WSS</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-cyan/15 text-cyan border border-cyan/30">
+<span class="material-symbols-outlined text-xs" data-icon="bolt">bolt</span>
+                    Maker Rebate: -1.5 bps
+                  </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-primary/20 text-primary font-bold border border-primary/30">
+                    42% Cashback
+                  </span>
+</td>
+<td class="py-3.5 px-4 text-right font-medium text-on-surface">$1,940,000.00</td>
+<td class="py-3.5 px-4 text-right text-on-surface-variant">$1,552.00</td>
+<td class="py-3.5 px-4 text-right font-bold text-emerald-400">+$651.84</td>
+<td class="py-3.5 px-4 text-right">
+<span class="px-1.5 py-0.5 rounded bg-darkBg text-cyan font-semibold border border-outline-variant">0.046%</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<button class="p-1.5 rounded hover:bg-surface-variant text-on-surface-variant hover:text-cyan transition-colors" title="Inspect Hash Ledger">
+<span class="material-symbols-outlined text-sm" data-icon="data_object">data_object</span>
+</button>
+</td>
+</tr>
+<!-- Row 4: KuCoin -->
+<tr class="hover:bg-surface-variant/50 transition-colors group">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded bg-[#24AE8F]/10 border border-[#24AE8F]/30 flex items-center justify-center text-[#24AE8F] font-bold font-headline text-xs">
+                      KC
+                    </div>
+<div>
+<div class="font-headline font-bold text-on-surface group-hover:text-primary transition-colors">KuCoin Exchange</div>
+<div class="text-[10px] text-on-surface-variant">Base64 HMAC Active</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+<span class="material-symbols-outlined text-xs" data-icon="check_circle">check_circle</span>
+                    Synced (58ms)
+                  </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-primary/20 text-primary font-bold border border-primary/30">
+                    50% Cashback
+                  </span>
+</td>
+<td class="py-3.5 px-4 text-right font-medium text-on-surface">$820,400.00</td>
+<td class="py-3.5 px-4 text-right text-on-surface-variant">$820.40</td>
+<td class="py-3.5 px-4 text-right font-bold text-emerald-400">+$410.20</td>
+<td class="py-3.5 px-4 text-right">
+<span class="px-1.5 py-0.5 rounded bg-darkBg text-cyan font-semibold border border-outline-variant">0.050%</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<button class="p-1.5 rounded hover:bg-surface-variant text-on-surface-variant hover:text-cyan transition-colors" title="Inspect Hash Ledger">
+<span class="material-symbols-outlined text-sm" data-icon="data_object">data_object</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- 4. BOTTOM SPLIT PANEL: 3-TIER REFERRAL TREE VISUALIZER & LIVE CONVERSION LEDGER -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- LEFT (7 cols): 3-Tier Affiliate Commission Tree -->
+<div class="lg:col-span-7 bg-surface border border-outline-variant rounded-xl p-6 specular-border space-y-5">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-accent text-xl" data-icon="hub">hub</span>
+<h3 class="font-headline font-bold text-base text-on-surface">3-Tier Affiliate Commission Tree</h3>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-2 py-1 rounded bg-surface-variant hover:bg-surface-variant/80 border border-outline-variant text-[11px] font-mono text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="qr_code">qr_code</span>
+<span>QR Preview</span>
+</button>
+<button class="px-2.5 py-1 rounded bg-primary hover:bg-primary/90 text-white text-xs font-label uppercase tracking-wider font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="person_add">person_add</span>
+<span>Invite Sub-Affiliate</span>
+</button>
+</div>
+</div>
+<!-- Quick Copy Referral Links Box -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3 p-3.5 rounded-lg bg-darkBg/90 border border-outline-variant">
+<!-- Web Referral Link -->
+<div class="space-y-1">
+<label class="font-label uppercase text-[10px] tracking-wider text-on-surface-variant">Universal Web Link (Cookie 90d)</label>
+<div class="flex items-center justify-between bg-surface-variant/70 border border-outline-variant rounded px-2.5 py-1.5">
+<span class="font-mono text-xs text-cyan truncate">https://apexos.io/r/apex_quant88</span>
+<button class="ml-2 text-on-surface-variant hover:text-white" title="Copy Web Link">
+<span class="material-symbols-outlined text-sm" data-icon="content_copy">content_copy</span>
+</button>
+</div>
+</div>
+<!-- Telegram Mini App Deep-link -->
+<div class="space-y-1">
+<label class="font-label uppercase text-[10px] tracking-wider text-on-surface-variant">Telegram Bot Deep-Link</label>
+<div class="flex items-center justify-between bg-surface-variant/70 border border-outline-variant rounded px-2.5 py-1.5">
+<span class="font-mono text-xs text-primary truncate">t.me/ApexOSBot?start=ref_apex88</span>
+<button class="ml-2 text-on-surface-variant hover:text-white" title="Copy Telegram Link">
+<span class="material-symbols-outlined text-sm" data-icon="content_copy">content_copy</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Tier Breakdown Cards -->
+<div class="space-y-3">
+<!-- Tier 1 Direct -->
+<div class="p-3.5 rounded-lg bg-surface-variant/40 border border-primary/40 hover:border-primary transition-colors flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-primary/20 border border-primary/40 flex items-center justify-center font-bold text-primary font-mono text-xs">
+                  T1
+                </div>
+<div>
+<div class="font-headline font-bold text-sm text-on-surface flex items-center gap-2">
+                    Tier 1 Direct Attribution
+                    <span class="px-2 py-0.2 rounded text-[10px] font-mono bg-primary/20 text-primary font-semibold">30% Commission</span>
+</div>
+<div class="text-[11px] font-mono text-on-surface-variant mt-0.5">842 Active Institutional &amp; Retail Traders</div>
+</div>
+</div>
+<div class="text-right font-mono">
+<div class="text-sm font-bold text-emerald-400">+$4,820.00 /mo</div>
+<div class="text-[10px] text-on-surface-variant">69.4% of affiliate yield</div>
+</div>
+</div>
+<!-- Tier 2 Sub-Affiliates -->
+<div class="p-3.5 rounded-lg bg-surface-variant/30 border border-accent/30 hover:border-accent transition-colors flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-accent/20 border border-accent/40 flex items-center justify-center font-bold text-accent font-mono text-xs">
+                  T2
+                </div>
+<div>
+<div class="font-headline font-bold text-sm text-on-surface flex items-center gap-2">
+                    Tier 2 Sub-Affiliates
+                    <span class="px-2 py-0.2 rounded text-[10px] font-mono bg-accent/20 text-accent font-semibold">10% Split</span>
+</div>
+<div class="text-[11px] font-mono text-on-surface-variant mt-0.5">318 Sub-nodes recruited by your downline</div>
+</div>
+</div>
+<div class="text-right font-mono">
+<div class="text-sm font-bold text-emerald-400">+$1,540.00 /mo</div>
+<div class="text-[10px] text-on-surface-variant">22.2% of affiliate yield</div>
+</div>
+</div>
+<!-- Tier 3 Extended Network -->
+<div class="p-3.5 rounded-lg bg-surface-variant/20 border border-cyan/30 hover:border-cyan transition-colors flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-cyan/20 border border-cyan/40 flex items-center justify-center font-bold text-cyan font-mono text-xs">
+                  T3
+                </div>
+<div>
+<div class="font-headline font-bold text-sm text-on-surface flex items-center gap-2">
+                    Tier 3 Extended Network
+                    <span class="px-2 py-0.2 rounded text-[10px] font-mono bg-cyan/20 text-cyan font-semibold">5% Split</span>
+</div>
+<div class="text-[11px] font-mono text-on-surface-variant mt-0.5">124 Global algorithmic trading accounts</div>
+</div>
+</div>
+<div class="text-right font-mono">
+<div class="text-sm font-bold text-emerald-400">+$580.00 /mo</div>
+<div class="text-[10px] text-on-surface-variant">8.4% of affiliate yield</div>
+</div>
+</div>
+</div>
+</div>
+<!-- RIGHT (5 cols): Real-Time Conversion Attribution Stream -->
+<div class="lg:col-span-5 bg-surface border border-outline-variant rounded-xl p-6 specular-border space-y-4 flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between pb-3 border-b border-outline-variant/60">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-emerald-400 text-xl" data-icon="stream">stream</span>
+<h3 class="font-headline font-bold text-base text-on-surface">Live Conversion Stream</h3>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                LISTENING
+              </span>
+</div>
+<!-- Scrolling Conversion Feeds -->
+<div class="space-y-3 mt-3">
+<!-- Feed Item 1 -->
+<div class="p-3 rounded-lg bg-darkBg/70 border border-outline-variant/80 flex items-start justify-between">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="font-mono text-xs font-semibold text-cyan">#TRD-89421</span>
+<span class="text-[10px] font-mono bg-[#F3BA2F]/15 text-[#F3BA2F] px-1.5 py-0.2 rounded">Binance BTC/USDT</span>
+</div>
+<div class="text-[11px] text-on-surface-variant font-mono">30d Click Attribution Matched</div>
+<div class="text-[10px] font-mono text-on-surface-variant/60">HMAC: 7f8a9e...29c4</div>
+</div>
+<div class="text-right font-mono">
+<div class="text-xs font-bold text-emerald-400">+$42.80 USDC</div>
+<div class="text-[10px] text-on-surface-variant">1m ago · <span class="text-emerald-400 font-semibold">OK</span></div>
+</div>
+</div>
+<!-- Feed Item 2 -->
+<div class="p-3 rounded-lg bg-darkBg/70 border border-outline-variant/80 flex items-start justify-between">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="font-mono text-xs font-semibold text-cyan">#TRD-89420</span>
+<span class="text-[10px] font-mono bg-[#F7A600]/15 text-[#F7A600] px-1.5 py-0.2 rounded">Bybit ETH/USDT</span>
+</div>
+<div class="text-[11px] text-on-surface-variant font-mono">Referral Tier 2 (@cryptowhale_vn)</div>
+<div class="text-[10px] font-mono text-on-surface-variant/60">HMAC: 3b14e2...88a1</div>
+</div>
+<div class="text-right font-mono">
+<div class="text-xs font-bold text-emerald-400">+$18.50 USDC</div>
+<div class="text-[10px] text-on-surface-variant">4m ago · <span class="text-emerald-400 font-semibold">OK</span></div>
+</div>
+</div>
+<!-- Feed Item 3 -->
+<div class="p-3 rounded-lg bg-darkBg/70 border border-outline-variant/80 flex items-start justify-between">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="font-mono text-xs font-semibold text-cyan">#TRD-89419</span>
+<span class="text-[10px] font-mono bg-white/10 text-white px-1.5 py-0.2 rounded">OKX SOL/USDC</span>
+</div>
+<div class="text-[11px] text-on-surface-variant font-mono">Negative Maker Rebate Verified</div>
+<div class="text-[10px] font-mono text-on-surface-variant/60">HMAC: 99dc01...f3a8</div>
+</div>
+<div class="text-right font-mono">
+<div class="text-xs font-bold text-emerald-400">+$9.20 USDC</div>
+<div class="text-[10px] text-on-surface-variant">8m ago · <span class="text-emerald-400 font-semibold">OK</span></div>
+</div>
+</div>
+<!-- Feed Item 4 -->
+<div class="p-3 rounded-lg bg-darkBg/70 border border-outline-variant/80 flex items-start justify-between">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="font-mono text-xs font-semibold text-cyan">#TRD-89418</span>
+<span class="text-[10px] font-mono bg-[#F3BA2F]/15 text-[#F3BA2F] px-1.5 py-0.2 rounded">Binance SOL/USDT</span>
+</div>
+<div class="text-[11px] text-on-surface-variant font-mono">VIP Promo Tier 1 · Direct Node</div>
+<div class="text-[10px] font-mono text-on-surface-variant/60">HMAC: 12af4e...710c</div>
+</div>
+<div class="text-right font-mono">
+<div class="text-xs font-bold text-emerald-400">+$61.40 USDC</div>
+<div class="text-[10px] text-on-surface-variant">12m ago · <span class="text-emerald-400 font-semibold">OK</span></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Cryptographic Ledger Verification Pill -->
+<div class="p-2.5 rounded bg-surface-variant/50 border border-outline-variant/80 flex items-center justify-between text-xs font-mono">
+<span class="text-on-surface-variant flex items-center gap-1.5">
+<span class="material-symbols-outlined text-xs text-primary" data-icon="lock">lock</span>
+              Merkle Tree Root #88921B
+            </span>
+<span class="text-cyan cursor-pointer hover:underline">Verify On-Chain</span>
+</div>
+</div>
+</section>
+</main>
+</div>
+</body></html>

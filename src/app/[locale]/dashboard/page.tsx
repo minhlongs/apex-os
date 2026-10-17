@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { DashboardLayout } from '@/components/dashboard/dashboard-layout';
+import { StitchObsidianBanner } from '@/components/stitch/StitchObsidianBanner';
 import DashboardOverview from './dashboard-overview';
 
 type Props = {
@@ -27,6 +28,12 @@ export default async function DashboardPage({ params }: Props) {
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        <StitchObsidianBanner
+          locale={locale}
+          targetTab="cockpit"
+          screenLabel="Screen 1 · Cashback & 3-Tier Affiliate Cockpit"
+        />
+
         {/* Page Header */}
         <div>
           <h1 className="text-2xl font-bold text-gray-900">

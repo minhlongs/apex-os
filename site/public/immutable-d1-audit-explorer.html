@@ -1,0 +1,878 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS - Forensic Ledger Audit Explorer &amp; SHA-256 Merkle Batch Verifier</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            surface: "#0F172A",
+            "surface-variant": "#1E293B",
+            "outline-variant": "#334155",
+            canvas: "#020617",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8",
+            primary: "#6366F1",
+            "primary-container": "rgba(99, 102, 241, 0.12)",
+            "on-primary-container": "#818cf8",
+            violet: "#8B5CF6",
+            cyan: "#06B6D4",
+            emerald: "#10B981",
+            amber: "#F59E0B",
+            crimson: "#EF4444",
+            stellar: "#14B8A6",
+            ethereum: "#2775CA",
+            solana: "#14F195"
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "0.75rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      font-size: 1.15rem;
+      line-height: 1;
+    }
+    .specular-rim {
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 8px 24px -4px rgba(0, 0, 0, 0.5);
+    }
+    .specular-rim-interactive:hover {
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.16), 0 12px 28px -4px rgba(99, 102, 241, 0.15);
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    /* Subtle glowing tree links */
+    .tree-line-active {
+      stroke: #06B6D4;
+      stroke-dasharray: 4;
+      animation: dash 30s linear infinite;
+    }
+    @keyframes dash {
+      to {
+        stroke-dashoffset: -1000;
+      }
+    }
+  </style>
+</head>
+<body class="bg-[#020617] text-[#F8FAFC] font-body selection:bg-primary/30 selection:text-white antialiased min-h-screen overflow-x-hidden">
+<!-- ========================================================== -->
+<!-- SIDEBAR NAVIGATION (Anchored from JSON)                    -->
+<!-- ========================================================== -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-surface border-r border-outline-variant flex flex-col justify-between p-4 shadow-sm select-none">
+<div class="flex flex-col gap-6">
+<!-- Terminal Node Brand Header -->
+<div class="flex items-center gap-3 px-1 py-1">
+<div class="relative w-9 h-9 rounded-lg bg-gradient-to-tr from-primary to-violet p-[1px] flex-shrink-0">
+<div class="w-full h-full bg-[#020617] rounded-[7px] flex items-center justify-center">
+<span class="material-symbols-outlined text-cyan" style="font-variation-settings: 'FILL' 1;">terminal</span>
+</div>
+<span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald rounded-full ring-2 ring-[#020617] animate-pulse"></span>
+</div>
+<div class="flex flex-col overflow-hidden">
+<div class="flex items-center gap-1.5">
+<span class="font-headline font-bold text-sm tracking-wider text-on-surface">ApexOS Terminal</span>
+<span class="text-[10px] font-mono px-1 py-0.5 rounded bg-surface-variant text-cyan border border-cyan/20">v4.9</span>
+</div>
+<span class="font-body text-xs text-on-surface-variant truncate">Arbitrage &amp; Settlement Hub</span>
+</div>
+</div>
+<!-- Quick Node Action Button -->
+<button class="w-full flex items-center justify-center gap-2 py-2 px-3 rounded bg-primary/10 border border-primary/30 text-primary hover:bg-primary/20 text-xs font-label uppercase tracking-wider font-semibold transition-colors duration-150">
+<span class="material-symbols-outlined text-sm">hub</span>
+<span>Connect Node</span>
+</button>
+<!-- Main Navigation Tabs -->
+<nav class="flex flex-col gap-1">
+<span class="px-3 text-[10px] font-label tracking-wide uppercase text-on-surface-variant/70 font-semibold mb-1">Engines &amp; Ledgers</span>
+<!-- Tab 1 -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-body text-sm">Cashback Cockpit</span>
+</a>
+<!-- Tab 2: Arbitrage & Deal Crawler -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">query_stats</span>
+<span class="font-body text-sm">Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- Tab 3: Multi-Chain Payouts -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">currency_exchange</span>
+<span class="font-body text-sm">Multi-Chain Payouts</span>
+</a>
+<!-- Tab 4: KYC & Fraud Command / Forensic Ledger (ACTIVE) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-primary bg-primary/10 font-medium border-l-2 border-primary transition-colors duration-150" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">shield</span>
+<div class="flex flex-col">
+<span class="font-body text-sm leading-tight">KYC &amp; Fraud Command</span>
+<span class="text-[9px] font-mono text-cyan tracking-tight">D1 Merkle Ledger Active</span>
+</div>
+</a>
+<!-- Tab 5 -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">send</span>
+<span class="font-body text-sm">Telegram Mini App</span>
+</a>
+<!-- Tab 6 -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150" href="#">
+<span class="material-symbols-outlined">palette</span>
+<span class="font-body text-sm">Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Sidebar Footer -->
+<div class="pt-3 border-t border-outline-variant flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors text-xs font-normal" href="#">
+<span class="material-symbols-outlined text-base">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors text-xs font-normal" href="#">
+<span class="material-symbols-outlined text-base">menu_book</span>
+<span>Documentation</span>
+</a>
+<!-- Operator Node Footnote -->
+<div class="mt-2 px-3 py-2 bg-[#020617] rounded border border-outline-variant/60 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-emerald"></div>
+<span class="text-[10px] font-mono text-on-surface-variant truncate">sin-d1-node-09.apex</span>
+</div>
+<span class="text-[9px] font-mono text-emerald bg-emerald/10 px-1 py-0.5 rounded border border-emerald/20">WORM ON</span>
+</div>
+</div>
+</aside>
+<!-- ========================================================== -->
+<!-- TOP APP BAR NAVIGATION (Anchored from JSON)               -->
+<!-- ========================================================== -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-surface border-b border-outline-variant flex items-center justify-between px-6">
+<!-- Left: Search Box -->
+<div class="flex items-center gap-4 flex-1 max-w-xl">
+<div class="relative w-full">
+<span class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-on-surface-variant">
+<span class="material-symbols-outlined text-lg">search</span>
+</span>
+<input class="w-full pl-9 pr-24 py-1.5 text-xs font-mono bg-surface-variant border border-outline-variant rounded-md text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-cyan transition-colors" placeholder="Search SHA-256 leaf, TxHash, or audit_id..." type="text" value="0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"/>
+<div class="absolute inset-y-0 right-1 flex items-center pr-2 gap-1 pointer-events-none">
+<kbd class="px-1.5 py-0.5 text-[9px] font-mono text-on-surface-variant bg-canvas border border-outline-variant rounded">⌘K</kbd>
+</div>
+</div>
+</div>
+<!-- Right: Cluster Actions & Telemetry Pills -->
+<div class="flex items-center gap-3">
+<!-- Multi-Chain Health Status -->
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald/10 border border-emerald/20 text-emerald text-xs font-mono">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald animate-ping"></span>
+<span class="font-medium">3/3 Chains HEALTHY</span>
+</div>
+<!-- Master Tier Badge -->
+<div class="px-2.5 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-label uppercase tracking-wider font-semibold">
+        MASTER TIER
+      </div>
+<!-- Bilingual EN/VI Switcher -->
+<button class="flex items-center gap-1 px-2.5 py-1 rounded bg-surface-variant hover:bg-outline-variant text-xs font-mono text-on-surface border border-outline-variant transition-colors" title="Switch Bilingual Localization: English / Tiếng Việt">
+<span class="text-primary font-bold">EN</span>
+<span class="text-on-surface-variant/40">|</span>
+<span class="text-on-surface-variant hover:text-on-surface font-semibold">VI</span>
+</button>
+<!-- Trailing Action Icons -->
+<button class="p-2 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-variant transition-colors relative" title="Notifications">
+<span class="material-symbols-outlined text-lg">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full"></span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-variant transition-colors" title="CLI Terminal Console">
+<span class="material-symbols-outlined text-lg">terminal</span>
+</button>
+<!-- Connected Wallet Badge -->
+<div class="flex items-center gap-2 pl-3 border-l border-outline-variant">
+<div class="flex flex-col items-end">
+<span class="text-[10px] font-label uppercase tracking-widest text-on-surface-variant font-semibold">Operator</span>
+<span class="text-xs font-mono font-medium text-cyan">0x8F94...c4B2</span>
+</div>
+<div class="w-8 h-8 rounded-full bg-gradient-to-tr from-cyan via-primary to-violet p-[1px] flex-shrink-0">
+<div class="w-full h-full bg-surface rounded-full flex items-center justify-center text-xs font-mono font-bold text-on-surface">
+            OP
+          </div>
+</div>
+</div>
+</div>
+</header>
+<!-- ========================================================== -->
+<!-- MAIN CANVASS CONTENT AREA                                   -->
+<!-- ========================================================== -->
+<main class="ml-64 pt-20 pb-14 px-8 min-h-screen space-y-6">
+<!-- 1. HEADER & ACTION ROW -->
+<section class="flex flex-col lg:flex-row lg:items-start justify-between gap-4 pb-2 border-b border-outline-variant/50">
+<div class="space-y-1.5 max-w-4xl">
+<div class="flex items-center gap-2.5">
+<span class="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider bg-primary/20 text-primary border border-primary/30 rounded font-semibold">
+            Cloudflare D1 WORM Module
+          </span>
+<span class="text-xs text-on-surface-variant font-mono">Ledger Height #482,912</span>
+<span class="text-xs text-emerald flex items-center gap-1 font-mono">
+<span class="w-1.5 h-1.5 bg-emerald rounded-full"></span> 0.00ms Invariance Drift
+          </span>
+</div>
+<h1 class="font-headline font-bold text-2xl tracking-tight text-on-surface">
+          Forensic Ledger Audit Explorer &amp; SHA-256 Merkle Batch Verifier
+        </h1>
+<!-- Bilingual Subtitle: English & Vietnamese -->
+<p class="font-body text-xs text-on-surface-variant leading-relaxed">
+          Tamper-evident WORM ledger explorer and real-time cryptographic Merkle verification tree across Cloudflare D1 and multi-chain settlement rails (Stellar, Ethereum, Solana).
+          <span class="text-on-surface-variant/70 italic block sm:inline mt-0.5 sm:mt-0 font-normal">
+            — Khám phá nhật ký kiểm toán bất biến &amp; bộ xác minh Merkle proof tức thì liên chuỗi.
+          </span>
+</p>
+</div>
+<!-- Action Buttons -->
+<div class="flex items-center gap-2.5 flex-wrap lg:flex-nowrap flex-shrink-0">
+<!-- Crimson Danger Simulation -->
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-crimson/40 bg-crimson/10 text-crimson hover:bg-crimson/20 text-xs font-label uppercase tracking-wider font-semibold transition-all" id="btn-tamper">
+<span class="material-symbols-outlined text-sm">warning</span>
+<span>Simulate Tamper Mutation</span>
+</button>
+<!-- Secondary Outline Certificate -->
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-outline-variant bg-surface hover:bg-surface-variant text-on-surface text-xs font-label uppercase tracking-wider font-semibold transition-all">
+<span class="material-symbols-outlined text-sm">file_download</span>
+<span>Export Batch Certificate</span>
+</button>
+<!-- Primary Specular Indigo-Violet Button -->
+<button class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-gradient-to-r from-primary via-indigo-500 to-violet text-white text-xs font-label uppercase tracking-wider font-bold shadow-lg shadow-primary/20 hover:shadow-primary/40 hover:brightness-110 active:scale-95 transition-all" id="btn-verify">
+<span class="material-symbols-outlined text-sm" style="font-variation-settings: 'FILL' 1;">verified</span>
+<span>Verify Merkle Tree Proof</span>
+</button>
+</div>
+</section>
+<!-- 2. INTEGRITY KPI CARDS (Bento Grid) -->
+<section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+<!-- Card 1 -->
+<div class="bg-surface border border-outline-variant rounded-xl p-4 specular-rim flex flex-col justify-between relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-primary/5 rounded-full blur-xl group-hover:bg-primary/10 transition-colors"></div>
+<div class="flex items-start justify-between">
+<span class="text-xs font-label uppercase tracking-wider text-on-surface-variant font-medium">Total Immutable Audit Entries</span>
+<div class="p-2 bg-surface-variant rounded-lg text-primary border border-outline-variant/60">
+<span class="material-symbols-outlined">database</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="flex items-baseline gap-2">
+<span class="font-mono text-2xl font-bold tracking-tight text-on-surface">148,920</span>
+<span class="font-mono text-xs text-emerald font-semibold">+1,420 today</span>
+</div>
+<div class="mt-2.5 flex items-center gap-1.5">
+<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald/10 text-emerald border border-emerald/20">
+              D1 WORM Trigger: STRICT_ABORT
+            </span>
+<span class="text-[10px] text-on-surface-variant font-mono">(0 Deletes)</span>
+</div>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface border border-outline-variant rounded-xl p-4 specular-rim flex flex-col justify-between relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-cyan/5 rounded-full blur-xl group-hover:bg-cyan/10 transition-colors"></div>
+<div class="flex items-start justify-between">
+<span class="text-xs font-label uppercase tracking-wider text-on-surface-variant font-medium">Latest SHA-256 Merkle Root</span>
+<div class="p-2 bg-surface-variant rounded-lg text-cyan border border-outline-variant/60">
+<span class="material-symbols-outlined">account_tree</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="flex items-center justify-between gap-1">
+<span class="font-mono text-lg font-bold tracking-tight text-cyan truncate" title="0x9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08">
+              0x9f86d081...0a08
+            </span>
+<button class="p-1 text-on-surface-variant hover:text-on-surface hover:bg-surface-variant rounded" title="Copy Root Hash">
+<span class="material-symbols-outlined text-sm">content_copy</span>
+</button>
+</div>
+<div class="mt-2.5 flex items-center justify-between text-[11px] font-mono text-on-surface-variant">
+<span>Batch #418 • 2,048 Leaves</span>
+<span class="text-cyan font-semibold">SOUND (H:11)</span>
+</div>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface border border-outline-variant rounded-xl p-4 specular-rim flex flex-col justify-between relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-violet/5 rounded-full blur-xl group-hover:bg-violet/10 transition-colors"></div>
+<div class="flex items-start justify-between">
+<span class="text-xs font-label uppercase tracking-wider text-on-surface-variant font-medium">Two-Phase Lock Health</span>
+<div class="p-2 bg-surface-variant rounded-lg text-violet border border-outline-variant/60">
+<span class="material-symbols-outlined">lock</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="flex items-baseline gap-2">
+<span class="font-mono text-2xl font-bold tracking-tight text-on-surface">100%</span>
+<span class="font-mono text-xs text-on-surface-variant">Atomic Consistency</span>
+</div>
+<div class="mt-2.5 text-[10px] font-mono text-on-surface-variant truncate">
+            0 Rollbacks • Strict Idempotency • <span class="text-emerald">12ms D1 Read</span>
+</div>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface border border-outline-variant rounded-xl p-4 specular-rim flex flex-col justify-between relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald/5 rounded-full blur-xl group-hover:bg-emerald/10 transition-colors"></div>
+<div class="flex items-start justify-between">
+<span class="text-xs font-label uppercase tracking-wider text-on-surface-variant font-medium">Multi-Chain Finality Proof</span>
+<div class="p-2 bg-surface-variant rounded-lg text-emerald border border-outline-variant/60">
+<span class="material-symbols-outlined">all_inclusive</span>
+</div>
+</div>
+<div class="mt-3">
+<div class="flex items-baseline gap-2">
+<span class="font-mono text-2xl font-bold tracking-tight text-emerald">3/3 Rails</span>
+<span class="font-mono text-xs text-on-surface-variant">Anchored</span>
+</div>
+<div class="mt-2.5 flex items-center justify-between text-[10px] font-mono text-on-surface-variant">
+<span class="text-stellar">XLM 4.2s</span>
+<span>•</span>
+<span class="text-ethereum">ETH Safe</span>
+<span>•</span>
+<span class="text-solana">SOL #258M</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 3. TWO-PHASE ATOMIC PAYOUT LIFECYCLE & WORM EXECUTION TRAIL -->
+<section class="bg-surface border border-outline-variant rounded-xl specular-rim overflow-hidden">
+<!-- Section Top Banner: Pipeline Stages -->
+<div class="p-5 border-b border-outline-variant bg-surface/50">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+<div>
+<h2 class="font-headline font-bold text-base text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary">linear_scale</span>
+              Two-Phase Atomic Payout Lifecycle &amp; WORM Execution Trail
+            </h2>
+<p class="text-xs text-on-surface-variant mt-0.5">
+              Idempotent state transitions guaranteed via Cloudflare SQLite D1 triggers before cross-chain dispatch.
+            </p>
+</div>
+<!-- Filter Pills -->
+<div class="flex items-center gap-1.5 flex-wrap">
+<button class="px-2.5 py-1 rounded text-xs font-mono bg-primary text-white font-medium shadow-sm">All (148.9k)</button>
+<button class="px-2.5 py-1 rounded text-xs font-mono bg-surface-variant text-on-surface-variant hover:text-on-surface border border-outline-variant">Reserved_D1</button>
+<button class="px-2.5 py-1 rounded text-xs font-mono bg-surface-variant text-on-surface-variant hover:text-on-surface border border-outline-variant">Dispatching</button>
+<button class="px-2.5 py-1 rounded text-xs font-mono bg-surface-variant text-on-surface-variant hover:text-on-surface border border-outline-variant">Settlement Baked</button>
+<button class="px-2.5 py-1 rounded text-xs font-mono bg-crimson/10 text-crimson border border-crimson/30 font-medium">Blocked (0)</button>
+</div>
+</div>
+<!-- 4-Stage Horizontal Flow Visualization -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-3 pt-2">
+<!-- Stage 1 -->
+<div class="p-3 bg-canvas/70 rounded-lg border border-outline-variant/60 flex items-start gap-3">
+<div class="w-6 h-6 rounded-full bg-primary/20 text-primary border border-primary/40 flex items-center justify-center font-mono text-xs font-bold flex-shrink-0">1</div>
+<div>
+<span class="text-xs font-label uppercase tracking-wider font-semibold text-on-surface block">Ingestion</span>
+<span class="text-[11px] font-mono text-on-surface-variant">HMAC Verified &amp; Signed</span>
+</div>
+</div>
+<!-- Stage 2 -->
+<div class="p-3 bg-canvas/70 rounded-lg border border-primary/40 flex items-start gap-3 relative">
+<div class="w-6 h-6 rounded-full bg-primary text-white flex items-center justify-center font-mono text-xs font-bold flex-shrink-0">2</div>
+<div>
+<span class="text-xs font-label uppercase tracking-wider font-semibold text-primary block">Reserved_D1</span>
+<span class="text-[11px] font-mono text-on-surface-variant">Idempotency Clamped</span>
+</div>
+</div>
+<!-- Stage 3 -->
+<div class="p-3 bg-canvas/70 rounded-lg border border-outline-variant/60 flex items-start gap-3">
+<div class="w-6 h-6 rounded-full bg-amber/20 text-amber border border-amber/40 flex items-center justify-center font-mono text-xs font-bold flex-shrink-0">3</div>
+<div>
+<span class="text-xs font-label uppercase tracking-wider font-semibold text-on-surface block">Dispatching</span>
+<span class="text-[11px] font-mono text-on-surface-variant">Zero-Nonce Collision RPC</span>
+</div>
+</div>
+<!-- Stage 4 -->
+<div class="p-3 bg-canvas/70 rounded-lg border border-emerald/40 bg-emerald/5 flex items-start gap-3">
+<div class="w-6 h-6 rounded-full bg-emerald text-canvas flex items-center justify-center font-mono text-xs font-bold flex-shrink-0">4</div>
+<div>
+<span class="text-xs font-label uppercase tracking-wider font-semibold text-emerald block">Settlement Baked</span>
+<span class="text-[11px] font-mono text-on-surface-variant">Merkle Root Broadcast</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Forensic Data Table -->
+<div class="overflow-x-auto custom-scrollbar">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-canvas/50 border-b border-outline-variant text-[11px] font-label uppercase tracking-wider text-on-surface-variant">
+<th class="py-3 px-4 font-semibold">Timestamp (UTC)</th>
+<th class="py-3 px-4 font-semibold">Audit ID</th>
+<th class="py-3 px-4 font-semibold">State Transition</th>
+<th class="py-3 px-4 font-semibold">Idempotency Hash (SHA-256)</th>
+<th class="py-3 px-4 font-semibold">Target Rail &amp; TxHash / SQL Rule</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/60 text-xs font-mono">
+<!-- Row 1: Settled -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3 px-4 text-on-surface whitespace-nowrap">
+                2025-05-18 14:42:19.102
+              </td>
+<td class="py-3 px-4 text-cyan font-semibold">
+                #AUD-98241
+              </td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono bg-emerald/10 text-emerald border border-emerald/20 font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span>
+                  RESERVED → SETTLED
+                </span>
+</td>
+<td class="py-3 px-4 text-on-surface-variant flex items-center gap-2">
+<span class="truncate max-w-[140px] text-on-surface">7f83b165...126d9069</span>
+<span class="text-[9px] px-1 bg-surface-variant rounded text-on-surface-variant border border-outline-variant">L:02</span>
+</td>
+<td class="py-3 px-4 whitespace-nowrap">
+<div class="flex items-center gap-2">
+<span class="px-1.5 py-0.5 rounded bg-stellar/10 text-stellar border border-stellar/20 text-[10px] font-bold">XLM</span>
+<a class="text-primary hover:underline flex items-center gap-1" href="#">
+<span>9c81b2...4f9a</span>
+<span class="material-symbols-outlined text-[13px]">open_in_new</span>
+</a>
+</div>
+</td>
+</tr>
+<!-- Row 2: Dispatching -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3 px-4 text-on-surface whitespace-nowrap">
+                2025-05-18 14:42:01.884
+              </td>
+<td class="py-3 px-4 text-cyan font-semibold">
+                #AUD-98240
+              </td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono bg-amber/10 text-amber border border-amber/20 font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-amber animate-pulse"></span>
+                  RESERVED → DISPATCHING
+                </span>
+</td>
+<td class="py-3 px-4 text-on-surface-variant flex items-center gap-2">
+<span class="truncate max-w-[140px] text-on-surface">4b227777...cacdabf8</span>
+<span class="text-[9px] px-1 bg-surface-variant rounded text-on-surface-variant border border-outline-variant">L:03</span>
+</td>
+<td class="py-3 px-4 whitespace-nowrap">
+<div class="flex items-center gap-2">
+<span class="px-1.5 py-0.5 rounded bg-ethereum/10 text-ethereum border border-ethereum/20 text-[10px] font-bold">ETH</span>
+<a class="text-primary hover:underline flex items-center gap-1" href="#">
+<span>0x71a4...92b0</span>
+<span class="material-symbols-outlined text-[13px]">open_in_new</span>
+</a>
+</div>
+</td>
+</tr>
+<!-- Row 3: Pending to Reserved -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3 px-4 text-on-surface whitespace-nowrap">
+                2025-05-18 14:41:45.312
+              </td>
+<td class="py-3 px-4 text-cyan font-semibold">
+                #AUD-98239
+              </td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-mono bg-primary/10 text-primary border border-primary/20 font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>
+                  PENDING → RESERVED_D1
+                </span>
+</td>
+<td class="py-3 px-4 text-on-surface-variant flex items-center gap-2">
+<span class="truncate max-w-[140px] text-on-surface">e3b0c442...7852b855</span>
+<span class="text-[9px] px-1 bg-surface-variant rounded text-on-surface-variant border border-outline-variant">L:04</span>
+</td>
+<td class="py-3 px-4 whitespace-nowrap">
+<div class="flex items-center gap-2">
+<span class="px-1.5 py-0.5 rounded bg-solana/10 text-solana border border-solana/20 text-[10px] font-bold">SOL</span>
+<span class="text-on-surface-variant">5Kn4W...P9xk (Awaiting Slot)</span>
+</div>
+</td>
+</tr>
+<!-- Row 4: Mutation Blocked (Tamper Alert) -->
+<tr class="bg-crimson/5 hover:bg-crimson/10 transition-colors border-l-2 border-crimson">
+<td class="py-3 px-4 text-crimson font-medium whitespace-nowrap">
+                2025-05-18 14:38:12.001
+              </td>
+<td class="py-3 px-4 text-crimson font-bold">
+                #TRAP-ALERT
+              </td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono bg-crimson/20 text-crimson border border-crimson/40 font-bold">
+<span class="material-symbols-outlined text-[13px]">gpp_bad</span>
+                  UPDATE / DELETE ATTEMPT
+                </span>
+</td>
+<td class="py-3 px-4">
+<span class="text-crimson font-semibold tracking-wider">MUTATION_BLOCKED</span>
+</td>
+<td class="py-3 px-4">
+<code class="text-[11px] text-crimson/90 bg-[#020617] px-2 py-1 rounded border border-crimson/30">
+                  SQL: UPDATE payouts SET amount = 999999 [RAISE(ABORT)]
+                </code>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- 4. INTERACTIVE CRYPTOGRAPHIC VERIFICATION SPLIT WORKBENCH -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Left Column: Settlement Batch JSON Tree & Leaf Ingestion (5 Cols) -->
+<div class="lg:col-span-5 bg-surface border border-outline-variant rounded-xl specular-rim flex flex-col justify-between overflow-hidden">
+<div>
+<!-- Header -->
+<div class="p-4 border-b border-outline-variant flex items-center justify-between bg-surface/80">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-cyan">data_object</span>
+<h3 class="font-headline font-bold text-sm text-on-surface">Settlement Batch JSON &amp; Leaf Ingestion</h3>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">RFC8785 Canonical</span>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-cyan/10 text-cyan border border-cyan/20">Batch #418</span>
+</div>
+</div>
+<!-- Payload Code Viewer -->
+<div class="p-4 bg-canvas font-mono text-xs overflow-x-auto custom-scrollbar border-b border-outline-variant">
+<div class="flex items-center justify-between pb-2 mb-2 border-b border-outline-variant/40 text-[11px] text-on-surface-variant">
+<span>Leaf Index [2] Schema Payload</span>
+<span class="text-emerald">256-bit Hash Compatible</span>
+</div>
+<pre class="leading-relaxed text-on-surface"><span class="text-on-surface-variant/60">01</span> {
+<span class="text-on-surface-variant/60">02</span>   <span class="text-cyan">"batch_id"</span>: <span class="text-amber">418</span>,
+<span class="text-on-surface-variant/60">03</span>   <span class="text-cyan">"merkle_height"</span>: <span class="text-amber">11</span>,
+<span class="text-on-surface-variant/60">04</span>   <span class="text-cyan">"selected_leaf_index"</span>: <span class="text-amber">2</span>,
+<span class="text-on-surface-variant/60">05</span>   <span class="text-cyan">"audit_id"</span>: <span class="text-emerald">"AUD-98241"</span>,
+<span class="text-on-surface-variant/60">06</span>   <span class="text-cyan">"affiliate_id"</span>: <span class="text-emerald">"AFF-VN-8840"</span>,
+<span class="text-on-surface-variant/60">07</span>   <span class="text-cyan">"fiat_cashback_usd"</span>: <span class="text-amber">420.50</span>,
+<span class="text-on-surface-variant/60">08</span>   <span class="text-cyan">"settlement_rail"</span>: <span class="text-stellar">"STELLAR_USDC"</span>,
+<span class="text-on-surface-variant/60">09</span>   <span class="text-cyan">"idempotency_key"</span>: <span class="text-primary">"0x98a1-b842-cf11"</span>,
+<span class="text-on-surface-variant/60">10</span>   <span class="text-cyan">"computed_leaf_hash"</span>: <span class="text-cyan font-bold" id="leaf-hash-text">"0x7f83b165...126d9069"</span>
+<span class="text-on-surface-variant/60">11</span> }</pre>
+</div>
+<!-- Formula & Interactive Controls -->
+<div class="p-4 space-y-3 bg-surface">
+<div>
+<span class="text-[10px] font-label uppercase tracking-wider text-on-surface-variant block mb-1">
+                Direct Leaf Ingestion Formula
+              </span>
+<div class="p-2.5 bg-surface-variant rounded border border-outline-variant text-[11px] font-mono text-cyan flex items-center justify-between">
+<span>H( H(Leaf_2) || H(Sibling_3) ) → Node_L1_B</span>
+<span class="material-symbols-outlined text-sm text-on-surface-variant">functions</span>
+</div>
+</div>
+<!-- Hash Value Box -->
+<div>
+<span class="text-[10px] font-label uppercase tracking-wider text-on-surface-variant block mb-1">
+                Evaluated Target Leaf SHA-256 (Canonical Stream)
+              </span>
+<div class="relative">
+<input class="w-full bg-canvas text-cyan text-xs font-mono p-2.5 rounded border border-cyan/40 pr-8 focus:outline-none select-all" id="target-leaf-input" readonly="" type="text" value="7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"/>
+<span class="material-symbols-outlined text-cyan absolute right-2.5 top-2.5 text-base">check_circle</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card Bottom Action: Tamper Injection -->
+<div class="p-4 bg-canvas/40 border-t border-outline-variant flex items-center justify-between">
+<span class="text-xs text-on-surface-variant font-body">Cryptographic Mutation Check</span>
+<button class="px-3 py-1.5 rounded text-xs font-mono bg-crimson/15 text-crimson border border-crimson/30 hover:bg-crimson/25 transition-colors font-semibold flex items-center gap-1.5" id="btn-mutate">
+<span class="material-symbols-outlined text-sm">change_circle</span>
+<span>Mutate 1 Byte in Payload</span>
+</button>
+</div>
+</div>
+<!-- Right Column: Visual Merkle Tree Proof Path & Invariance Graph (7 Cols) -->
+<div class="lg:col-span-7 bg-surface border border-outline-variant rounded-xl specular-rim flex flex-col justify-between overflow-hidden">
+<div>
+<!-- Header -->
+<div class="p-4 border-b border-outline-variant flex items-center justify-between bg-surface/80">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-emerald">hub</span>
+<h3 class="font-headline font-bold text-sm text-on-surface">Visual Merkle Tree Proof Path &amp; Invariance Graph</h3>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/20 font-bold flex items-center gap-1" id="zk-badge">
+<span class="w-1.5 h-1.5 bg-emerald rounded-full"></span> ZERO-KNOWLEDGE PATH OK
+              </span>
+</div>
+</div>
+<!-- Interactive Hierarchical Diagram Canvas -->
+<div class="p-6 bg-canvas/60 relative overflow-hidden flex flex-col items-center justify-center min-h-[300px]">
+<!-- SVG Connector Lines Overlay -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none stroke-outline-variant/80" xmlns="http://www.w3.org/2000/svg">
+<!-- Root to L1_A and L1_B -->
+<line stroke-width="1.5" x1="50%" x2="25%" y1="62" y2="135"></line>
+<line class="tree-line-active" id="line-root-b" stroke-width="2" x1="50%" x2="75%" y1="62" y2="135"></line>
+<!-- L1_A to Leaf 0 and Leaf 1 -->
+<line stroke-width="1.5" x1="25%" x2="15%" y1="175" y2="235"></line>
+<line stroke-width="1.5" x1="25%" x2="35%" y1="175" y2="235"></line>
+<!-- L1_B to Leaf 2 and Leaf 3 -->
+<line class="tree-line-active" id="line-b-leaf2" stroke-width="2" x1="75%" x2="65%" y1="175" y2="235"></line>
+<line stroke-dasharray="2" stroke-width="1.5" x1="75%" x2="85%" y1="175" y2="235"></line>
+</svg>
+<!-- Merkle Root Node (Level 0) -->
+<div class="relative z-10 flex flex-col items-center">
+<div class="px-4 py-2 rounded-lg bg-surface-variant border-2 border-primary text-center shadow-lg shadow-primary/10" id="root-node-box">
+<div class="text-[9px] font-label uppercase tracking-widest text-primary font-bold">Root (Level 0) • Batch #418</div>
+<div class="font-mono text-xs text-on-surface font-bold tracking-tight" id="root-hash-display">0x9f86d081...0a08 [SEALED]</div>
+</div>
+</div>
+<!-- Intermediary Level (Level 1) -->
+<div class="relative z-10 w-full flex justify-around mt-10">
+<!-- Node L1_A -->
+<div class="px-3 py-1.5 rounded bg-surface/90 border border-outline-variant text-center opacity-60">
+<div class="text-[9px] font-mono text-on-surface-variant">Node L1_A</div>
+<div class="font-mono text-[11px] text-on-surface-variant">0x3f12a...77b1</div>
+</div>
+<!-- Node L1_B (Proof Step 1) -->
+<div class="px-3 py-1.5 rounded bg-surface border-2 border-cyan text-center shadow-md shadow-cyan/10" id="node-l1-b">
+<div class="text-[9px] font-mono text-cyan font-bold">Node L1_B (Proof Step 1)</div>
+<div class="font-mono text-[11px] text-cyan font-semibold">0x88c2f1...19a4</div>
+</div>
+</div>
+<!-- Leaves Level (Level 2) -->
+<div class="relative z-10 w-full grid grid-cols-4 gap-2 mt-10 text-center">
+<!-- Leaf #0 -->
+<div class="p-1.5 rounded bg-surface/60 border border-outline-variant/60 opacity-40">
+<div class="text-[8px] font-mono text-on-surface-variant">Leaf #0</div>
+<div class="font-mono text-[10px] text-on-surface-variant truncate">0x1102...fa90</div>
+</div>
+<!-- Leaf #1 -->
+<div class="p-1.5 rounded bg-surface/60 border border-outline-variant/60 opacity-40">
+<div class="text-[8px] font-mono text-on-surface-variant">Leaf #1</div>
+<div class="font-mono text-[10px] text-on-surface-variant truncate">0x55aa...33b0</div>
+</div>
+<!-- Target Leaf #2 (Active Ingestion) -->
+<div class="p-2 rounded-lg bg-cyan/15 border-2 border-cyan shadow-lg shadow-cyan/20 animate-pulse" id="leaf-target">
+<div class="text-[9px] font-mono text-cyan font-bold flex items-center justify-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-cyan"></span> Target Leaf #2
+                </div>
+<div class="font-mono text-[11px] text-cyan font-bold truncate">0x7f83...9069</div>
+<div class="text-[8px] font-mono text-on-surface-variant mt-0.5">Audit #AUD-98241</div>
+</div>
+<!-- Sibling #3 -->
+<div class="p-1.5 rounded bg-surface border border-outline-variant text-center">
+<div class="text-[8px] font-mono text-on-surface-variant">Sibling #3</div>
+<div class="font-mono text-[10px] text-on-surface truncate">0x98fa...cc31</div>
+<div class="text-[8px] font-mono text-emerald mt-0.5">Complement Hash</div>
+</div>
+</div>
+</div>
+<!-- Dynamic Verification Status Banner -->
+<div class="p-4 border-t border-outline-variant">
+<div class="p-3 rounded-lg bg-emerald/10 border border-emerald/30 flex items-center justify-between" id="status-card">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-emerald text-canvas flex items-center justify-center font-bold" id="status-icon">
+<span class="material-symbols-outlined text-base">check</span>
+</div>
+<div>
+<div class="text-xs font-mono font-bold text-emerald" id="status-title">
+                    STATUS: 200 PROOF_VALID (0.42ms)
+                  </div>
+<div class="text-[11px] font-body text-on-surface-variant" id="status-desc">
+                    Zero-Knowledge Invariance Certified across Cloudflare D1 WORM WAL (100% SOUND).
+                  </div>
+</div>
+</div>
+<span class="hidden sm:inline-block text-[10px] font-mono text-emerald bg-canvas px-2 py-1 rounded border border-emerald/20" id="proof-hash-tag">
+                BLAKE3-SHA256 Match
+              </span>
+</div>
+</div>
+</div>
+<!-- Cryptographic Signature & Export Action Footer -->
+<div class="p-4 bg-surface-variant/40 border-t border-outline-variant flex flex-col sm:flex-row items-center justify-between gap-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-primary">key</span>
+<span class="text-xs font-mono text-on-surface-variant">
+              Signature: <span class="text-on-surface">Ed25519-ApexOS-Terminal-Oracle</span>
+</span>
+</div>
+<button class="w-full sm:w-auto px-4 py-1.5 rounded text-xs font-label uppercase tracking-wider font-semibold bg-surface border border-outline-variant hover:bg-surface-variant text-on-surface flex items-center justify-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-sm">verified_user</span>
+<span>Sign &amp; Export Compliance Certificate</span>
+</button>
+</div>
+</div>
+</section>
+</main>
+<!-- ========================================================== -->
+<!-- BOTTOM TELEMETRY BAR                                       -->
+<!-- ========================================================== -->
+<footer class="fixed bottom-0 right-0 left-64 h-7 z-30 bg-[#020617] border-t border-outline-variant/60 flex items-center justify-between px-6 text-[10px] font-mono text-on-surface-variant">
+<div class="flex items-center gap-2 truncate">
+<span class="w-1.5 h-1.5 bg-emerald rounded-full animate-pulse"></span>
+<span class="text-on-surface">Live D1 Commits:</span>
+<span class="truncate">Worker <code class="text-cyan">sin-worker-01</code> committed WAL block #482,912 at 14:42:19 UTC</span>
+<span>•</span>
+<span class="text-emerald">Merkle Invariance: Active</span>
+</div>
+<div class="flex items-center gap-4 flex-shrink-0">
+<span>Reconciliation Sync: <span class="text-emerald font-bold">0.00ms Drift</span></span>
+<span class="text-primary">ApexOS CLI v4.9</span>
+</div>
+</footer>
+<!-- ========================================================== -->
+<!-- LIGHTWEIGHT INTERACTIVITY SCRIPT                           -->
+<!-- ========================================================== -->
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const btnTamper = document.getElementById('btn-tamper');
+      const btnMutate = document.getElementById('btn-mutate');
+      const btnVerify = document.getElementById('btn-verify');
+      const statusCard = document.getElementById('status-card');
+      const statusIcon = document.getElementById('status-icon');
+      const statusTitle = document.getElementById('status-title');
+      const statusDesc = document.getElementById('status-desc');
+      const zkBadge = document.getElementById('zk-badge');
+      const leafTarget = document.getElementById('leaf-target');
+      const leafHashText = document.getElementById('leaf-hash-text');
+      const targetLeafInput = document.getElementById('target-leaf-input');
+      const rootNodeBox = document.getElementById('root-node-box');
+      const rootHashDisplay = document.getElementById('root-hash-display');
+      const lineRootB = document.getElementById('line-root-b');
+      const lineBLeaf2 = document.getElementById('line-b-leaf2');
+      const proofHashTag = document.getElementById('proof-hash-tag');
+
+      let isTampered = false;
+
+      function triggerTamperState() {
+        isTampered = true;
+        // Invalidate leaf
+        leafHashText.textContent = '"0xDEADBEEF...00000000"';
+        leafHashText.className = 'text-crimson font-bold';
+        targetLeafInput.value = 'deadbeef7ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd20000000000';
+        targetLeafInput.className = 'w-full bg-canvas text-crimson text-xs font-mono p-2.5 rounded border border-crimson/80 pr-8 focus:outline-none select-all';
+
+        // Update target leaf UI
+        leafTarget.className = 'p-2 rounded-lg bg-crimson/20 border-2 border-crimson shadow-lg shadow-crimson/25 animate-bounce';
+        leafTarget.innerHTML = `
+          <div class="text-[9px] font-mono text-crimson font-bold flex items-center justify-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-crimson"></span> MUTATED LEAF #2
+          </div>
+          <div class="font-mono text-[11px] text-crimson font-bold truncate">0xDEAD...0000</div>
+          <div class="text-[8px] font-mono text-crimson mt-0.5">CHECKSUM FAILED</div>
+        `;
+
+        // Update status card to Fraud block
+        statusCard.className = 'p-3 rounded-lg bg-crimson/15 border border-crimson/50 flex items-center justify-between transition-all';
+        statusIcon.className = 'w-8 h-8 rounded-full bg-crimson text-white flex items-center justify-center font-bold';
+        statusIcon.innerHTML = '<span class="material-symbols-outlined text-base">close</span>';
+        statusTitle.className = 'text-xs font-mono font-bold text-crimson';
+        statusTitle.textContent = 'STATUS: 409 TAMPER_DETECTED (HASH_MISMATCH)';
+        statusDesc.textContent = 'WORM Ledger integrity trigger RAISE(ABORT). Computed root does NOT match batch settlement.';
+        
+        zkBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-crimson/20 text-crimson border border-crimson/30 font-bold flex items-center gap-1';
+        zkBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-crimson rounded-full"></span> PROOF REJECTED';
+
+        rootNodeBox.className = 'px-4 py-2 rounded-lg bg-surface-variant border-2 border-crimson text-center shadow-lg shadow-crimson/20';
+        rootHashDisplay.textContent = '0xINVALID...ROOT [ABORTED]';
+        rootHashDisplay.className = 'font-mono text-xs text-crimson font-bold tracking-tight';
+
+        lineRootB.setAttribute('stroke', '#EF4444');
+        lineBLeaf2.setAttribute('stroke', '#EF4444');
+        proofHashTag.className = 'hidden sm:inline-block text-[10px] font-mono text-crimson bg-canvas px-2 py-1 rounded border border-crimson/30';
+        proofHashTag.textContent = 'ROOT INVARIANCE BROKEN';
+      }
+
+      function restoreValidProof() {
+        isTampered = false;
+        leafHashText.textContent = '"0x7f83b165...126d9069"';
+        leafHashText.className = 'text-cyan font-bold';
+        targetLeafInput.value = '7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069';
+        targetLeafInput.className = 'w-full bg-canvas text-cyan text-xs font-mono p-2.5 rounded border border-cyan/40 pr-8 focus:outline-none select-all';
+
+        leafTarget.className = 'p-2 rounded-lg bg-cyan/15 border-2 border-cyan shadow-lg shadow-cyan/20 animate-pulse';
+        leafTarget.innerHTML = `
+          <div class="text-[9px] font-mono text-cyan font-bold flex items-center justify-center gap-1">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan"></span> Target Leaf #2
+          </div>
+          <div class="font-mono text-[11px] text-cyan font-bold truncate">0x7f83...9069</div>
+          <div class="text-[8px] font-mono text-on-surface-variant mt-0.5">Audit #AUD-98241</div>
+        `;
+
+        statusCard.className = 'p-3 rounded-lg bg-emerald/10 border border-emerald/30 flex items-center justify-between transition-all';
+        statusIcon.className = 'w-8 h-8 rounded-full bg-emerald text-canvas flex items-center justify-center font-bold';
+        statusIcon.innerHTML = '<span class="material-symbols-outlined text-base">check</span>';
+        statusTitle.className = 'text-xs font-mono font-bold text-emerald';
+        statusTitle.textContent = 'STATUS: 200 PROOF_VALID (0.42ms)';
+        statusDesc.textContent = 'Zero-Knowledge Invariance Certified across Cloudflare D1 WORM WAL (100% SOUND).';
+
+        zkBadge.className = 'text-[10px] font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/20 font-bold flex items-center gap-1';
+        zkBadge.innerHTML = '<span class="w-1.5 h-1.5 bg-emerald rounded-full"></span> ZERO-KNOWLEDGE PATH OK';
+
+        rootNodeBox.className = 'px-4 py-2 rounded-lg bg-surface-variant border-2 border-primary text-center shadow-lg shadow-primary/10';
+        rootHashDisplay.textContent = '0x9f86d081...0a08 [SEALED]';
+        rootHashDisplay.className = 'font-mono text-xs text-on-surface font-bold tracking-tight';
+
+        lineRootB.setAttribute('stroke', '#06B6D4');
+        lineBLeaf2.setAttribute('stroke', '#06B6D4');
+        proofHashTag.className = 'hidden sm:inline-block text-[10px] font-mono text-emerald bg-canvas px-2 py-1 rounded border border-emerald/20';
+        proofHashTag.textContent = 'BLAKE3-SHA256 Match';
+      }
+
+      btnTamper.addEventListener('click', triggerTamperState);
+      btnMutate.addEventListener('click', triggerTamperState);
+      btnVerify.addEventListener('click', () => {
+        // Run verification simulation
+        statusTitle.textContent = 'COMPUTING MERKLE RECURSION...';
+        statusDesc.textContent = 'Traversing Sibling Proof Step 1 & 2 via Cloudflare D1 Workers...';
+        setTimeout(() => {
+          restoreValidProof();
+        }, 350);
+      });
+    });
+  </script>
+
+<!-- ApexOS Stitch-Loop Unified Navigation Ribbon -->
+<div style="position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(2,6,23,0.94);backdrop-filter:blur(14px);border:1px solid rgba(99,102,241,0.35);border-radius:9999px;padding:6px 16px;display:flex;gap:8px;align-items:center;font-family:'Inter',system-ui,sans-serif;font-size:12px;box-shadow:0 12px 32px rgba(0,0,0,0.7);white-space:nowrap;max-width:96vw;overflow-x:auto;">
+  <span style="color:#06B6D4;font-weight:700;padding-right:8px;border-right:1px solid #334155;display:inline-flex;align-items:center;gap:6px;">
+    <span style="width:7px;height:7px;border-radius:9999px;background:#10B981;display:inline-block;"></span>
+    ApexOS · Stitch-Loop
+  </span>
+  <a href="index.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">1. Cashback Cockpit</a>
+  <a href="arbitrage-deals.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">2. Arbitrage & Deals</a>
+  <a href="multichain-payouts.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">3. Multi-Chain Payouts</a>
+  <a href="compliance-fraud.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">4. KYC & Fraud Shield</a>
+  <a href="telegram-mini-app.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">5. Telegram Mini App</a>
+  <a href="style-guide.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">6. Style Guide</a>
+  <a href="webhook-replay-sandbox.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">7. Webhook Sandbox</a>
+  <a href="fee-surge-simulator.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">8. Fee Surge Simulator</a>
+  <a href="immutable-d1-audit-explorer.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">9. D1 Audit Explorer</a>
+  <a href="byok-encryption-vault.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">10. BYOK Key Vault</a>
+</div>
+</body></html>

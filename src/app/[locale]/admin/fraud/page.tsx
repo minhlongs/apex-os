@@ -9,6 +9,7 @@ import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
 import { requireAdmin } from '@/lib/admin-auth';
 import { FraudDashboard } from '@/components/admin/fraud';
+import { StitchObsidianBanner } from '@/components/stitch/StitchObsidianBanner';
 
 export async function generateMetadata({
   params,
@@ -47,6 +48,11 @@ export default async function AdminFraudPage({
 
   return (
     <NextIntlClientProvider locale={locale} messages={messages}>
+      <StitchObsidianBanner
+        locale={locale}
+        targetTab="compliance"
+        screenLabel="Screen 4 · Click Velocity Anomaly Defense & IP Rate Limiting"
+      />
       <FraudDashboard locale={locale} />
     </NextIntlClientProvider>
   );
