@@ -177,6 +177,20 @@ describe('ApexOS Stitch Obsidian Quant Terminal Suite', () => {
     ).toBeInTheDocument();
   });
 
+  it('switches to Screen 13 (SePay & VietQR Bridge) and computes NAPAS 247 VND payout + NOWPayments tier selection', () => {
+    renderTerminal('en');
+
+    fireEvent.click(screen.getByRole('button', { name: /13\.\s*SePay & VietQR Bridge/i }));
+
+    expect(
+      screen.getByText('SePay VietQR Instant VND Off-Ramp & NOWPayments IPN Billing')
+    ).toBeInTheDocument();
+    expect(screen.getByText('25,146,000 VND')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /ENTERPRISE \$99\/mo/i }));
+    expect(screen.getByText('ENTERPRISE ($99/mo)')).toBeInTheDocument();
+  });
+
   it('renders StitchObsidianBanner deep-link bridge for core app routes', () => {
     render(
       <StitchObsidianBanner

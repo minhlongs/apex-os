@@ -13,7 +13,26 @@ export type TerminalScreenId =
   | 'audit'
   | 'byok'
   | 'whale'
-  | 'observability';
+  | 'observability'
+  | 'sepay';
+
+export interface SepayBankRailEntry {
+  readonly bankCode: 'VCB' | 'TCB' | 'MB' | 'ACB';
+  readonly bankName: string;
+  readonly napasBin: string;
+  readonly accountMask: string;
+  readonly avgSettlementSec: number;
+  readonly dailyCapVnd: string;
+  readonly status: 'NAPAS_247_ONLINE';
+}
+
+export interface NowPaymentsPlanTier {
+  readonly planId: 'BASIC' | 'PREMIUM' | 'ENTERPRISE' | 'MASTER';
+  readonly priceUsd: number;
+  readonly slug: string;
+  readonly rebateBoostLabel: string;
+  readonly callbackPath: string;
+}
 
 export interface CronJobScheduleEntry {
   readonly jobId: 'alerts' | 'email-queue' | 'd1-metrics' | 'email-retry' | 'analytics-refresh' | 'payouts' | 'campaigns';
@@ -236,6 +255,85 @@ export const STITCH_NAV_TABS: readonly StitchNavTab[] = [
     badge: '7/7 Crons OK',
     stitchScreenId: '10070b9dbac74e5a8541046ded082ee5',
     staticHtmlPath: '/cron-worker-observability.html',
+  },
+  {
+    id: 'sepay',
+    index: 13,
+    labelEn: 'SePay & VietQR Bridge',
+    labelVi: 'Cầu Nối SePay & VietQR',
+    badge: 'NAPAS 247',
+    stitchScreenId: 'bcc8931a70524cf2bbbc639ad118dbc6',
+    staticHtmlPath: '/sepay-vietqr-bank-bridge.html',
+  },
+] as const;
+
+export const SEPAY_VIETQR_RAILS: readonly SepayBankRailEntry[] = [
+  {
+    bankCode: 'VCB',
+    bankName: 'Vietcombank Institutional',
+    napasBin: '970436',
+    accountMask: '007100****8821',
+    avgSettlementSec: 3.4,
+    dailyCapVnd: '2,500,000,000 VND',
+    status: 'NAPAS_247_ONLINE',
+  },
+  {
+    bankCode: 'TCB',
+    bankName: 'Techcombank Zero-Fee Hub',
+    napasBin: '970407',
+    accountMask: '190368****4410',
+    avgSettlementSec: 2.9,
+    dailyCapVnd: '3,000,000,000 VND',
+    status: 'NAPAS_247_ONLINE',
+  },
+  {
+    bankCode: 'MB',
+    bankName: 'MBBank VietQR Pro',
+    napasBin: '970422',
+    accountMask: '888899****1024',
+    avgSettlementSec: 3.8,
+    dailyCapVnd: '2,000,000,000 VND',
+    status: 'NAPAS_247_ONLINE',
+  },
+  {
+    bankCode: 'ACB',
+    bankName: 'ACB Commercial Treasury',
+    napasBin: '970416',
+    accountMask: '168888****9012',
+    avgSettlementSec: 4.1,
+    dailyCapVnd: '1,500,000,000 VND',
+    status: 'NAPAS_247_ONLINE',
+  },
+] as const;
+
+export const NOWPAYMENTS_PLAN_TIERS: readonly NowPaymentsPlanTier[] = [
+  {
+    planId: 'BASIC',
+    priceUsd: 9,
+    slug: 'basic-plan',
+    rebateBoostLabel: 'Standard 30% Tier 1 Cashback',
+    callbackPath: '/api/webhooks/ipn',
+  },
+  {
+    planId: 'PREMIUM',
+    priceUsd: 29,
+    slug: 'premium-plan',
+    rebateBoostLabel: '+5% Cashback Boost + Instant VietQR',
+    callbackPath: '/api/webhooks/ipn',
+  },
+  {
+    planId: 'ENTERPRISE',
+    priceUsd: 99,
+    slug: 'enterprise-plan',
+    rebateBoostLabel: '+10% Rebate Boost + Dedicated Crawler',
+    callbackPath: '/api/webhooks/ipn',
+  },
+  {
+    planId: 'MASTER',
+    priceUsd: 299,
+    slug: 'master-plan',
+    rebateBoostLabel: 'Full 30%/10%/5% Tree + VIP Whale Desk',
+    callbackPath: '/api/webhooks/ipn',
   },
 ] as const;
 

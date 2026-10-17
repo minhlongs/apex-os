@@ -7,7 +7,9 @@ import {
   D1_IMMUTABLE_AUDIT_LOGS,
   EXCHANGE_REBATES,
   KYC_ROLLING_TIERS,
+  NOWPAYMENTS_PLAN_TIERS,
   REFERRAL_TIERS,
+  SEPAY_VIETQR_RAILS,
   STITCH_PROJECT_METADATA,
   VIP_WHALE_HEDGING_PAIRS,
   WEBHOOK_SANDBOX_PRESETS,
@@ -68,6 +70,8 @@ export async function GET() {
       hedgingPairs: VIP_WHALE_HEDGING_PAIRS,
       cronJobs: CRON_WORKER_JOBS,
       d1AlertConfigs: DEFAULT_ALERT_CONFIGS,
+      sepayBankRails: SEPAY_VIETQR_RAILS,
+      nowPaymentsPlans: NOWPAYMENTS_PLAN_TIERS,
     },
     { status: 200 }
   );

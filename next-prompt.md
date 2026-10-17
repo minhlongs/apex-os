@@ -1,5 +1,5 @@
 ---
-page: sepay-vietqr-bank-bridge
+page: r2-merkle-snapshot-archiver
 ---
 
 **DESIGN SYSTEM (REQUIRED):**
@@ -11,8 +11,8 @@ page: sepay-vietqr-bank-bridge
 - **Primary Brand Accent:** `#6366F1` (Apex Indigo) | **Secondary Accent:** `#8B5CF6` (Neural Violet) | **Cashback & Arbitrage Highlight:** `#06B6D4` (Cyber Cyan)
 - **Semantic & Chain Accents:** `#10B981` (USDC Emerald / Healthy), `#F59E0B` (Amber Pending / Low Reserve), `#EF4444` (Crimson Compliance/Fraud Block), `#14B8A6` (Stellar XLM), `#2775CA` (USDC), `#14F195` (Solana SPL)
 - **Typography:** `Space Grotesk` (bold, `-0.02em` tracking) for headings, `Inter` for bilingual English + Vietnamese (`EN | VI`) UI labels, `JetBrains Mono` (`tabular-nums`) for basis-point spreads (`bps`), USDC/USDT/XLM amounts, EIP-55 / Base58 / Stellar wallet addresses, and SHA-256 idempotency hashes
-- **Shell Consistency:** Keep a consistent `248px` left navigation sidebar (Screens 1–12) and a `64px` top command bar with `[EN | VI]` locale toggle, `MASTER TIER` badge, and `3/3 Chains HEALTHY` circuit-breaker status pill.
+- **Shell Consistency:** Keep a consistent `248px` left navigation sidebar (Screens 1–13) and a `64px` top command bar with `[EN | VI]` locale toggle, `MASTER TIER` badge, and `3/3 Chains HEALTHY` circuit-breaker status pill.
 
 **Page request:**
-Build Screen 13 (`sepay-vietqr-bank-bridge.html`): **SePay & VietQR Instant VND ↔ USDC Settlement Bridge & Fiat Off-Ramp Console** for ApexOS (DESKTOP).
-- **[Context]:** Next optional baton in the Stitch-Loop backlog after completing all 12 core and observability screens (`index.html` through `cron-worker-observability.html`).
+Build Screen 14 (`r2-merkle-snapshot-archiver.html`): **Cloudflare R2 Cold-Storage Audit Snapshot Archiver & Zero-Egress Proof Export Console** for ApexOS (DESKTOP).
+- **[Context]:** Next optional baton in the Stitch-Loop backlog after completing all 13 screens (`index.html` through `sepay-vietqr-bank-bridge.html`).

@@ -9,7 +9,9 @@ import type {
   D1AuditLogEntry,
   ExchangeRebateItem,
   KycRollingTierItem,
+  NowPaymentsPlanTier,
   ReferralTierNode,
+  SepayBankRailEntry,
   StitchNavTab,
   TerminalScreenId,
   VipWhaleHedgingPair,
@@ -19,6 +21,8 @@ import {
   BYOK_VAULT_KEYS,
   CRON_WORKER_JOBS,
   D1_IMMUTABLE_AUDIT_LOGS,
+  NOWPAYMENTS_PLAN_TIERS,
+  SEPAY_VIETQR_RAILS,
   STITCH_PROJECT_METADATA,
   VIP_WHALE_HEDGING_PAIRS,
 } from '@/data/stitch-terminal-data';
@@ -31,6 +35,7 @@ import { StitchD1AuditExplorer } from './StitchD1AuditExplorer';
 import { StitchByokVault } from './StitchByokVault';
 import { StitchVipWhaleDesk } from './StitchVipWhaleDesk';
 import { StitchCronWorkerObservability } from './StitchCronWorkerObservability';
+import { StitchSepayVietQrBridge } from './StitchSepayVietQrBridge';
 
 export interface StitchTerminalShellProps {
   readonly initialLocale: 'en' | 'vi';
@@ -46,6 +51,8 @@ export interface StitchTerminalShellProps {
   readonly vaultKeys?: readonly ByokVaultKeyEntry[];
   readonly hedgingPairs?: readonly VipWhaleHedgingPair[];
   readonly cronJobs?: readonly CronJobScheduleEntry[];
+  readonly bankRails?: readonly SepayBankRailEntry[];
+  readonly planTiers?: readonly NowPaymentsPlanTier[];
 }
 
 export function StitchTerminalShell({
@@ -62,6 +69,8 @@ export function StitchTerminalShell({
   vaultKeys = BYOK_VAULT_KEYS,
   hedgingPairs = VIP_WHALE_HEDGING_PAIRS,
   cronJobs = CRON_WORKER_JOBS,
+  bankRails = SEPAY_VIETQR_RAILS,
+  planTiers = NOWPAYMENTS_PLAN_TIERS,
 }: Readonly<StitchTerminalShellProps>) {
   const [activeTab, setActiveTab] = useState<TerminalScreenId>(initialTab);
   const [locale, setLocale] = useState<'en' | 'vi'>(initialLocale);
@@ -220,6 +229,13 @@ export function StitchTerminalShell({
           )}
           {activeTab === 'observability' && (
             <StitchCronWorkerObservability cronJobs={cronJobs} locale={locale} />
+          )}
+          {activeTab === 'sepay' && (
+            <StitchSepayVietQrBridge
+              bankRails={bankRails}
+              planTiers={planTiers}
+              locale={locale}
+            />
           )}
         </main>
       </div>

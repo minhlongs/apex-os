@@ -24,6 +24,7 @@
 - [x] `byok-encryption-vault.html` — Screen 10: BYOK (Bring Your Own Key) AES-GCM-256 Exchange API Key Vault & Zero-Knowledge Rotation Console
 - [x] `vip-whale-otc-desk.html` — Screen 11: Institutional VIP Whale Rebate Desk & Cross-Margin Basis-Point Hedging Terminal
 - [x] `cron-worker-observability.html` — Screen 12: Cloudflare Edge Cron Worker, Email Queue & D1 Query Latency Observability Command
+- [x] `sepay-vietqr-bank-bridge.html` — Screen 13: SePay & VietQR Instant VND ↔ USDC Settlement Bridge & NOWPayments Tier Billing Console
 
 ## Roadmap
 
@@ -39,10 +40,11 @@
 10. `byok-encryption-vault.html` — **BYOK (`Bring Your Own Key`) AES-GCM-256 Exchange API Key Vault & Zero-Knowledge Rotation Console**: WebCrypto AES-GCM-256 (96-bit IV + 128-bit auth tag) client-side envelope sealer, 4-exchange key binding matrix, and automated withdrawal-permission policy blocker.
 11. `vip-whale-otc-desk.html` — **Institutional VIP Whale Rebate Desk & Cross-Margin Basis-Point Hedging Terminal**: `$42.85M` 30d volume KPI cards, `-0.50 bps` negative maker rebate preservation, `+18.6%` delta-neutral funding + rebate APY matrix (`Binance VIP 9`, `Bybit Supreme`, `OKX VIP 8`, `KuCoin LV12`), and custom syndicate sub-account rebate allocator.
 12. `cron-worker-observability.html` — **Cloudflare Edge Cron Worker, Email Queue & D1 Query Latency Observability Command**: 7/7 `wrangler.toml` scheduled cron matrix (`alerts`, `email-queue`, `d1-metrics`, `email-retry`, `analytics-refresh`, `payouts`, `campaigns`), Resend dead-letter queue telemetry, and interactive D1 query latency + storage quota alert simulator.
+13. `sepay-vietqr-bank-bridge.html` — **SePay & VietQR Instant VND ↔ USDC Settlement Bridge & NOWPayments Tier Billing Console**: NAPAS 247 instant Vietnamese bank payout bridge (`VCB`, `TCB`, `MB`, `ACB` at `25,400 VND/USDC`, `1%` fee) and NOWPayments IPN subscription billing matrix (`BASIC $9`, `PREMIUM $29`, `ENTERPRISE $99`, `MASTER $299`).
 
 ## Creative Freedom
 
-- Complete 12-Screen Stitch-Loop Enterprise Fintech Architecture Delivered (`12/12`)
+- Complete 13-Screen Stitch-Loop Enterprise Fintech Architecture Delivered (`13/13`)
 
 
 

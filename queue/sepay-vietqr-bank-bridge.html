@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS — SePay &amp; VietQR Instant VND ↔ USDC Settlement Bridge</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind Script -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            // Theme Visual Anchors
+            surface: "#0F172A",
+            "surface-variant": "#1E293B",
+            "surface-dim": "#020617",
+            primary: "#6366F1",
+            "primary-container": "#4F46E5",
+            "on-primary": "#FFFFFF",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8",
+            "outline-variant": "#1E293B",
+            outline: "#334155",
+            violet: {
+              accent: "#8B5CF6",
+            },
+            cyan: {
+              cyber: "#06B6D4",
+            },
+            emerald: {
+              usdc: "#10B981",
+            },
+            amber: {
+              warning: "#F59E0B",
+            },
+            crimson: {
+              danger: "#EF4444",
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #0F172A;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    .specular-rim {
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+    }
+    .glow-indigo {
+      box-shadow: 0 0 20px -5px rgba(99, 102, 241, 0.3);
+    }
+    .glow-cyan {
+      box-shadow: 0 0 20px -5px rgba(6, 182, 212, 0.3);
+    }
+  </style>
+</head>
+<body class="bg-[#020617] text-slate-100 font-body antialiased selection:bg-indigo-500 selection:text-white min-h-screen overflow-x-hidden">
+<!-- ==================== APEXOS SHELL: LEFT SIDEBAR ==================== -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-[#0F172A] border-r border-[#1E293B] shadow-sm flex flex-col justify-between p-4">
+<div class="flex flex-col gap-6">
+<!-- Terminal Brand Node -->
+<div class="flex items-center gap-3 px-2 py-1">
+<div class="w-10 h-10 rounded-lg bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/20 ring-1 ring-white/20">
+<span class="material-symbols-outlined text-white text-2xl font-bold" data-icon="terminal">terminal</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline text-lg font-bold tracking-wider text-slate-100 leading-none">ApexOS Terminal</span>
+<span class="font-label text-xs uppercase tracking-wide text-slate-400 mt-1">Arbitrage &amp; Settlement Hub</span>
+</div>
+</div>
+<!-- Navigation Matrix -->
+<nav class="flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 font-normal hover:bg-[#1E293B] hover:text-slate-100 transition-colors" href="#cockpit">
+<span class="material-symbols-outlined text-lg" data-icon="dashboard">dashboard</span>
+<span class="font-body text-sm">Cashback Cockpit</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 font-normal hover:bg-[#1E293B] hover:text-slate-100 transition-colors" href="#arbitrage">
+<span class="material-symbols-outlined text-lg" data-icon="query_stats">query_stats</span>
+<span class="font-body text-sm">Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- ACTIVE TAB: Multi-Chain Payouts (Direct Bridge Route) -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-[#6366F1] bg-[#6366F1]/10 font-medium ring-1 ring-indigo-500/30" href="#settlement">
+<span class="material-symbols-outlined text-lg" data-icon="currency_exchange" data-weight="fill" style="font-variation-settings: 'FILL' 1;">currency_exchange</span>
+<span class="font-body text-sm font-semibold tracking-tight">Multi-Chain Payouts</span>
+<span class="ml-auto flex h-2 w-2 relative">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 font-normal hover:bg-[#1E293B] hover:text-slate-100 transition-colors" href="#kyc">
+<span class="material-symbols-outlined text-lg" data-icon="shield">shield</span>
+<span class="font-body text-sm">KYC &amp; Fraud Command</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 font-normal hover:bg-[#1E293B] hover:text-slate-100 transition-colors" href="#telegram">
+<span class="material-symbols-outlined text-lg" data-icon="send">send</span>
+<span class="font-body text-sm">Telegram Mini App</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 font-normal hover:bg-[#1E293B] hover:text-slate-100 transition-colors" href="#styleguide">
+<span class="material-symbols-outlined text-lg" data-icon="palette">palette</span>
+<span class="font-body text-sm">Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Sidebar Bottom Node & Footers -->
+<div class="flex flex-col gap-3 pt-4 border-t border-[#1E293B]">
+<!-- Quick Node CTA -->
+<div class="p-3 rounded-lg bg-[#1E293B]/70 border border-[#334155]/60 flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50"></span>
+<div class="flex flex-col">
+<span class="text-xs font-mono font-medium text-slate-200">NODE-SGN-04</span>
+<span class="text-[10px] font-mono text-slate-400">NAPAS IPN: 3.8s</span>
+</div>
+</div>
+<button class="px-2.5 py-1 text-xs font-label font-medium bg-[#6366F1] hover:bg-indigo-600 text-white rounded transition">Connect Node</button>
+</div>
+<nav class="flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-400 text-sm hover:bg-[#1E293B] hover:text-slate-100 transition" href="#settings">
+<span class="material-symbols-outlined text-base" data-icon="settings">settings</span>
+<span class="font-body text-xs">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-400 text-sm hover:bg-[#1E293B] hover:text-slate-100 transition" href="#docs">
+<span class="material-symbols-outlined text-base" data-icon="menu_book">menu_book</span>
+<span class="font-body text-xs">Documentation</span>
+</a>
+</nav>
+</div>
+</aside>
+<!-- ==================== APEXOS SHELL: TOP NAV BAR ==================== -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-[#0F172A]/90 backdrop-blur-md border-b border-[#1E293B] flex justify-between items-center px-6">
+<!-- Left Search & Omnibar -->
+<div class="flex items-center gap-4 w-96">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg" data-icon="search">search</span>
+<input class="w-full bg-[#1E293B]/80 border border-[#334155] rounded-lg pl-9 pr-4 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono transition" placeholder="Search TxID, SePay Ref, Wallet or Bank Acc..." type="text"/>
+<kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700">⌘K</kbd>
+</div>
+</div>
+<!-- Right Actions & Badges -->
+<div class="flex items-center gap-3.5">
+<!-- Network Health Pill -->
+<div class="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+<span class="font-label text-xs uppercase tracking-wider font-semibold">3/3 Chains HEALTHY</span>
+</div>
+<!-- Tier Badge -->
+<div class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-indigo-500/20 to-purple-500/20 border border-indigo-500/40 text-indigo-300">
+<span class="material-symbols-outlined text-xs text-indigo-400" data-icon="workspace_premium">workspace_premium</span>
+<span class="font-label text-xs uppercase tracking-wider font-bold">MASTER TIER</span>
+</div>
+<!-- Language Selector -->
+<div class="flex items-center bg-[#1E293B] border border-[#334155] rounded-md text-xs font-mono">
+<button class="px-2 py-1 bg-indigo-600/30 text-indigo-300 font-semibold rounded-l">EN</button>
+<span class="text-slate-600">/</span>
+<button class="px-2 py-1 text-slate-400 hover:text-slate-200 rounded-r">VI</button>
+</div>
+<!-- Trailing Action Icons -->
+<div class="flex items-center gap-1">
+<button class="p-2 text-slate-400 hover:text-slate-200 hover:bg-[#1E293B] rounded-lg transition relative">
+<span class="material-symbols-outlined text-xl" data-icon="notifications">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 bg-indigo-500 rounded-full ring-2 ring-[#0F172A]"></span>
+</button>
+<button class="p-2 text-slate-400 hover:text-slate-200 hover:bg-[#1E293B] rounded-lg transition">
+<span class="material-symbols-outlined text-xl" data-icon="terminal">terminal</span>
+</button>
+</div>
+<!-- Wallet Pill -->
+<div class="flex items-center gap-2 pl-3 pr-2 py-1 bg-[#1E293B] border border-[#334155] rounded-lg">
+<div class="w-2 h-2 rounded-full bg-cyan-400"></div>
+<span class="font-mono text-xs text-slate-300">0x8F94...c4B2</span>
+<span class="material-symbols-outlined text-sm text-slate-500 cursor-pointer hover:text-slate-300" data-icon="content_copy">content_copy</span>
+</div>
+</div>
+</header>
+<!-- ==================== MAIN WORKBENCH CANVAS ==================== -->
+<main class="ml-64 pt-20 px-8 pb-12 flex flex-col gap-7">
+<!-- 1. Header & Breadcrumbs & Controls -->
+<section class="flex flex-col md:flex-row md:items-end justify-between gap-4 pt-2">
+<div class="flex flex-col gap-1.5">
+<div class="flex items-center gap-2">
+<span class="font-mono text-xs uppercase tracking-widest text-indigo-400">FIAT RAILS</span>
+<span class="text-slate-600 font-mono text-xs">/</span>
+<span class="font-mono text-xs uppercase tracking-widest text-slate-400">VIETQR &amp; SEPAY GATEWAY</span>
+<span class="text-slate-600 font-mono text-xs">/</span>
+<span class="font-mono text-[11px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">V4.9-PROD</span>
+<div class="ml-2 flex items-center gap-1.5 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[11px] font-mono border border-emerald-500/20">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            LIVE WEBHOOK SYNC (3.8s)
+          </div>
+<div class="flex items-center gap-1.5 px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-400 text-[11px] font-mono border border-cyan-500/20">
+            NAPAS 247 DIRECT
+          </div>
+</div>
+<h1 class="font-headline text-2xl lg:text-3xl font-bold tracking-tight text-white mt-1">
+          SePay &amp; VietQR Instant VND ↔ USDC Settlement Bridge &amp; NOWPayments Tier Billing
+        </h1>
+<p class="font-body text-xs text-slate-400 tracking-wide max-w-4xl">
+          Cổng Thanh Toán Tức Thì SePay VietQR &amp; Quy Đổi Hoàn Tiền VND ↔ USDC cho Đối Tác Việt Nam · NOWPayments IPN Subscription Node
+        </p>
+</div>
+<!-- Action Cluster -->
+<div class="flex items-center gap-2.5 flex-wrap self-start md:self-auto">
+<button class="px-3.5 py-2 rounded-lg bg-[#1E293B] hover:bg-slate-800 text-slate-200 border border-[#334155] font-body text-xs font-medium flex items-center gap-2 transition specular-rim">
+<span class="material-symbols-outlined text-sm text-cyan-400" data-icon="webhook">webhook</span>
+          Simulate SePay Webhook
+        </button>
+<button class="px-3.5 py-2 rounded-lg bg-[#1E293B] hover:bg-slate-800 text-slate-200 border border-[#334155] font-body text-xs font-medium flex items-center gap-2 transition specular-rim">
+<span class="material-symbols-outlined text-sm text-slate-300" data-icon="download">download</span>
+          Download Reconciliation CSV
+        </button>
+<button class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white font-body text-xs font-semibold flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition">
+<span class="material-symbols-outlined text-sm" data-icon="bolt">bolt</span>
+          Trigger Batch Bank Payout
+        </button>
+</div>
+</section>
+<!-- 2. Bento Grid Hero KPIs (4 Hero Cards) -->
+<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+<!-- Bento Card 1 -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 specular-rim relative overflow-hidden group hover:border-slate-700 transition">
+<div class="absolute top-0 right-0 w-24 h-24 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition"></div>
+<div class="flex items-center justify-between text-slate-400 mb-2">
+<span class="font-label text-xs uppercase tracking-wider font-medium">SePay VietQR 24/7 Volume</span>
+<span class="material-symbols-outlined text-indigo-400 text-xl" data-icon="qr_code_2">qr_code_2</span>
+</div>
+<div class="flex flex-col gap-0.5">
+<span class="font-mono text-2xl font-bold text-white tracking-tight">1,845,000,000 ₫</span>
+<span class="font-mono text-sm text-emerald-400 font-medium">$72,637.80 USDC</span>
+</div>
+<div class="mt-4 pt-3 border-t border-[#1E293B] flex items-center justify-between text-xs font-mono">
+<span class="text-emerald-400 flex items-center gap-1">
+<span class="material-symbols-outlined text-sm" data-icon="trending_up">trending_up</span> +42.8% MoM
+          </span>
+<span class="text-slate-400">100% Settled</span>
+</div>
+</div>
+<!-- Bento Card 2 -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 specular-rim relative overflow-hidden group hover:border-slate-700 transition">
+<div class="absolute top-0 right-0 w-24 h-24 bg-cyan-500/5 rounded-full blur-2xl group-hover:bg-cyan-500/10 transition"></div>
+<div class="flex items-center justify-between text-slate-400 mb-2">
+<span class="font-label text-xs uppercase tracking-wider font-medium">Mid-Market FX Oracle Rate</span>
+<span class="material-symbols-outlined text-cyan-400 text-xl" data-icon="sync_alt">sync_alt</span>
+</div>
+<div class="flex flex-col gap-0.5">
+<span class="font-mono text-2xl font-bold text-white tracking-tight">25,400 VND</span>
+<span class="font-mono text-xs text-slate-400 font-normal">per 1.00 USDC (Binance/OKX Oracle)</span>
+</div>
+<div class="mt-4 pt-3 border-t border-[#1E293B] flex items-center justify-between text-xs font-mono">
+<span class="text-cyan-400 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span> 0.15% Spread vs P2P
+          </span>
+<span class="text-slate-400">Latency: 420ms</span>
+</div>
+</div>
+<!-- Bento Card 3 -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 specular-rim relative overflow-hidden group hover:border-slate-700 transition">
+<div class="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/10 transition"></div>
+<div class="flex items-center justify-between text-slate-400 mb-2">
+<span class="font-label text-xs uppercase tracking-wider font-medium">NAPAS 247 Instant Speed</span>
+<span class="material-symbols-outlined text-emerald-400 text-xl" data-icon="speed">speed</span>
+</div>
+<div class="flex flex-col gap-0.5">
+<span class="font-mono text-2xl font-bold text-white tracking-tight">3.8s</span>
+<span class="font-mono text-xs text-slate-400 font-normal">Avg Webhook Reconciliation</span>
+</div>
+<div class="mt-4 pt-3 border-t border-[#1E293B] flex items-center justify-between text-xs font-mono">
+<span class="text-emerald-400">0 Failed Transfers</span>
+<span class="text-slate-400">4 Banks Online</span>
+</div>
+</div>
+<!-- Bento Card 4 -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 specular-rim relative overflow-hidden group hover:border-slate-700 transition">
+<div class="absolute top-0 right-0 w-24 h-24 bg-purple-500/5 rounded-full blur-2xl group-hover:bg-purple-500/10 transition"></div>
+<div class="flex items-center justify-between text-slate-400 mb-2">
+<span class="font-label text-xs uppercase tracking-wider font-medium">NOWPayments Billing</span>
+<span class="material-symbols-outlined text-purple-400 text-xl" data-icon="toll">toll</span>
+</div>
+<div class="flex flex-col gap-0.5">
+<div class="flex items-baseline gap-2">
+<span class="font-mono text-2xl font-bold text-white tracking-tight">MASTER</span>
+<span class="font-mono text-xs text-indigo-400 font-medium">$299/mo</span>
+</div>
+<span class="font-mono text-xs text-slate-400 font-normal">Next Epoch: 18d · 0.0% Fee Tier</span>
+</div>
+<div class="mt-4 pt-3 border-t border-[#1E293B] flex items-center justify-between text-xs font-mono">
+<span class="text-emerald-400 flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="check_circle">check_circle</span> HMAC SHA512
+          </span>
+<span class="text-indigo-400">Tier Locked</span>
+</div>
+</div>
+</section>
+<!-- 3. Two-Column Core Operations Section -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- ==================== LEFT COLUMN (60% ~ 7 cols): SEPAY OFF-RAMP WORKBENCH ==================== -->
+<div class="lg:col-span-7 flex flex-col gap-6">
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-6 specular-rim">
+<!-- Section Title -->
+<div class="flex items-center justify-between border-b border-[#1E293B] pb-4 mb-6">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+<span class="material-symbols-outlined text-lg" data-icon="account_balance">account_balance</span>
+</div>
+<div>
+<h2 class="font-headline text-lg font-bold text-white leading-snug">Interactive SePay VietQR &amp; Bank Transfer Off-Ramp Workbench</h2>
+<p class="font-body text-xs text-slate-400">Rút Tiền Tự Động &amp; Tạo Mã VietQR Chuyển Khoản Nhanh 24/7 Qua Napas Hub</p>
+</div>
+</div>
+<div class="flex items-center gap-2 px-2.5 py-1 rounded bg-[#1E293B] text-[11px] font-mono text-slate-300 border border-[#334155]">
+<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              SEPAY GATEWAY READY
+            </div>
+</div>
+<!-- Form Fields Container -->
+<div class="flex flex-col gap-5">
+<!-- Target Beneficiary Affiliate Badge -->
+<div class="bg-[#1E293B]/70 border border-[#334155]/70 rounded-lg p-3.5 flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-cyan-500 flex items-center justify-center font-bold text-white text-sm">
+                  AV
+                </div>
+<div>
+<div class="flex items-center gap-2">
+<span class="font-headline text-sm font-semibold text-white">AlphaVentures VN Hub</span>
+<span class="text-[10px] font-mono bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded border border-indigo-500/30">#AFF-8821</span>
+</div>
+<span class="font-body text-xs text-slate-400">Partner Rebate Settlement Account · Tier MASTER (VN Node)</span>
+</div>
+</div>
+<div class="text-right">
+<span class="text-[10px] font-mono text-slate-400 block">Payout Frequency</span>
+<span class="text-xs font-mono font-medium text-emerald-400">Instant (Real-time)</span>
+</div>
+</div>
+<!-- Bank Rail Selector Pills -->
+<div class="flex flex-col gap-2">
+<label class="font-label text-xs uppercase tracking-wider text-slate-300 font-medium">Select Beneficiary Bank Rail (NAPAS 247)</label>
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+<!-- VCB -->
+<button class="flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg border-2 border-indigo-500 bg-indigo-500/10 text-white font-medium transition specular-rim">
+<div class="w-7 h-7 rounded bg-emerald-600/30 border border-emerald-500/40 flex items-center justify-center font-bold text-xs text-emerald-400">VCB</div>
+<span class="text-xs font-headline font-bold">Vietcombank</span>
+<span class="text-[9px] font-mono text-emerald-400">FAST 247 ONLINE</span>
+</button>
+<!-- TCB -->
+<button class="flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg border border-[#334155] bg-[#1E293B]/60 hover:bg-[#1E293B] text-slate-300 transition">
+<div class="w-7 h-7 rounded bg-red-600/30 border border-red-500/40 flex items-center justify-center font-bold text-xs text-red-400">TCB</div>
+<span class="text-xs font-headline font-medium">Techcombank</span>
+<span class="text-[9px] font-mono text-slate-400">ONLINE</span>
+</button>
+<!-- MB -->
+<button class="flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg border border-[#334155] bg-[#1E293B]/60 hover:bg-[#1E293B] text-slate-300 transition">
+<div class="w-7 h-7 rounded bg-blue-600/30 border border-blue-500/40 flex items-center justify-center font-bold text-xs text-blue-400">MB</div>
+<span class="text-xs font-headline font-medium">MBBank</span>
+<span class="text-[9px] font-mono text-slate-400">ONLINE</span>
+</button>
+<!-- ACB -->
+<button class="flex flex-col items-center justify-center gap-1.5 p-3 rounded-lg border border-[#334155] bg-[#1E293B]/60 hover:bg-[#1E293B] text-slate-300 transition">
+<div class="w-7 h-7 rounded bg-cyan-600/30 border border-cyan-500/40 flex items-center justify-center font-bold text-xs text-cyan-400">ACB</div>
+<span class="text-xs font-headline font-medium">ACB Bank</span>
+<span class="text-[9px] font-mono text-slate-400">ONLINE</span>
+</button>
+</div>
+</div>
+<!-- Account Details Fields Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+<!-- Account Number -->
+<div class="flex flex-col gap-1.5">
+<label class="font-label text-xs uppercase tracking-wider text-slate-300 font-medium">Bank Account Number (Số Tài Khoản)</label>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg" data-icon="credit_card">credit_card</span>
+<input class="w-full bg-[#1E293B] border border-[#334155] rounded-lg pl-10 pr-3 py-2 text-sm text-white font-mono font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none" type="text" value="98821038491"/>
+</div>
+</div>
+<!-- Account Holder -->
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-center">
+<label class="font-label text-xs uppercase tracking-wider text-slate-300 font-medium">Account Holder Name</label>
+<span class="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 rounded">KYC VERIFIED</span>
+</div>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400 text-lg" data-icon="badge">badge</span>
+<input class="w-full bg-[#1E293B]/70 border border-[#334155] rounded-lg pl-10 pr-3 py-2 text-sm text-slate-200 font-mono focus:outline-none cursor-not-allowed" readonly="" type="text" value="NGUYEN VAN QUAN - VERIFIED KYC"/>
+</div>
+</div>
+</div>
+<!-- Transfer Memo -->
+<div class="flex flex-col gap-1.5">
+<label class="font-label text-xs uppercase tracking-wider text-slate-300 font-medium">Auto-Generated Transfer Memo (Nội Dung CK SePay)</label>
+<div class="flex items-center gap-2">
+<input class="w-full bg-[#1E293B] border border-[#334155] rounded-lg px-3 py-2 text-sm font-mono text-cyan-400 font-bold tracking-wider" readonly="" type="text" value="APEX-PAYOUT-8821"/>
+<button class="px-3 py-2 bg-[#1E293B] hover:bg-slate-800 border border-[#334155] rounded-lg text-slate-300 font-mono text-xs flex items-center gap-1 transition">
+<span class="material-symbols-outlined text-sm" data-icon="content_copy">content_copy</span> Copy
+                </button>
+</div>
+</div>
+<!-- Amount Conversion Interactive Box -->
+<div class="bg-[#1E293B]/90 border border-[#334155] rounded-xl p-4 flex flex-col gap-3">
+<div class="flex justify-between items-center text-xs">
+<span class="font-label uppercase tracking-wider text-slate-400">Rebate Amount to Disburse (USDC)</span>
+<span class="font-mono text-slate-400">Available: <span class="text-white font-medium">$4,850.00 USDC</span></span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+<!-- USDC Input -->
+<div class="md:col-span-5 relative">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-xs text-emerald-400 font-bold">USDC</span>
+<input class="w-full bg-[#0F172A] border border-[#334155] rounded-lg pl-14 pr-12 py-2.5 font-mono text-lg font-bold text-white focus:outline-none focus:border-indigo-500" type="text" value="1,500.00"/>
+<button class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono text-indigo-400 bg-indigo-500/10 px-1.5 py-0.5 rounded font-semibold hover:bg-indigo-500/20">MAX</button>
+</div>
+<!-- Swap Sign -->
+<div class="md:col-span-2 flex justify-center">
+<div class="w-8 h-8 rounded-full bg-[#0F172A] border border-[#334155] flex items-center justify-center text-slate-400">
+<span class="material-symbols-outlined text-sm text-cyan-400" data-icon="swap_horiz">swap_horiz</span>
+</div>
+</div>
+<!-- Live VND Output -->
+<div class="md:col-span-5 relative">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-xs text-amber-400 font-bold">VND</span>
+<input class="w-full bg-[#0F172A] border border-[#334155] rounded-lg pl-14 pr-3 py-2.5 font-mono text-lg font-bold text-emerald-400 focus:outline-none cursor-default" readonly="" type="text" value="38,100,000"/>
+</div>
+</div>
+<!-- Settlement Fee Breakdown -->
+<div class="pt-2 border-t border-[#334155]/60 flex flex-col gap-1 text-xs font-mono">
+<div class="flex justify-between text-slate-400">
+<span>Gross Equivalent (Oracle @ 25,400)</span>
+<span>38,100,000 VND</span>
+</div>
+<div class="flex justify-between text-slate-400">
+<span>SePay Bridge Fee (1.0% Flat Rate)</span>
+<span class="text-amber-400">- 15.00 USDC (381,000 VND)</span>
+</div>
+<div class="flex justify-between text-white font-semibold pt-1 border-t border-[#334155]/40">
+<span>Net Disbursed to Bank (Thực Nhận)</span>
+<span class="text-emerald-400 text-sm font-bold">37,719,000 VND</span>
+</div>
+</div>
+</div>
+<!-- Dynamic VietQR Simulation Box -->
+<div class="bg-gradient-to-r from-slate-900 to-[#1E293B] border border-cyan-500/30 rounded-xl p-5 flex flex-col md:flex-row items-center gap-6 relative overflow-hidden">
+<div class="absolute -right-10 -bottom-10 w-40 h-40 bg-cyan-500/10 rounded-full blur-3xl"></div>
+<!-- Stylized VietQR Card -->
+<div class="bg-white p-3.5 rounded-xl shadow-2xl flex flex-col items-center text-slate-900 w-44 shrink-0">
+<div class="flex items-center justify-between w-full mb-1">
+<span class="text-[10px] font-black tracking-tighter text-blue-800">VietQR</span>
+<span class="text-[9px] font-bold text-red-600 bg-red-50 px-1 rounded">NAPAS 247</span>
+</div>
+<!-- SVG QR Simulation Matrix -->
+<div class="w-36 h-36 bg-slate-950 p-2 rounded flex flex-col justify-between">
+<div class="flex justify-between">
+<div class="w-8 h-8 border-4 border-cyan-400 p-0.5"><div class="w-full h-full bg-cyan-400"></div></div>
+<div class="w-3 h-3 bg-cyan-400"></div>
+<div class="w-8 h-8 border-4 border-cyan-400 p-0.5"><div class="w-full h-full bg-cyan-400"></div></div>
+</div>
+<div class="flex items-center justify-center">
+<!-- Central Node Logo in QR -->
+<div class="w-6 h-6 rounded bg-indigo-600 flex items-center justify-center text-white text-[10px] font-bold">
+                      AO
+                    </div>
+</div>
+<div class="flex justify-between items-end">
+<div class="w-8 h-8 border-4 border-cyan-400 p-0.5"><div class="w-full h-full bg-cyan-400"></div></div>
+<div class="grid grid-cols-3 gap-0.5 w-6 h-6">
+<div class="bg-cyan-400"></div><div></div><div class="bg-cyan-400"></div>
+<div></div><div class="bg-cyan-400"></div><div></div>
+<div class="bg-cyan-400"></div><div class="bg-cyan-400"></div><div class="bg-cyan-400"></div>
+</div>
+<div class="w-3 h-3 bg-cyan-400"></div>
+</div>
+</div>
+<div class="text-[9px] font-mono text-center mt-1.5 font-bold text-slate-700">
+                  SCAN VIA APEX / ANY BANK
+                </div>
+</div>
+<!-- VietQR Instructions & Trigger CTA -->
+<div class="flex flex-col gap-3 w-full">
+<div class="flex flex-col">
+<span class="text-xs font-mono uppercase tracking-wider text-cyan-400 font-semibold">Automatic Dynamic QR Rail</span>
+<h3 class="font-headline text-base font-bold text-white mt-0.5">Disbursement Ready for Immediate Bank Execution</h3>
+<p class="text-xs text-slate-300 font-body mt-1">
+                    VietQR code automatically encodes target bank <span class="text-white font-mono font-semibold">VCB</span>, account <span class="text-white font-mono font-semibold">98821038491</span>, and precise amount <span class="text-emerald-400 font-mono font-semibold">37,719,000 VND</span>.
+                  </p>
+</div>
+<div class="flex items-center gap-3 pt-2">
+<button class="w-full py-3 px-4 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-headline font-bold text-xs uppercase tracking-wider shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition">
+<span class="material-symbols-outlined text-base" data-icon="send">send</span>
+                    DISPATCH NAPAS 247 INSTANT PAYOUT (37,719,000 VND)
+                  </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- ==================== RIGHT COLUMN (40% ~ 5 cols): NOWPAYMENTS IPN & TIER MATRIX ==================== -->
+<div class="lg:col-span-5 flex flex-col gap-6">
+<!-- NOWPayments IPN Tier Matrix Console -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-6 specular-rim flex flex-col gap-5">
+<!-- Header -->
+<div class="flex items-center justify-between border-b border-[#1E293B] pb-3.5">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded-lg bg-purple-500/10 border border-purple-500/30 flex items-center justify-center text-purple-400">
+<span class="material-symbols-outlined text-base" data-icon="loyalty">loyalty</span>
+</div>
+<h2 class="font-headline text-base font-bold text-white">NOWPayments Tier Billing Engine</h2>
+</div>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-semibold">
+              v2.1 IPN HOOK
+            </span>
+</div>
+<!-- HMAC Security Badge -->
+<div class="bg-[#1E293B]/80 border border-[#334155] rounded-lg p-3 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-emerald-400 text-sm" data-icon="verified_user">verified_user</span>
+<div class="flex flex-col">
+<span class="text-[11px] font-mono font-medium text-slate-200">x-nowpayments-sig: HMAC-SHA512</span>
+<span class="text-[10px] font-mono text-slate-400">SORTED_KEYS_RECURSIVE_VALIDATED</span>
+</div>
+</div>
+<span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+</div>
+<!-- 4-Tier Subscription Matrix Cards -->
+<div class="flex flex-col gap-2.5">
+<!-- BASIC TIER -->
+<div class="p-3 rounded-lg border border-[#334155] bg-[#1E293B]/40 hover:bg-[#1E293B] transition flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-slate-800 flex items-center justify-center font-bold text-xs text-slate-300 font-mono">
+                  $9
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-headline text-xs font-bold text-white">BASIC TIER</span>
+<span class="text-[10px] font-mono text-slate-400">1.2% Fee Rebate</span>
+</div>
+<span class="text-[11px] text-slate-400">Community Deal Alerts · Telegram Bot Webhook</span>
+</div>
+</div>
+<button class="px-2.5 py-1 text-[11px] font-mono text-slate-300 hover:text-white bg-slate-800 rounded border border-slate-700">Upgrade</button>
+</div>
+<!-- PREMIUM TIER -->
+<div class="p-3 rounded-lg border border-[#334155] bg-[#1E293B]/40 hover:bg-[#1E293B] transition flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-slate-800 flex items-center justify-center font-bold text-xs text-indigo-400 font-mono">
+                  $29
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-headline text-xs font-bold text-white">PREMIUM TIER</span>
+<span class="text-[10px] font-mono text-indigo-400">0.8% Fee Rebate</span>
+</div>
+<span class="text-[11px] text-slate-400">Priority Deal Crawler &amp; Custom Webhooks</span>
+</div>
+</div>
+<button class="px-2.5 py-1 text-[11px] font-mono text-slate-300 hover:text-white bg-slate-800 rounded border border-slate-700">Upgrade</button>
+</div>
+<!-- ENTERPRISE TIER -->
+<div class="p-3 rounded-lg border border-[#334155] bg-[#1E293B]/40 hover:bg-[#1E293B] transition flex items-center justify-between">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-slate-800 flex items-center justify-center font-bold text-xs text-cyan-400 font-mono">
+                  $99
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-headline text-xs font-bold text-white">ENTERPRISE TIER</span>
+<span class="text-[10px] font-mono text-cyan-400">0.4% Fee Rebate</span>
+</div>
+<span class="text-[11px] text-slate-400">Dedicated Node &amp; Multi-Affiliate Subtree</span>
+</div>
+</div>
+<button class="px-2.5 py-1 text-[11px] font-mono text-slate-300 hover:text-white bg-slate-800 rounded border border-slate-700">Upgrade</button>
+</div>
+<!-- MASTER TIER (ACTIVE) -->
+<div class="p-3.5 rounded-lg border-2 border-indigo-500 bg-indigo-500/10 specular-rim flex items-center justify-between relative overflow-hidden">
+<div class="absolute -right-6 -bottom-6 w-16 h-16 bg-indigo-500/20 rounded-full blur-xl"></div>
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-indigo-600 flex items-center justify-center font-bold text-xs text-white font-mono shadow-md shadow-indigo-600/40">
+                  $299
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-2">
+<span class="font-headline text-xs font-bold text-white tracking-wide">MASTER TIER</span>
+<span class="text-[10px] font-mono bg-indigo-500 text-white px-1.5 py-0.2 rounded font-bold">CURRENT PLAN</span>
+</div>
+<span class="text-[11px] text-indigo-200">0.0% Fee Protocol · Full HFT Arbitrage &amp; BYOK Vault</span>
+</div>
+</div>
+<span class="font-mono text-xs font-semibold text-emerald-400 flex items-center gap-1">
+<span class="material-symbols-outlined text-sm" data-icon="check_circle">check_circle</span> ACTIVE
+              </span>
+</div>
+</div>
+<!-- Live IPN Webhook Ingestion Log -->
+<div class="flex flex-col gap-2 pt-2 border-t border-[#1E293B]">
+<div class="flex items-center justify-between">
+<span class="font-label text-xs uppercase tracking-wider text-slate-300 font-medium">Live IPN Webhook Ingestion (Raw Stream)</span>
+<span class="font-mono text-[10px] text-cyan-400 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span> 200 OK
+              </span>
+</div>
+<div class="bg-[#020617] border border-[#334155] rounded-lg p-3 font-mono text-[11px] leading-relaxed text-slate-300 overflow-x-auto custom-scrollbar">
+<div class="text-slate-500">// POST /api/webhooks/nowpayments-ipn</div>
+<div>{</div>
+<div class="pl-4"><span class="text-indigo-400">"payment_id"</span>: <span class="text-emerald-400">"6849102839"</span>,</div>
+<div class="pl-4"><span class="text-indigo-400">"payment_status"</span>: <span class="text-emerald-300 font-bold">"finished"</span>,</div>
+<div class="pl-4"><span class="text-indigo-400">"pay_amount"</span>: <span class="text-amber-300">299.00</span>,</div>
+<div class="pl-4"><span class="text-indigo-400">"pay_currency"</span>: <span class="text-cyan-300">"usdttrc20"</span>,</div>
+<div class="pl-4"><span class="text-indigo-400">"order_id"</span>: <span class="text-slate-300">"APEX-SUB-MASTER-EPOCH-14"</span>,</div>
+<div class="pl-4"><span class="text-indigo-400">"hmac_sha512"</span>: <span class="text-slate-400">"3d8a9f...e042b1 [VALIDATED]"</span></div>
+<div>}</div>
+</div>
+</div>
+</div>
+<!-- Quick SePay Health Mini-Card -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-4 flex items-center justify-between specular-rim">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+<span class="material-symbols-outlined text-base" data-icon="cloud_sync">cloud_sync</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline text-xs font-bold text-white">Cloudflare Edge Worker Dispatch</span>
+<span class="font-mono text-[10px] text-slate-400">TLS 1.3 · SePay Ingress Latency: 18ms</span>
+</div>
+</div>
+<span class="font-mono text-xs text-emerald-400 font-medium">D1 SYNC: 100%</span>
+</div>
+</div>
+</section>
+<!-- 4. Bottom Section: High-Density Transaction Ledger -->
+<section class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-6 specular-rim flex flex-col gap-4">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#1E293B] pb-4">
+<div>
+<h2 class="font-headline text-base font-bold text-white">Recent SePay VietQR &amp; Multi-Bank Payout Transaction Feed</h2>
+<p class="font-body text-xs text-slate-400">Real-time dispatches, webhook receipt confirmations, and audit proof for Vietnamese Banking rails</p>
+</div>
+<div class="flex items-center gap-2">
+<button class="px-3 py-1.5 text-xs font-mono text-slate-300 bg-[#1E293B] hover:bg-slate-800 rounded border border-[#334155] flex items-center gap-1.5 transition">
+<span class="material-symbols-outlined text-sm" data-icon="filter_list">filter_list</span> Filter Bank
+          </button>
+<button class="px-3 py-1.5 text-xs font-mono text-slate-300 bg-[#1E293B] hover:bg-slate-800 rounded border border-[#334155] flex items-center gap-1.5 transition">
+<span class="material-symbols-outlined text-sm" data-icon="refresh">refresh</span> Auto-Refresh (5s)
+          </button>
+</div>
+</div>
+<!-- Tabular Ledger -->
+<div class="overflow-x-auto custom-scrollbar">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-[#1E293B] text-[11px] font-label uppercase tracking-wider text-slate-400">
+<th class="py-3 px-4 font-semibold">Tx ID / Ref</th>
+<th class="py-3 px-4 font-semibold">Beneficiary &amp; Bank</th>
+<th class="py-3 px-4 font-semibold">USDC Debited</th>
+<th class="py-3 px-4 font-semibold">VND Disbursed</th>
+<th class="py-3 px-4 font-semibold">Protocol Fee</th>
+<th class="py-3 px-4 font-semibold">Webhook Latency</th>
+<th class="py-3 px-4 font-semibold">NAPAS Status</th>
+<th class="py-3 px-4 font-semibold text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-[#1E293B] font-mono text-xs">
+<!-- Row 1 -->
+<tr class="hover:bg-[#1E293B]/40 transition">
+<td class="py-3 px-4">
+<div class="flex items-center gap-1.5 text-white font-medium">
+<span class="text-indigo-400">#SP-91024</span>
+<span class="text-slate-500 font-normal">· VCB</span>
+</div>
+<div class="text-[10px] text-slate-500">2025-05-18 14:32:04</div>
+</td>
+<td class="py-3 px-4">
+<div class="text-slate-200 font-medium">MBBank - 98821038491</div>
+<div class="text-[10px] text-slate-400">NGUYEN VAN QUAN</div>
+</td>
+<td class="py-3 px-4 text-emerald-400 font-semibold">$500.00</td>
+<td class="py-3 px-4 text-white font-bold">12,700,000 ₫</td>
+<td class="py-3 px-4 text-slate-400">1.0% ($5.00)</td>
+<td class="py-3 px-4 text-cyan-400">2.4s</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> NAPAS_SUCCESS
+                </span>
+</td>
+<td class="py-3 px-4 text-right">
+<div class="flex items-center justify-end gap-2">
+<button class="p-1 hover:bg-slate-700 text-slate-300 rounded" title="View Bank Receipt">
+<span class="material-symbols-outlined text-sm" data-icon="receipt_long">receipt_long</span>
+</button>
+<button class="p-1 hover:bg-slate-700 text-slate-300 rounded" title="Inspect HMAC Signature">
+<span class="material-symbols-outlined text-sm" data-icon="code">code</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-[#1E293B]/40 transition">
+<td class="py-3 px-4">
+<div class="flex items-center gap-1.5 text-white font-medium">
+<span class="text-indigo-400">#SP-91023</span>
+<span class="text-slate-500 font-normal">· TCB</span>
+</div>
+<div class="text-[10px] text-slate-500">2025-05-18 14:28:19</div>
+</td>
+<td class="py-3 px-4">
+<div class="text-slate-200 font-medium">Techcombank - 1903482103</div>
+<div class="text-[10px] text-slate-400">TRAN THI MAI</div>
+</td>
+<td class="py-3 px-4 text-emerald-400 font-semibold">$1,250.00</td>
+<td class="py-3 px-4 text-white font-bold">31,750,000 ₫</td>
+<td class="py-3 px-4 text-slate-400">1.0% ($12.50)</td>
+<td class="py-3 px-4 text-cyan-400">3.1s</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> NAPAS_SUCCESS
+                </span>
+</td>
+<td class="py-3 px-4 text-right">
+<div class="flex items-center justify-end gap-2">
+<button class="p-1 hover:bg-slate-700 text-slate-300 rounded" title="View Bank Receipt">
+<span class="material-symbols-outlined text-sm" data-icon="receipt_long">receipt_long</span>
+</button>
+<button class="p-1 hover:bg-slate-700 text-slate-300 rounded" title="Inspect HMAC Signature">
+<span class="material-symbols-outlined text-sm" data-icon="code">code</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-[#1E293B]/40 transition">
+<td class="py-3 px-4">
+<div class="flex items-center gap-1.5 text-white font-medium">
+<span class="text-indigo-400">#SP-91022</span>
+<span class="text-slate-500 font-normal">· VCB</span>
+</div>
+<div class="text-[10px] text-slate-500">2025-05-18 14:15:50</div>
+</td>
+<td class="py-3 px-4">
+<div class="text-slate-200 font-medium">Vietcombank - 00710049210</div>
+<div class="text-[10px] text-slate-400">LE HOANG PHONG</div>
+</td>
+<td class="py-3 px-4 text-emerald-400 font-semibold">$3,400.00</td>
+<td class="py-3 px-4 text-white font-bold">86,360,000 ₫</td>
+<td class="py-3 px-4 text-slate-400">1.0% ($34.00)</td>
+<td class="py-3 px-4 text-cyan-400">1.9s</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> NAPAS_SUCCESS
+                </span>
+</td>
+<td class="py-3 px-4 text-right">
+<div class="flex items-center justify-end gap-2">
+<button class="p-1 hover:bg-slate-700 text-slate-300 rounded" title="View Bank Receipt">
+<span class="material-symbols-outlined text-sm" data-icon="receipt_long">receipt_long</span>
+</button>
+<button class="p-1 hover:bg-slate-700 text-slate-300 rounded" title="Inspect HMAC Signature">
+<span class="material-symbols-outlined text-sm" data-icon="code">code</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-[#1E293B]/40 transition">
+<td class="py-3 px-4">
+<div class="flex items-center gap-1.5 text-white font-medium">
+<span class="text-indigo-400">#SP-91021</span>
+<span class="text-slate-500 font-normal">· ACB</span>
+</div>
+<div class="text-[10px] text-slate-500">2025-05-18 13:58:11</div>
+</td>
+<td class="py-3 px-4">
+<div class="text-slate-200 font-medium">ACB Bank - 238491028</div>
+<div class="text-[10px] text-slate-400">VO MINH TRI</div>
+</td>
+<td class="py-3 px-4 text-emerald-400 font-semibold">$800.00</td>
+<td class="py-3 px-4 text-white font-bold">20,320,000 ₫</td>
+<td class="py-3 px-4 text-slate-400">1.0% ($8.00)</td>
+<td class="py-3 px-4 text-cyan-400">4.2s</td>
+<td class="py-3 px-4">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> NAPAS_SUCCESS
+                </span>
+</td>
+<td class="py-3 px-4 text-right">
+<div class="flex items-center justify-end gap-2">
+<button class="p-1 hover:bg-slate-700 text-slate-300 rounded" title="View Bank Receipt">
+<span class="material-symbols-outlined text-sm" data-icon="receipt_long">receipt_long</span>
+</button>
+<button class="p-1 hover:bg-slate-700 text-slate-300 rounded" title="Inspect HMAC Signature">
+<span class="material-symbols-outlined text-sm" data-icon="code">code</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Ledger Footer Meta -->
+<div class="flex flex-col sm:flex-row items-center justify-between text-xs text-slate-400 pt-2 border-t border-[#1E293B] font-mono">
+<div class="flex items-center gap-4">
+<span>Displaying 4 of 1,280 settled batches</span>
+<span class="text-slate-600">|</span>
+<span class="text-emerald-400">SQLite D1 Triggers: Active</span>
+</div>
+<div class="flex items-center gap-2 mt-2 sm:mt-0">
+<button class="px-2 py-1 bg-[#1E293B] rounded border border-[#334155] text-slate-300 hover:text-white" disabled="">Prev</button>
+<span class="text-slate-400 px-1">Page 1 of 320</span>
+<button class="px-2 py-1 bg-[#1E293B] rounded border border-[#334155] text-slate-300 hover:text-white">Next</button>
+</div>
+</div>
+</section>
+</main>
+</body></html>
