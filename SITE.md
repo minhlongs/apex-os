@@ -22,6 +22,7 @@
 - [x] `fee-surge-simulator.html` — Screen 8: Live EIP-1559 & Solana Priority Fee Surge Simulator (Treasury Circuit Breaker Chaos Lab)
 - [x] `immutable-d1-audit-explorer.html` — Screen 9: Immutable D1 SQLite Trigger Audit Explorer & SHA-256 Merkle Batch Verifier
 - [x] `byok-encryption-vault.html` — Screen 10: BYOK (Bring Your Own Key) AES-GCM-256 Exchange API Key Vault & Zero-Knowledge Rotation Console
+- [x] `vip-whale-otc-desk.html` — Screen 11: Institutional VIP Whale Rebate Desk & Cross-Margin Basis-Point Hedging Terminal
 
 ## Roadmap
 
@@ -35,10 +36,12 @@
 8. `fee-surge-simulator.html` — **Live EIP-1559 & Solana Priority Fee Surge Simulator**: Interactive multi-chain gas & hot reserve chaos sliders testing `TreasuryHealthService` automatic state transitions (`HEALTHY` → `LOW_RESERVE` → `CRITICAL / CIRCUIT_OPEN`) and smart rail failover to Stellar/Solana.
 9. `immutable-d1-audit-explorer.html` — **Immutable D1 SQLite Trigger Audit Explorer & SHA-256 Merkle Batch Verifier**: SQLite `BEFORE UPDATE` / `BEFORE DELETE` trigger guard telemetry, atomic state transition forensic timeline (`pending` → `Reserved_D1` → `processing` → `completed` / `compliance_blocked`), and interactive tamper-attempt + Merkle root verifier.
 10. `byok-encryption-vault.html` — **BYOK (`Bring Your Own Key`) AES-GCM-256 Exchange API Key Vault & Zero-Knowledge Rotation Console**: WebCrypto AES-GCM-256 (96-bit IV + 128-bit auth tag) client-side envelope sealer, 4-exchange key binding matrix, and automated withdrawal-permission policy blocker.
+11. `vip-whale-otc-desk.html` — **Institutional VIP Whale Rebate Desk & Cross-Margin Basis-Point Hedging Terminal**: `$42.85M` 30d volume KPI cards, `-0.50 bps` negative maker rebate preservation, `+18.6%` delta-neutral funding + rebate APY matrix (`Binance VIP 9`, `Bybit Supreme`, `OKX VIP 8`, `KuCoin LV12`), and custom syndicate sub-account rebate allocator.
 
 ## Creative Freedom
 
-- Institutional VIP Whale Rebate Desk & Cross-Margin Basis-Point Hedging Terminal
+- Cloudflare Edge Cron Worker, Email Queue & D1 Query Latency Observability Command
+
 
 
 

@@ -11,7 +11,17 @@ export type TerminalScreenId =
   | 'tma'
   | 'sandbox'
   | 'audit'
-  | 'byok';
+  | 'byok'
+  | 'whale';
+
+export interface VipWhaleHedgingPair {
+  readonly symbol: 'BTC-PERP' | 'ETH-PERP' | 'SOL-PERP';
+  readonly longVenue: string;
+  readonly shortVenue: string;
+  readonly fundingSpread8hBps: number;
+  readonly makerRebateBps: number;
+  readonly combinedNetApyPct: number;
+}
 
 export interface ByokVaultKeyEntry {
   readonly exchangeId: 'binance' | 'bybit' | 'okx' | 'kucoin';
@@ -196,6 +206,42 @@ export const STITCH_NAV_TABS: readonly StitchNavTab[] = [
     badge: 'AES-GCM-256',
     stitchScreenId: '3db8be97403844ccba6cfb32d913cf3f',
     staticHtmlPath: '/byok-encryption-vault.html',
+  },
+  {
+    id: 'whale',
+    index: 11,
+    labelEn: 'VIP Whale OTC Desk',
+    labelVi: 'Bàn Cá Voi VIP & Hedging',
+    badge: '+18.6% APY',
+    stitchScreenId: '11d9383ced1b4d5eb014541ee446d8c3',
+    staticHtmlPath: '/vip-whale-otc-desk.html',
+  },
+] as const;
+
+export const VIP_WHALE_HEDGING_PAIRS: readonly VipWhaleHedgingPair[] = [
+  {
+    symbol: 'BTC-PERP',
+    longVenue: 'Binance VIP 9 (-0.50 bps Maker Rebate)',
+    shortVenue: 'Bybit Supreme (55% Cashback + Funding)',
+    fundingSpread8hBps: 4.85,
+    makerRebateBps: -0.5,
+    combinedNetApyPct: 18.6,
+  },
+  {
+    symbol: 'ETH-PERP',
+    longVenue: 'OKX VIP 8 (-0.40 bps Maker Rebate)',
+    shortVenue: 'Binance VIP 9 (50% Cashback + Funding)',
+    fundingSpread8hBps: 4.2,
+    makerRebateBps: -0.4,
+    combinedNetApyPct: 16.4,
+  },
+  {
+    symbol: 'SOL-PERP',
+    longVenue: 'Bybit Supreme (-0.50 bps Maker Rebate)',
+    shortVenue: 'KuCoin LV12 (45% Cashback + Funding)',
+    fundingSpread8hBps: 5.4,
+    makerRebateBps: -0.5,
+    combinedNetApyPct: 21.2,
   },
 ] as const;
 

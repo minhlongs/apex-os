@@ -11,12 +11,14 @@ import type {
   ReferralTierNode,
   StitchNavTab,
   TerminalScreenId,
+  VipWhaleHedgingPair,
   WebhookSandboxPreset,
 } from '@/data/stitch-terminal-data';
 import {
   BYOK_VAULT_KEYS,
   D1_IMMUTABLE_AUDIT_LOGS,
   STITCH_PROJECT_METADATA,
+  VIP_WHALE_HEDGING_PAIRS,
 } from '@/data/stitch-terminal-data';
 import { StitchCashbackCockpit } from './StitchCashbackCockpit';
 import { StitchArbitrageMatrix } from './StitchArbitrageMatrix';
@@ -25,6 +27,7 @@ import { StitchComplianceFraudCommand } from './StitchComplianceFraudCommand';
 import { StitchWebhookSandbox } from './StitchWebhookSandbox';
 import { StitchD1AuditExplorer } from './StitchD1AuditExplorer';
 import { StitchByokVault } from './StitchByokVault';
+import { StitchVipWhaleDesk } from './StitchVipWhaleDesk';
 
 export interface StitchTerminalShellProps {
   readonly initialLocale: 'en' | 'vi';
@@ -38,6 +41,7 @@ export interface StitchTerminalShellProps {
   readonly webhookPresets: readonly WebhookSandboxPreset[];
   readonly auditLogs?: readonly D1AuditLogEntry[];
   readonly vaultKeys?: readonly ByokVaultKeyEntry[];
+  readonly hedgingPairs?: readonly VipWhaleHedgingPair[];
 }
 
 export function StitchTerminalShell({
@@ -52,6 +56,7 @@ export function StitchTerminalShell({
   webhookPresets,
   auditLogs = D1_IMMUTABLE_AUDIT_LOGS,
   vaultKeys = BYOK_VAULT_KEYS,
+  hedgingPairs = VIP_WHALE_HEDGING_PAIRS,
 }: Readonly<StitchTerminalShellProps>) {
   const [activeTab, setActiveTab] = useState<TerminalScreenId>(initialTab);
   const [locale, setLocale] = useState<'en' | 'vi'>(initialLocale);
@@ -204,6 +209,9 @@ export function StitchTerminalShell({
           )}
           {activeTab === 'byok' && (
             <StitchByokVault vaultKeys={vaultKeys} locale={locale} />
+          )}
+          {activeTab === 'whale' && (
+            <StitchVipWhaleDesk hedgingPairs={hedgingPairs} locale={locale} />
           )}
         </main>
       </div>

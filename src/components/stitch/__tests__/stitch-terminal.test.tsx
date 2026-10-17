@@ -143,6 +143,20 @@ describe('ApexOS Stitch Obsidian Quant Terminal Suite', () => {
     expect(screen.getByText('403 FORBIDDEN · WITHDRAW_SCOPE_REJECTED')).toBeInTheDocument();
   });
 
+  it('switches to Screen 11 (VIP Whale OTC Desk) and calculates delta-neutral funding + rebate yield', () => {
+    renderTerminal('en');
+
+    fireEvent.click(screen.getByRole('button', { name: /11\.\s*VIP Whale OTC Desk/i }));
+
+    expect(
+      screen.getByText('Institutional VIP Whale Desk & Delta-Neutral Funding Terminal')
+    ).toBeInTheDocument();
+    expect(screen.getByText(/\+\$465,000\/yr/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'SOL-PERP' }));
+    expect(screen.getByText(/\+\$530,000\/yr/)).toBeInTheDocument();
+  });
+
   it('renders StitchObsidianBanner deep-link bridge for core app routes', () => {
     render(
       <StitchObsidianBanner

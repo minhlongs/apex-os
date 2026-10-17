@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS — Institutional VIP Whale Rebate Desk &amp; Cross-Margin Basis-Point Hedging Terminal</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            surface: "#0F172A",
+            "surface-variant": "#1E293B",
+            "surface-hover": "#243247",
+            canvas: "#020617",
+            primary: "#6366F1",
+            secondary: "#8B5CF6",
+            cyber: "#06B6D4",
+            emerald: "#10B981",
+            amber: "#F59E0B",
+            crimson: "#EF4444",
+            stellar: "#14B8A6",
+            usdc: "#2775CA",
+            solana: "#14F195",
+            outline: "#334155",
+            "outline-variant": "#1E293B",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8"
+          },
+          borderRadius: {
+            DEFAULT: "0.5rem",
+            panel: "0.75rem",
+            lg: "1rem",
+            xl: "1.5rem",
+            full: "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .specular-card {
+      background: #0F172A;
+      border: 1px solid #1E293B;
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06), 0 4px 20px -2px rgba(2, 6, 23, 0.7);
+    }
+    .specular-card:hover {
+      border-color: #334155;
+    }
+    .glow-indigo {
+      box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.25);
+    }
+    .glow-cyan {
+      box-shadow: 0 0 20px -5px rgba(6, 182, 212, 0.2);
+    }
+    /* Custom terminal scrollbar */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+  </style>
+</head>
+<body class="bg-canvas text-on-surface font-body antialiased selection:bg-primary selection:text-white min-h-screen overflow-x-hidden">
+<!-- ==================== FIXED LEFT NAVIGATION SIDEBAR (248px) ==================== -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-surface border-r border-outline-variant flex flex-col justify-between p-4 shadow-sm select-none">
+<div class="flex flex-col gap-6">
+<!-- Terminal Brand Node -->
+<div class="flex items-center gap-3 px-2 py-1">
+<div class="relative w-10 h-10 rounded-lg bg-surface-variant border border-outline flex items-center justify-center overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-br from-primary/30 to-cyber/20"></div>
+<span class="material-symbols-outlined text-cyber text-2xl relative z-10" data-icon="terminal">terminal</span>
+<div class="absolute bottom-1 right-1 w-2 h-2 rounded-full bg-emerald ring-2 ring-surface"></div>
+</div>
+<div class="flex flex-col">
+<span class="font-headline text-base font-bold tracking-wider text-on-surface">ApexOS Terminal</span>
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-cyber animate-pulse"></span>
+<span class="font-label uppercase text-[10px] tracking-wider text-on-surface-variant font-semibold">Prime Hedging Node</span>
+</div>
+</div>
+</div>
+<!-- Quick Action / Status Badge -->
+<div class="px-2">
+<div class="p-2.5 rounded-lg bg-canvas/80 border border-outline-variant flex items-center justify-between">
+<div class="flex flex-col">
+<span class="text-[10px] font-label uppercase text-on-surface-variant font-bold">Node Telemetry</span>
+<span class="font-mono text-xs text-solana">ST-HORIZON &amp; SPL DUAL</span>
+</div>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald/10 text-emerald border border-emerald/30 font-semibold">12ms</span>
+</div>
+</div>
+<!-- Navigation Links -->
+<nav class="flex flex-col gap-1">
+<div class="px-2 pb-1 text-[10px] font-label font-bold uppercase tracking-wider text-on-surface-variant">Core Operations</div>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors font-normal text-sm" href="#cockpit">
+<span class="material-symbols-outlined text-lg" data-icon="dashboard">dashboard</span>
+<span>Cashback Cockpit</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors font-normal text-sm" href="#arbitrage">
+<span class="material-symbols-outlined text-lg" data-icon="query_stats">query_stats</span>
+<span>Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- Active Tab: VIP Whale OTC Desk (Semantic match to current context) -->
+<a class="flex items-center justify-between px-3 py-2.5 rounded text-primary bg-primary/10 font-medium text-sm border-l-2 border-primary" href="#whale-desk">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-lg text-primary" data-icon="shield">shield</span>
+<span class="font-medium text-primary">VIP Whale Desk</span>
+</div>
+<span class="text-[10px] font-mono bg-primary/20 text-primary px-1.5 py-0.2 rounded font-bold">VIP 9</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors font-normal text-sm" href="#multi-chain">
+<span class="material-symbols-outlined text-lg" data-icon="currency_exchange">currency_exchange</span>
+<span>Multi-Chain Payouts</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors font-normal text-sm" href="#kyc">
+<span class="material-symbols-outlined text-lg" data-icon="shield">shield</span>
+<span>KYC &amp; Fraud Command</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors font-normal text-sm" href="#telegram">
+<span class="material-symbols-outlined text-lg" data-icon="send">send</span>
+<span>Telegram Mini App</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors font-normal text-sm" href="#styles">
+<span class="material-symbols-outlined text-lg" data-icon="palette">palette</span>
+<span>Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Navigation Footer -->
+<div class="flex flex-col gap-2 pt-4 border-t border-outline-variant">
+<div class="flex items-center justify-between px-2 text-xs text-on-surface-variant">
+<span class="font-label uppercase text-[10px] font-bold">WORM Lock</span>
+<span class="font-mono text-emerald flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald animate-pulse"></span> SYNCED
+        </span>
+</div>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors font-normal text-sm" href="#settings">
+<span class="material-symbols-outlined text-lg" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant hover:bg-surface-variant hover:text-on-surface transition-colors font-normal text-sm" href="#documentation">
+<span class="material-symbols-outlined text-lg" data-icon="menu_book">menu_book</span>
+<span>Documentation</span>
+</a>
+<!-- Connect Node CTA -->
+<button class="w-full mt-2 py-2 px-3 rounded bg-surface-variant hover:bg-outline border border-outline text-cyber font-headline font-bold text-xs flex items-center justify-center gap-2 transition-all">
+<span class="material-symbols-outlined text-sm text-cyber" data-icon="terminal">terminal</span>
+        Connect Node
+      </button>
+</div>
+</aside>
+<!-- ==================== FIXED TOP COMMAND BAR (64px) ==================== -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-surface border-b border-outline-variant flex justify-between items-center px-6 shadow-sm backdrop-blur-md bg-surface/90">
+<!-- Left: Search & Telemetry -->
+<div class="flex items-center gap-4">
+<div class="relative w-80">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-base" data-icon="search">search</span>
+<input class="w-full bg-canvas/70 border border-outline-variant focus:border-primary rounded-lg py-1.5 pl-9 pr-4 text-xs font-mono text-on-surface placeholder:text-on-surface-variant focus:outline-none transition-colors" placeholder="Search sub-accounts, HMAC digests, symbols (e.g. BTC-PERP)..." type="text"/>
+</div>
+<!-- Chain Status Breaker -->
+<div class="flex items-center gap-2 px-2.5 py-1 rounded bg-canvas border border-outline-variant">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald"></span>
+</span>
+<span class="font-mono text-xs font-semibold text-emerald">3/3 Chains HEALTHY</span>
+</div>
+<!-- Master Tier Badge -->
+<div class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-primary/10 border border-primary/30">
+<span class="material-symbols-outlined text-primary text-sm" data-icon="verified">verified</span>
+<span class="font-label text-xs uppercase tracking-wider font-bold text-primary">MASTER TIER</span>
+</div>
+</div>
+<!-- Right: Actions & Connected Identity -->
+<div class="flex items-center gap-4">
+<!-- Bilingual Toggle [EN | VI] -->
+<div class="flex items-center bg-canvas rounded-lg p-0.5 border border-outline-variant text-[11px] font-mono font-medium">
+<button class="px-2 py-0.5 rounded bg-surface-variant text-cyber font-bold shadow-sm">EN</button>
+<span class="text-outline-variant px-0.5">/</span>
+<button class="px-2 py-0.5 rounded text-on-surface-variant hover:text-on-surface transition-colors">VI</button>
+</div>
+<!-- Icon Actions -->
+<div class="flex items-center gap-1 text-on-surface-variant">
+<button class="relative p-2 rounded hover:bg-surface-variant hover:text-on-surface transition-colors" title="Notifications">
+<span class="material-symbols-outlined text-lg" data-icon="notifications">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber ring-2 ring-surface"></span>
+</button>
+<button class="p-2 rounded hover:bg-surface-variant hover:text-on-surface transition-colors" title="Terminal Command Console">
+<span class="material-symbols-outlined text-lg" data-icon="terminal">terminal</span>
+</button>
+</div>
+<!-- Connected Wallet Node Pill -->
+<div class="flex items-center gap-2 pl-3 border-l border-outline-variant">
+<div class="flex flex-col text-right">
+<span class="font-mono text-xs font-bold text-on-surface">0x8F94...c4B2</span>
+<span class="font-label text-[10px] uppercase text-cyber tracking-tight font-semibold">Syndicate Desk Alpha</span>
+</div>
+<div class="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-secondary p-0.5 flex items-center justify-center">
+<div class="w-full h-full bg-surface rounded-full flex items-center justify-center">
+<span class="font-mono text-[11px] font-bold text-primary">APX</span>
+</div>
+</div>
+</div>
+</div>
+</header>
+<!-- ==================== MAIN CONTENT CANVAS ==================== -->
+<main class="ml-64 pt-20 pb-12 px-8 min-h-screen">
+<div class="max-w-[1600px] mx-auto space-y-7">
+<!-- PAGE HEADER & BILINGUAL INTENT BANNER -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-outline-variant pb-5">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<span class="px-2 py-0.5 rounded text-[10px] font-label font-bold uppercase tracking-widest bg-cyber/10 text-cyber border border-cyber/20">
+              Institutional Prime OTC
+            </span>
+<span class="text-on-surface-variant font-mono text-xs">/</span>
+<span class="text-on-surface-variant font-mono text-xs">Rebate Arbitrage Vault #09</span>
+</div>
+<h1 class="text-2xl font-headline font-bold text-on-surface tracking-tight flex items-center gap-3">
+            VIP Whale Rebate Desk &amp; Cross-Margin Basis Hedging
+            <span class="text-xs font-mono px-2 py-0.5 rounded bg-emerald/10 text-emerald border border-emerald/30 font-normal">
+              REAL-TIME ORACLE SYNC
+            </span>
+</h1>
+<p class="text-xs text-on-surface-variant font-body mt-1">
+            Quản lý Bàn Giao dịch Cá Voi &amp; Phòng vệ Chênh lệch Phí • Sub-bps execution, delta-neutral negative maker fee capture, and instantaneous dual-rail settlements.
+          </p>
+</div>
+<!-- Telemetry Actions Bar -->
+<div class="flex items-center gap-3">
+<button class="px-3 py-1.5 rounded-lg bg-surface border border-outline hover:border-cyber text-on-surface font-mono text-xs flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-xs text-amber" data-icon="lock_clock">lock_clock</span>
+<span>Epoch #4102 Close: 03h 14m</span>
+</button>
+<button class="px-4 py-1.5 rounded-lg bg-gradient-to-r from-primary to-secondary text-white font-headline font-semibold text-xs flex items-center gap-2 shadow-lg shadow-primary/20 hover:opacity-95 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="bolt">bolt</span>
+<span>Execute Basis Sweep</span>
+</button>
+</div>
+</div>
+<!-- ==================== SECTION 1: INSTITUTIONAL WHALE TIER BENTO (4 HERO KPI CARDS) ==================== -->
+<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+<!-- Bento 1: 30-Day Institutional Volume -->
+<div class="specular-card rounded-panel p-5 relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-primary/10 rounded-full blur-2xl group-hover:bg-primary/20 transition-all"></div>
+<div class="flex items-center justify-between text-on-surface-variant mb-3">
+<span class="text-[11px] font-label uppercase font-bold tracking-wider">30-Day Volume (USD)</span>
+<span class="p-1.5 rounded-lg bg-surface-variant border border-outline-variant text-primary">
+<span class="material-symbols-outlined text-base" data-icon="insights">insights</span>
+</span>
+</div>
+<div class="space-y-1">
+<div class="font-mono text-2xl lg:text-3xl font-bold text-on-surface tracking-tight">
+              $42,850,000<span class="text-base text-on-surface-variant">.00</span>
+</div>
+<div class="flex items-center gap-2 pt-1">
+<span class="inline-flex items-center text-xs font-mono font-bold text-emerald">
+<span class="material-symbols-outlined text-xs mr-0.5" data-icon="trending_up">trending_up</span>
+                +28.4% MoM
+              </span>
+<span class="text-[11px] font-mono text-on-surface-variant">vs $33.3M Target</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant flex items-center justify-between">
+<span class="text-[10px] font-label uppercase text-on-surface-variant font-semibold">Contract Tier</span>
+<span class="px-2 py-0.5 rounded text-[11px] font-mono font-bold bg-primary/15 text-primary border border-primary/30">
+              Whale Apex VIP 9
+            </span>
+</div>
+</div>
+<!-- Bento 2: Custom VIP Maker Rebate -->
+<div class="specular-card rounded-panel p-5 relative overflow-hidden group glow-indigo">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-secondary/10 rounded-full blur-2xl"></div>
+<div class="flex items-center justify-between text-on-surface-variant mb-3">
+<span class="text-[11px] font-label uppercase font-bold tracking-wider">Custom VIP Maker Rebate</span>
+<span class="p-1.5 rounded-lg bg-surface-variant border border-outline-variant text-cyber">
+<span class="material-symbols-outlined text-base" data-icon="percent">percent</span>
+</span>
+</div>
+<div class="space-y-1">
+<div class="font-mono text-2xl lg:text-3xl font-bold text-cyber tracking-tight flex items-baseline gap-1">
+              -0.50 <span class="text-sm font-label font-semibold uppercase text-on-surface">bps</span>
+</div>
+<div class="flex items-center gap-2 pt-1">
+<span class="inline-flex items-center text-xs font-mono font-bold text-solana">
+                +55% Taker Cashback
+              </span>
+<span class="text-[10px] font-mono text-on-surface-variant">• Net Harvest</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant flex items-center justify-between">
+<span class="text-[10px] font-label uppercase text-on-surface-variant font-semibold">Fee Regime</span>
+<span class="text-[11px] font-mono text-emerald flex items-center gap-1 font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span> Negative Maker Active
+            </span>
+</div>
+</div>
+<!-- Bento 3: Delta-Neutral Funding Rate Yield -->
+<div class="specular-card rounded-panel p-5 relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-emerald/10 rounded-full blur-2xl"></div>
+<div class="flex items-center justify-between text-on-surface-variant mb-3">
+<span class="text-[11px] font-label uppercase font-bold tracking-wider">Delta-Neutral Basis APY</span>
+<span class="p-1.5 rounded-lg bg-surface-variant border border-outline-variant text-emerald">
+<span class="material-symbols-outlined text-base" data-icon="query_stats">query_stats</span>
+</span>
+</div>
+<div class="space-y-1">
+<div class="font-mono text-2xl lg:text-3xl font-bold text-emerald tracking-tight flex items-baseline gap-1">
+              +18.60<span class="text-base font-label font-bold text-emerald">%</span>
+</div>
+<div class="flex items-center gap-2 pt-1">
+<span class="inline-flex items-center text-xs font-mono font-bold text-cyber">
+                +4.2 bps Fee Rebate
+              </span>
+<span class="text-[10px] font-mono text-on-surface-variant">• Compounded</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant flex items-center justify-between">
+<span class="text-[10px] font-label uppercase text-on-surface-variant font-semibold">Arbitrage Vector</span>
+<span class="text-[11px] font-mono text-on-surface-variant font-semibold">Binance ↔ OKX Spread</span>
+</div>
+</div>
+<!-- Bento 4: Instant Multi-Chain Prime Settlement -->
+<div class="specular-card rounded-panel p-5 relative overflow-hidden group">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-stellar/10 rounded-full blur-2xl"></div>
+<div class="flex items-center justify-between text-on-surface-variant mb-3">
+<span class="text-[11px] font-label uppercase font-bold tracking-wider">Prime Payout Settled</span>
+<span class="p-1.5 rounded-lg bg-surface-variant border border-outline-variant text-usdc">
+<span class="material-symbols-outlined text-base" data-icon="currency_exchange">currency_exchange</span>
+</span>
+</div>
+<div class="space-y-1">
+<div class="font-mono text-2xl lg:text-3xl font-bold text-on-surface tracking-tight">
+              $124,500<span class="text-base text-usdc font-bold">.00</span>
+</div>
+<div class="flex items-center gap-2 pt-1">
+<span class="inline-flex items-center text-xs font-mono font-bold text-stellar">
+                Stellar Horizon 4.2s
+              </span>
+<span class="text-[10px] font-mono text-solana">| Solana SPL</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant flex items-center justify-between">
+<span class="text-[10px] font-label uppercase text-on-surface-variant font-semibold">Batch Tx Rail</span>
+<span class="text-[11px] font-mono text-cyber font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-xs text-cyber" data-icon="verified">verified</span> Zero Dust Lock
+            </span>
+</div>
+</div>
+</section>
+<!-- ==================== SECTION 2: CROSS-EXCHANGE FUNDING RATE & FEE REBATE HEDGING MATRIX ==================== -->
+<section class="specular-card rounded-panel p-6 space-y-5">
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-outline-variant">
+<div>
+<div class="flex items-center gap-2">
+<h2 class="text-lg font-headline font-bold text-on-surface tracking-tight flex items-center gap-2">
+                Cross-Exchange Funding Rate &amp; Fee Rebate Hedging Matrix
+              </h2>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold uppercase bg-surface-variant text-cyber border border-outline">
+                L2 SPREAD ENGINE
+              </span>
+</div>
+<p class="text-xs text-on-surface-variant font-body mt-0.5">
+              Ma trận Phòng vệ Tỷ lệ Funding &amp; Hoàn phí Giao dịch • Real-time cross-margin basis yield computation across Tier-1 venue perpetual contracts.
+            </p>
+</div>
+<!-- Matrix Controls & Filter Tabs -->
+<div class="flex flex-wrap items-center gap-2.5">
+<div class="flex items-center bg-canvas rounded-lg p-1 border border-outline-variant text-xs font-mono">
+<button class="px-2.5 py-1 rounded bg-surface-variant text-white font-semibold">All Assets</button>
+<button class="px-2.5 py-1 rounded text-on-surface-variant hover:text-white transition-colors">BTC-PERP</button>
+<button class="px-2.5 py-1 rounded text-on-surface-variant hover:text-white transition-colors">ETH-PERP</button>
+<button class="px-2.5 py-1 rounded text-on-surface-variant hover:text-white transition-colors">SOL-PERP</button>
+</div>
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-outline border border-outline text-xs font-mono text-on-surface flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-xs text-cyber" data-icon="download">download</span>
+              Export Calldata
+            </button>
+<button class="px-3.5 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white font-headline text-xs font-bold flex items-center gap-1.5 shadow-md shadow-primary/30 transition-all">
+<span class="material-symbols-outlined text-sm" data-icon="lock">lock</span>
+              Lock Basis Spread (HMAC-SHA256)
+            </button>
+</div>
+</div>
+<!-- Table Responsive Container -->
+<div class="overflow-x-auto rounded-lg border border-outline-variant">
+<table class="w-full text-left border-collapse text-xs">
+<thead>
+<tr class="bg-canvas/90 border-b border-outline-variant font-label uppercase text-[10px] text-on-surface-variant tracking-wider">
+<th class="py-3 px-4 font-bold">Instrument / Contract</th>
+<th class="py-3 px-4 font-bold">Venue &amp; VIP Tier</th>
+<th class="py-3 px-4 font-bold">Predicted 8h Funding</th>
+<th class="py-3 px-4 font-bold">Maker Rebate Credit (bps)</th>
+<th class="py-3 px-4 font-bold">Net Maker/Taker Ratio</th>
+<th class="py-3 px-4 font-bold">Gross Basis Spread</th>
+<th class="py-3 px-4 font-bold">Net Combined APY</th>
+<th class="py-3 px-4 font-bold text-right">Execution Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant font-mono">
+<!-- Row 1: BTC-PERP Binance vs OKX -->
+<tr class="hover:bg-surface-variant/40 transition-colors group">
+<td class="py-3.5 px-4 font-sans">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded-full bg-amber/15 border border-amber/30 flex items-center justify-center font-bold text-amber text-xs font-mono">
+                      ₿
+                    </div>
+<div>
+<div class="font-headline font-bold text-sm text-on-surface">BTC-USDT PERP</div>
+<div class="text-[10px] text-on-surface-variant font-mono">Index: $67,412.80 • Mark: $67,429.10</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-amber"></span>
+<span class="font-bold text-on-surface">Binance</span>
+<span class="px-1.5 py-0.2 rounded bg-amber/10 text-amber text-[10px] border border-amber/20 font-semibold">VIP 9</span>
+</div>
+<div class="text-[10px] text-on-surface-variant mt-0.5">Short Leg Hedge Target</div>
+</td>
+<td class="py-3.5 px-4 text-emerald font-bold">
+                  +0.0384%
+                  <span class="block text-[10px] text-on-surface-variant font-normal font-mono">Countdown: 01:42:19</span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-cyber font-bold">-0.55 bps</span>
+<span class="block text-[10px] text-on-surface-variant">Harvest Rebate</span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-on-surface font-semibold">62% Maker / 38% Taker</span>
+<div class="w-24 bg-canvas rounded-full h-1 mt-1 overflow-hidden">
+<div class="bg-cyber h-full" style="width: 62%"></div>
+</div>
+</td>
+<td class="py-3.5 px-4 text-solana font-bold">
+                  +16.30 bps
+                  <span class="block text-[10px] text-on-surface-variant font-normal">Spread vs OKX Spot</span>
+</td>
+<td class="py-3.5 px-4">
+<div class="text-sm font-bold text-emerald">+21.84%</div>
+<span class="text-[10px] font-mono text-cyber">Delta-Neutral</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-outline border border-outline text-cyber hover:text-white font-mono text-[11px] font-semibold transition-all">
+                    Simulate Delta-Neutral
+                  </button>
+</td>
+</tr>
+<!-- Row 2: ETH-PERP OKX vs Bybit -->
+<tr class="hover:bg-surface-variant/40 transition-colors group bg-surface/30">
+<td class="py-3.5 px-4 font-sans">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded-full bg-secondary/15 border border-secondary/30 flex items-center justify-center font-bold text-secondary text-xs font-mono">
+                      Ξ
+                    </div>
+<div>
+<div class="font-headline font-bold text-sm text-on-surface">ETH-USDC PERP</div>
+<div class="text-[10px] text-on-surface-variant font-mono">Index: $3,524.40 • Mark: $3,526.15</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-primary"></span>
+<span class="font-bold text-on-surface">OKX</span>
+<span class="px-1.5 py-0.2 rounded bg-primary/10 text-primary text-[10px] border border-primary/20 font-semibold">VIP 8</span>
+</div>
+<div class="text-[10px] text-on-surface-variant mt-0.5">Long Basis Cross Leg</div>
+</td>
+<td class="py-3.5 px-4 text-emerald font-bold">
+                  +0.0275%
+                  <span class="block text-[10px] text-on-surface-variant font-normal font-mono">Countdown: 01:42:19</span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-cyber font-bold">-0.48 bps</span>
+<span class="block text-[10px] text-on-surface-variant">Negative Fee Pool</span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-on-surface font-semibold">74% Maker / 26% Taker</span>
+<div class="w-24 bg-canvas rounded-full h-1 mt-1 overflow-hidden">
+<div class="bg-primary h-full" style="width: 74%"></div>
+</div>
+</td>
+<td class="py-3.5 px-4 text-solana font-bold">
+                  +12.80 bps
+                  <span class="block text-[10px] text-on-surface-variant font-normal">Spread vs Bybit Perp</span>
+</td>
+<td class="py-3.5 px-4">
+<div class="text-sm font-bold text-emerald">+17.92%</div>
+<span class="text-[10px] font-mono text-cyber">Delta-Neutral</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-outline border border-outline text-cyber hover:text-white font-mono text-[11px] font-semibold transition-all">
+                    Simulate Delta-Neutral
+                  </button>
+</td>
+</tr>
+<!-- Row 3: SOL-PERP Bybit Supreme vs Binance -->
+<tr class="hover:bg-surface-variant/40 transition-colors group">
+<td class="py-3.5 px-4 font-sans">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded-full bg-solana/15 border border-solana/30 flex items-center justify-center font-bold text-solana text-xs font-mono">
+                      ◎
+                    </div>
+<div>
+<div class="font-headline font-bold text-sm text-on-surface">SOL-USDT PERP</div>
+<div class="text-[10px] text-on-surface-variant font-mono">Index: $184.22 • Mark: $184.95</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-cyber"></span>
+<span class="font-bold text-on-surface">Bybit</span>
+<span class="px-1.5 py-0.2 rounded bg-cyber/10 text-cyber text-[10px] border border-cyber/20 font-semibold">Supreme VIP</span>
+</div>
+<div class="text-[10px] text-on-surface-variant mt-0.5">High Frequency Rebalance</div>
+</td>
+<td class="py-3.5 px-4 text-emerald font-bold">
+                  +0.0450%
+                  <span class="block text-[10px] text-on-surface-variant font-normal font-mono">Countdown: 01:42:19</span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-cyber font-bold">-0.62 bps</span>
+<span class="block text-[10px] text-on-surface-variant">Tier Advantage</span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-on-surface font-semibold">81% Maker / 19% Taker</span>
+<div class="w-24 bg-canvas rounded-full h-1 mt-1 overflow-hidden">
+<div class="bg-solana h-full" style="width: 81%"></div>
+</div>
+</td>
+<td class="py-3.5 px-4 text-solana font-bold">
+                  +19.45 bps
+                  <span class="block text-[10px] text-on-surface-variant font-normal">Spread vs Binance Fut</span>
+</td>
+<td class="py-3.5 px-4">
+<div class="text-sm font-bold text-emerald">+24.15%</div>
+<span class="text-[10px] font-mono text-cyber">Delta-Neutral</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-outline border border-outline text-cyber hover:text-white font-mono text-[11px] font-semibold transition-all">
+                    Simulate Delta-Neutral
+                  </button>
+</td>
+</tr>
+<!-- Row 4: KuCoin LV12 Alternate Arb -->
+<tr class="hover:bg-surface-variant/40 transition-colors group bg-surface/30">
+<td class="py-3.5 px-4 font-sans">
+<div class="flex items-center gap-2.5">
+<div class="w-7 h-7 rounded-full bg-stellar/15 border border-stellar/30 flex items-center justify-center font-bold text-stellar text-xs font-mono">
+                      ✦
+                    </div>
+<div>
+<div class="font-headline font-bold text-sm text-on-surface">BTC-USDC BASIS</div>
+<div class="text-[10px] text-on-surface-variant font-mono">Index: $67,410.00 • Mark: $67,418.50</div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-stellar"></span>
+<span class="font-bold text-on-surface">KuCoin</span>
+<span class="px-1.5 py-0.2 rounded bg-stellar/10 text-stellar text-[10px] border border-stellar/20 font-semibold">LV 12 Pro</span>
+</div>
+<div class="text-[10px] text-on-surface-variant mt-0.5">Cross-Venue Payout Leg</div>
+</td>
+<td class="py-3.5 px-4 text-emerald font-bold">
+                  +0.0195%
+                  <span class="block text-[10px] text-on-surface-variant font-normal font-mono">Countdown: 01:42:19</span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-cyber font-bold">-0.35 bps</span>
+<span class="block text-[10px] text-on-surface-variant">Institutional Pool</span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-on-surface font-semibold">50% Maker / 50% Taker</span>
+<div class="w-24 bg-canvas rounded-full h-1 mt-1 overflow-hidden">
+<div class="bg-stellar h-full" style="width: 50%"></div>
+</div>
+</td>
+<td class="py-3.5 px-4 text-solana font-bold">
+                  +8.90 bps
+                  <span class="block text-[10px] text-on-surface-variant font-normal">Spread vs Deribit</span>
+</td>
+<td class="py-3.5 px-4">
+<div class="text-sm font-bold text-emerald">+14.65%</div>
+<span class="text-[10px] font-mono text-cyber">Delta-Neutral</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-outline border border-outline text-cyber hover:text-white font-mono text-[11px] font-semibold transition-all">
+                    Simulate Delta-Neutral
+                  </button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- HMAC Lock & Idempotency Footer Telemetry -->
+<div class="p-3 rounded-lg bg-canvas border border-outline-variant flex flex-col md:flex-row items-center justify-between text-xs font-mono text-on-surface-variant gap-2">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-solana" data-icon="lock">lock</span>
+<span>ACTIVE IDEMPOTENCY LOCK:</span>
+<span class="text-cyber font-bold select-all">0x7f9a88...c14e82b7c6999a38b1f</span>
+<span class="text-on-surface-variant">(HMAC-SHA256 Multi-Signature Active)</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="flex items-center gap-1 text-emerald">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span> Latency 4.2ms
+            </span>
+<span>Slippage Buffer: ±0.02 bps</span>
+</div>
+</div>
+</section>
+<!-- ==================== SECTION 3: CUSTOM SUB-ACCOUNT FEE TIER & PRIME REBATE SPLIT CONFIGURATOR ==================== -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Left Column: Syndicate Sub-Account Allocation Workbench (7 Cols) -->
+<div class="lg:col-span-7 specular-card rounded-panel p-6 space-y-5">
+<div class="flex items-center justify-between border-b border-outline-variant pb-4">
+<div>
+<h3 class="text-base font-headline font-bold text-on-surface flex items-center gap-2">
+                Custom Sub-Account Fee Tier &amp; Prime Allocation
+              </h3>
+<p class="text-xs text-on-surface-variant font-body">
+                Phân bổ Tài khoản phụ &amp; Tỷ lệ Chia thưởng Prime • Syndicate sub-account fee thresholds and automated yield distribution.
+              </p>
+</div>
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-outline border border-outline text-cyber font-mono text-xs flex items-center gap-1 transition-all">
+<span class="material-symbols-outlined text-xs" data-icon="add">add</span>
+              Add Sub-Account
+            </button>
+</div>
+<!-- Sub-Accounts List & Allocation Table -->
+<div class="space-y-4">
+<!-- Sub-Account 1 -->
+<div class="p-4 rounded-lg bg-canvas/60 border border-outline-variant hover:border-outline transition-colors space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-6 h-6 rounded bg-primary/20 text-primary flex items-center justify-center font-mono font-bold text-xs">
+                    01
+                  </div>
+<div>
+<span class="font-mono text-xs font-bold text-on-surface">Sub-01 Algo HFT</span>
+<span class="text-[10px] font-mono text-on-surface-variant ml-2">ID: #APX-HFT-991</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded bg-emerald/10 text-emerald text-[10px] font-mono font-bold border border-emerald/20">
+                    VIP 9 (-0.50 bps)
+                  </span>
+<span class="font-mono text-xs font-bold text-on-surface">50% Split</span>
+</div>
+</div>
+<!-- Slider -->
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant">
+<span>Rebate Allocation Weight</span>
+<span class="text-cyber font-bold">$21,425,000 Volume Handled</span>
+</div>
+<input class="w-full accent-primary h-1.5 bg-surface-variant rounded-lg cursor-pointer" max="100" min="0" type="range" value="50"/>
+</div>
+<div class="flex items-center justify-between text-[11px] font-mono pt-1 text-on-surface-variant">
+<span>30D Maker Vol: <strong>$18.2M</strong></span>
+<span>Taker Vol: <strong>$3.2M</strong></span>
+<span class="text-solana font-semibold">Yield Capture: $62,250 USDC</span>
+</div>
+</div>
+<!-- Sub-Account 2 -->
+<div class="p-4 rounded-lg bg-canvas/60 border border-outline-variant hover:border-outline transition-colors space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-6 h-6 rounded bg-secondary/20 text-secondary flex items-center justify-center font-mono font-bold text-xs">
+                    02
+                  </div>
+<div>
+<span class="font-mono text-xs font-bold text-on-surface">Sub-02 Quantitative Momentum</span>
+<span class="text-[10px] font-mono text-on-surface-variant ml-2">ID: #APX-QNT-404</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded bg-emerald/10 text-emerald text-[10px] font-mono font-bold border border-emerald/20">
+                    VIP 8 (-0.40 bps)
+                  </span>
+<span class="font-mono text-xs font-bold text-on-surface">30% Split</span>
+</div>
+</div>
+<!-- Slider -->
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant">
+<span>Rebate Allocation Weight</span>
+<span class="text-cyber font-bold">$12,855,000 Volume Handled</span>
+</div>
+<input class="w-full accent-secondary h-1.5 bg-surface-variant rounded-lg cursor-pointer" max="100" min="0" type="range" value="30"/>
+</div>
+<div class="flex items-center justify-between text-[11px] font-mono pt-1 text-on-surface-variant">
+<span>30D Maker Vol: <strong>$9.4M</strong></span>
+<span>Taker Vol: <strong>$3.4M</strong></span>
+<span class="text-solana font-semibold">Yield Capture: $37,350 USDC</span>
+</div>
+</div>
+<!-- Sub-Account 3 -->
+<div class="p-4 rounded-lg bg-canvas/60 border border-outline-variant hover:border-outline transition-colors space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-6 h-6 rounded bg-cyber/20 text-cyber flex items-center justify-center font-mono font-bold text-xs">
+                    03
+                  </div>
+<div>
+<span class="font-mono text-xs font-bold text-on-surface">Sub-03 OTC Dispersal</span>
+<span class="text-[10px] font-mono text-on-surface-variant ml-2">ID: #APX-OTC-118</span>
+</div>
+</div>
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded bg-emerald/10 text-emerald text-[10px] font-mono font-bold border border-emerald/20">
+                    VIP 7 (-0.30 bps)
+                  </span>
+<span class="font-mono text-xs font-bold text-on-surface">20% Split</span>
+</div>
+</div>
+<!-- Slider -->
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] font-mono text-on-surface-variant">
+<span>Rebate Allocation Weight</span>
+<span class="text-cyber font-bold">$8,570,000 Volume Handled</span>
+</div>
+<input class="w-full accent-cyber h-1.5 bg-surface-variant rounded-lg cursor-pointer" max="100" min="0" type="range" value="20"/>
+</div>
+<div class="flex items-center justify-between text-[11px] font-mono pt-1 text-on-surface-variant">
+<span>30D Maker Vol: <strong>$5.8M</strong></span>
+<span>Taker Vol: <strong>$2.7M</strong></span>
+<span class="text-solana font-semibold">Yield Capture: $24,900 USDC</span>
+</div>
+</div>
+</div>
+<!-- Bottom Micro-Interaction -->
+<div class="flex items-center justify-between pt-2">
+<span class="text-xs font-mono text-on-surface-variant">Total Syndicate Allocation: <strong class="text-emerald">100.0%</strong></span>
+<button class="px-3 py-1.5 rounded bg-surface-variant hover:bg-outline border border-outline text-xs font-mono text-white flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-xs text-cyber" data-icon="save">save</span>
+              Save Tier Matrix
+            </button>
+</div>
+</div>
+<!-- Right Column: Automated Settlement Dispatch & Yield Distribution (5 Cols) -->
+<div class="lg:col-span-5 specular-card rounded-panel p-6 flex flex-col justify-between space-y-6">
+<div>
+<div class="flex items-center justify-between border-b border-outline-variant pb-4">
+<div>
+<h3 class="text-base font-headline font-bold text-on-surface flex items-center gap-2">
+                  Automated Settlement Dispatch
+                </h3>
+<p class="text-xs text-on-surface-variant font-body">
+                  Dual-Rail Multi-Chain Payout Preview &amp; WORM Gate.
+                </p>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-solana/10 text-solana border border-solana/20">
+                ACTIVE
+              </span>
+</div>
+<!-- Distribution Ratio Visual Breakdown -->
+<div class="mt-4 space-y-3">
+<div class="text-xs font-label uppercase text-on-surface-variant font-bold">
+                Rebate Split Architecture (Trích Lợi Nhuận)
+              </div>
+<div class="space-y-2">
+<div class="flex justify-between text-xs font-mono">
+<span class="text-on-surface flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-primary"></span> Master Syndicate Desk
+                  </span>
+<span class="font-bold text-primary">60.0% ($74,700.00 USDC)</span>
+</div>
+<div class="flex justify-between text-xs font-mono">
+<span class="text-on-surface flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-cyber"></span> Sub-Desk Operators
+                  </span>
+<span class="font-bold text-cyber">25.0% ($31,125.00 USDC)</span>
+</div>
+<div class="flex justify-between text-xs font-mono">
+<span class="text-on-surface flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-sm bg-emerald"></span> Liquidity Provider Pool
+                  </span>
+<span class="font-bold text-emerald">15.0% ($18,675.00 USDC)</span>
+</div>
+<!-- Stacked Progress Bar -->
+<div class="w-full h-2 rounded-full bg-canvas flex overflow-hidden border border-outline-variant mt-1">
+<div class="bg-primary h-full" style="width: 60%"></div>
+<div class="bg-cyber h-full" style="width: 25%"></div>
+<div class="bg-emerald h-full" style="width: 15%"></div>
+</div>
+</div>
+</div>
+<!-- Target Settlement Rails Selection -->
+<div class="mt-5 space-y-3">
+<div class="text-xs font-label uppercase text-on-surface-variant font-bold">
+                Dispersal Rails (Kênh Thanh Toán Tức Thì)
+              </div>
+<div class="grid grid-cols-1 gap-2 text-xs font-mono">
+<!-- Rail 1: Stellar Horizon -->
+<div class="p-2.5 rounded-lg bg-canvas border border-stellar/30 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-stellar text-base" data-icon="rocket_launch">rocket_launch</span>
+<div>
+<div class="font-bold text-on-surface">Stellar Horizon Anchor (USDC)</div>
+<div class="text-[10px] text-on-surface-variant">Fee: &lt;$0.0001 • Settlement: 4.2s Finality</div>
+</div>
+</div>
+<span class="font-bold text-stellar">$74,700</span>
+</div>
+<!-- Rail 2: Solana SPL -->
+<div class="p-2.5 rounded-lg bg-canvas border border-solana/30 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-solana text-base" data-icon="electric_bolt">electric_bolt</span>
+<div>
+<div class="font-bold text-on-surface">Solana SPL Dual-Engine (USDC)</div>
+<div class="text-[10px] text-on-surface-variant">Fee: &lt;$0.0005 • Settlement: 400ms Sub-slot</div>
+</div>
+</div>
+<span class="font-bold text-solana">$31,125</span>
+</div>
+<!-- Rail 3: Arbitrum EIP-155 -->
+<div class="p-2.5 rounded-lg bg-canvas border border-outline-variant flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary text-base" data-icon="layers">layers</span>
+<div>
+<div class="font-bold text-on-surface">Arbitrum One Nitro (USDC)</div>
+<div class="text-[10px] text-on-surface-variant">Fee: ~$0.04 • EIP-155 Batch L2 Settlement</div>
+</div>
+</div>
+<span class="font-bold text-on-surface-variant">$18,675</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Two-Phase D1 WORM Protection Trigger Card -->
+<div class="p-3.5 rounded-lg bg-canvas/90 border border-amber/30 space-y-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5 text-amber text-xs font-bold font-headline">
+<span class="material-symbols-outlined text-base" data-icon="verified_user">verified_user</span>
+                Two-Phase D1 WORM Protection
+              </div>
+<span class="text-[10px] font-mono text-emerald">AUDIT-PROOF LOCKED</span>
+</div>
+<p class="text-[11px] text-on-surface-variant leading-relaxed font-body">
+              Payout batches are protected by Immutable Write-Once-Read-Many storage rules and signed via hardware enclave HSM.
+            </p>
+<button class="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-emerald to-cyber hover:opacity-95 text-canvas font-headline font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg shadow-emerald/20 transition-all">
+<span class="material-symbols-outlined text-base" data-icon="send">send</span>
+              Execute Instant Multi-Chain Payout ($124,500.00 USDC)
+            </button>
+</div>
+</div>
+</section>
+<!-- SYSTEM TELEMETRY STRIP & REBATE HARVEST TICKER -->
+<footer class="pt-4 border-t border-outline-variant flex flex-col md:flex-row items-center justify-between gap-4 text-xs font-mono text-on-surface-variant">
+<div class="flex items-center gap-3">
+<span class="flex items-center gap-1 text-emerald font-semibold">
+<span class="w-2 h-2 rounded-full bg-emerald"></span> ApexOS v4.12-PROD
+          </span>
+<span>•</span>
+<span>Oracle Heartbeat: OK (Block #20894121)</span>
+<span>•</span>
+<span>Cluster Node: SG-AP-EAST-1A</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-on-surface-variant">Idempotency Salt: <code class="text-cyber">88b4-f01e-4c8d-9a99</code></span>
+<span class="text-on-surface-variant">Latency: <strong class="text-emerald">3.8ms</strong></span>
+</div>
+</footer>
+</div>
+</main>
+<!-- Interactive slider and micro-interaction scripts -->
+<script>
+    // Micro-interactions for live terminal telemetry simulation
+    document.addEventListener('DOMContentLoaded', () => {
+      const sliders = document.querySelectorAll('input[type="range"]');
+      sliders.forEach(slider => {
+        slider.addEventListener('input', (e) => {
+          // Dynamic visual feedback without external bloat
+          e.target.style.opacity = '0.9';
+        });
+      });
+    });
+  </script>
+
+<!-- ApexOS Stitch-Loop Unified Navigation Ribbon -->
+<div style="position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(2,6,23,0.94);backdrop-filter:blur(14px);border:1px solid rgba(99,102,241,0.35);border-radius:9999px;padding:6px 16px;display:flex;gap:8px;align-items:center;font-family:'Inter',system-ui,sans-serif;font-size:12px;box-shadow:0 12px 32px rgba(0,0,0,0.7);white-space:nowrap;max-width:96vw;overflow-x:auto;">
+  <span style="color:#06B6D4;font-weight:700;padding-right:8px;border-right:1px solid #334155;display:inline-flex;align-items:center;gap:6px;">
+    <span style="width:7px;height:7px;border-radius:9999px;background:#10B981;display:inline-block;"></span>
+    ApexOS · Stitch-Loop
+  </span>
+  <a href="index.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">1. Cashback Cockpit</a>
+  <a href="arbitrage-deals.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">2. Arbitrage & Deals</a>
+  <a href="multichain-payouts.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">3. Multi-Chain Payouts</a>
+  <a href="compliance-fraud.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">4. KYC & Fraud Shield</a>
+  <a href="telegram-mini-app.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">5. Telegram Mini App</a>
+  <a href="style-guide.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">6. Style Guide</a>
+  <a href="webhook-replay-sandbox.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">7. Webhook Sandbox</a>
+  <a href="fee-surge-simulator.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">8. Fee Surge Simulator</a>
+  <a href="immutable-d1-audit-explorer.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">9. D1 Audit Explorer</a>
+  <a href="byok-encryption-vault.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">10. BYOK Key Vault</a>
+  <a href="vip-whale-otc-desk.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">11. VIP Whale Desk</a>
+</div>
+</body></html>
