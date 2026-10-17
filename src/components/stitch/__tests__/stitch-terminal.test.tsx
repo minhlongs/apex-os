@@ -191,6 +191,39 @@ describe('ApexOS Stitch Obsidian Quant Terminal Suite', () => {
     expect(screen.getByText('ENTERPRISE ($99/mo)')).toBeInTheDocument();
   });
 
+  it('switches to Screen 14 (R2 Merkle Archiver) and verifies R2 WORM Merkle proof integrity', () => {
+    renderTerminal('en');
+
+    fireEvent.click(screen.getByRole('button', { name: /14\.\s*R2 Merkle Archiver/i }));
+
+    expect(
+      screen.getByText(
+        'Cloudflare R2 Cold-Storage Snapshot Archiver & Zero-Egress Proof Verifier'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByText('200 VERIFIED · R2_WORM_MATCH')).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /Simulate Corrupted R2 Leaf Proof/i })
+    );
+    expect(screen.getByText('409 CONFLICT · MERKLE_ROOT_MISMATCH')).toBeInTheDocument();
+  });
+
+  it('switches to Screen 15 (AI Arbitrage Bot) and enforces 15.0 bps slippage circuit breaker', () => {
+    renderTerminal('en');
+
+    fireEvent.click(screen.getByRole('button', { name: /15\.\s*AI Arbitrage Bot/i }));
+
+    expect(
+      screen.getByText('Autonomous Multi-Agent Arbitrage Swarm & Risk-Gate Command')
+    ).toBeInTheDocument();
+    expect(screen.getByText('200 EXECUTING · SLIPPAGE_SAFE')).toBeInTheDocument();
+
+    const slippageSlider = screen.getByLabelText(/Simulated Orderbook Slippage/i);
+    fireEvent.change(slippageSlider, { target: { value: '20' } });
+    expect(screen.getByText('423 LOCKED · RISK_GATE_HALTED')).toBeInTheDocument();
+  });
+
   it('renders StitchObsidianBanner deep-link bridge for core app routes', () => {
     render(
       <StitchObsidianBanner
@@ -207,3 +240,4 @@ describe('ApexOS Stitch Obsidian Quant Terminal Suite', () => {
     );
   });
 });
+

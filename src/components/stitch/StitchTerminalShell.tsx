@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import type {
+  AiArbitrageAgentEntry,
   ArbitrageOpportunityItem,
   ByokVaultKeyEntry,
   ChainTreasuryStatus,
@@ -10,6 +11,7 @@ import type {
   ExchangeRebateItem,
   KycRollingTierItem,
   NowPaymentsPlanTier,
+  R2MerkleSnapshotEntry,
   ReferralTierNode,
   SepayBankRailEntry,
   StitchNavTab,
@@ -18,10 +20,12 @@ import type {
   WebhookSandboxPreset,
 } from '@/data/stitch-terminal-data';
 import {
+  AI_ARBITRAGE_AGENTS,
   BYOK_VAULT_KEYS,
   CRON_WORKER_JOBS,
   D1_IMMUTABLE_AUDIT_LOGS,
   NOWPAYMENTS_PLAN_TIERS,
+  R2_MERKLE_SNAPSHOTS,
   SEPAY_VIETQR_RAILS,
   STITCH_PROJECT_METADATA,
   VIP_WHALE_HEDGING_PAIRS,
@@ -36,6 +40,8 @@ import { StitchByokVault } from './StitchByokVault';
 import { StitchVipWhaleDesk } from './StitchVipWhaleDesk';
 import { StitchCronWorkerObservability } from './StitchCronWorkerObservability';
 import { StitchSepayVietQrBridge } from './StitchSepayVietQrBridge';
+import { StitchR2MerkleArchiver } from './StitchR2MerkleArchiver';
+import { StitchAiAgentArbitrageBot } from './StitchAiAgentArbitrageBot';
 
 export interface StitchTerminalShellProps {
   readonly initialLocale: 'en' | 'vi';
@@ -53,6 +59,8 @@ export interface StitchTerminalShellProps {
   readonly cronJobs?: readonly CronJobScheduleEntry[];
   readonly bankRails?: readonly SepayBankRailEntry[];
   readonly planTiers?: readonly NowPaymentsPlanTier[];
+  readonly r2Snapshots?: readonly R2MerkleSnapshotEntry[];
+  readonly aiAgents?: readonly AiArbitrageAgentEntry[];
 }
 
 export function StitchTerminalShell({
@@ -71,6 +79,8 @@ export function StitchTerminalShell({
   cronJobs = CRON_WORKER_JOBS,
   bankRails = SEPAY_VIETQR_RAILS,
   planTiers = NOWPAYMENTS_PLAN_TIERS,
+  r2Snapshots = R2_MERKLE_SNAPSHOTS,
+  aiAgents = AI_ARBITRAGE_AGENTS,
 }: Readonly<StitchTerminalShellProps>) {
   const [activeTab, setActiveTab] = useState<TerminalScreenId>(initialTab);
   const [locale, setLocale] = useState<'en' | 'vi'>(initialLocale);
@@ -236,6 +246,12 @@ export function StitchTerminalShell({
               planTiers={planTiers}
               locale={locale}
             />
+          )}
+          {activeTab === 'r2' && (
+            <StitchR2MerkleArchiver snapshots={r2Snapshots} locale={locale} />
+          )}
+          {activeTab === 'aibot' && (
+            <StitchAiAgentArbitrageBot agents={aiAgents} locale={locale} />
           )}
         </main>
       </div>

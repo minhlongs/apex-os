@@ -1,0 +1,883 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS — Autonomous Multi-Agent Basis-Point Arbitrage &amp; Risk-Gated Execution Terminal</title>
+<!-- Google Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            surface: "#020617",
+            "surface-variant": "#0f172a",
+            "surface-trough": "#1e293b",
+            "outline-border": "#1e293b",
+            "outline-variant": "#334155",
+            primary: "#6366f1",
+            "primary-container": "rgba(99, 102, 241, 0.15)",
+            "neural-violet": "#8b5cf6",
+            "cyber-cyan": "#06b6d4",
+            "emerald-glow": "#10b981",
+            "amber-warn": "#f59e0b",
+            "crimson-halt": "#ef4444",
+            "on-surface": "#f8fafc",
+            "on-surface-variant": "#94a3b8",
+            "on-surface-muted": "#64748b"
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "0.75rem", // 12px adhering to design system
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    };
+  </script>
+<style>
+    /* Custom Scrollbar for dense Quant Terminal */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1e293b;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    .glow-cyan {
+      box-shadow: 0 0 15px -3px rgba(6, 182, 212, 0.25);
+    }
+    .glow-crimson {
+      box-shadow: 0 0 20px -2px rgba(239, 68, 68, 0.4);
+    }
+    .glow-emerald {
+      box-shadow: 0 0 15px -3px rgba(16, 185, 129, 0.25);
+    }
+    .bg-grid-pattern {
+      background-size: 32px 32px;
+      background-image: 
+        linear-gradient(to right, rgba(30, 41, 59, 0.3) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(30, 41, 59, 0.3) 1px, transparent 1px);
+    }
+  </style>
+</head>
+<body class="bg-[#020617] text-on-surface font-body antialiased selection:bg-primary selection:text-white min-h-screen flex">
+<!-- ==================== SIDEBAR COMPONENT (248px) ==================== -->
+<aside class="w-[248px] fixed top-0 left-0 h-screen z-40 bg-[#020617] border-r border-[#1e293b] flex flex-col justify-between p-3 select-none">
+<!-- Top Branding & Node Status -->
+<div class="space-y-4">
+<div class="flex items-center gap-3 px-2 py-1.5">
+<div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#6366f1] via-[#8b5cf6] to-[#06b6d4] flex items-center justify-center shadow-lg shadow-indigo-500/20">
+<span class="material-symbols-outlined text-white text-lg" data-icon="terminal">terminal</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline font-bold text-sm tracking-wider text-white flex items-center gap-1.5">
+            ApexOS Terminal
+            <span class="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-pulse"></span>
+</span>
+<span class="font-label text-[10px] tracking-wide uppercase text-on-surface-muted">Arbitrage &amp; Settlement Hub</span>
+</div>
+</div>
+<!-- Live Node Pill -->
+<div class="px-2.5 py-1.5 rounded-md bg-[#0f172a] border border-[#1e293b] flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-[#10b981]"></span>
+<span class="font-mono text-[11px] text-[#94a3b8] tabular-nums">sin-01-node-09.apex</span>
+</div>
+<span class="font-mono text-[10px] text-[#06b6d4] bg-[#06b6d4]/10 px-1 rounded">12ms</span>
+</div>
+<!-- Navigation Links -->
+<nav class="space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors text-xs" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="dashboard">dashboard</span>
+<span>Cashback Cockpit</span>
+</a>
+<!-- ACTIVE TAB: Arbitrage & Deal Crawler with AI Swarm Pill -->
+<a class="flex items-center justify-between px-3 py-2 rounded text-[#6366f1] bg-[#6366f1]/10 font-medium border-l-2 border-[#6366f1] text-xs" href="#">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-[18px]" data-icon="query_stats">query_stats</span>
+<span>Arbitrage &amp; Deal Crawler</span>
+</div>
+<span class="px-1.5 py-0.5 rounded text-[9px] font-mono font-semibold bg-[#8b5cf6]/20 text-[#8b5cf6] border border-[#8b5cf6]/30">AI SWARM</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors text-xs" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="currency_exchange">currency_exchange</span>
+<span>Multi-Chain Payouts</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors text-xs" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="shield">shield</span>
+<span>KYC &amp; Fraud Command</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors text-xs" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="database">database</span>
+<span>D1 Audit Explorer</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors text-xs" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="send">send</span>
+<span>Telegram Mini App</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors text-xs" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="palette">palette</span>
+<span>Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Node CTA & Footer Links -->
+<div class="space-y-3 pt-3 border-t border-[#1e293b]">
+<div class="p-2.5 rounded-lg bg-gradient-to-b from-[#0f172a] to-[#1e293b]/60 border border-[#1e293b]">
+<div class="flex items-center justify-between mb-1.5">
+<span class="text-[10px] font-label uppercase text-on-surface-muted font-bold">CF DO Worker Status</span>
+<span class="text-[10px] font-mono text-[#10b981]">ARMED</span>
+</div>
+<div class="w-full bg-[#020617] h-1.5 rounded-full overflow-hidden">
+<div class="bg-gradient-to-r from-[#6366f1] to-[#10b981] h-full w-[94%]"></div>
+</div>
+<button class="mt-2.5 w-full py-1.5 px-3 rounded bg-[#6366f1] hover:bg-[#6366f1]/90 text-white font-headline text-xs font-semibold flex items-center justify-center gap-1.5 shadow-sm transition-all">
+<span class="material-symbols-outlined text-[14px]" data-icon="hub">hub</span>
+<span>Connect Node</span>
+</button>
+</div>
+<div class="space-y-1">
+<a class="flex items-center gap-2.5 px-2 py-1.5 rounded text-on-surface-variant hover:text-on-surface text-xs transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-2.5 px-2 py-1.5 rounded text-on-surface-variant hover:text-on-surface text-xs transition-colors" href="#">
+<span class="material-symbols-outlined text-[16px]" data-icon="menu_book">menu_book</span>
+<span>Documentation</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- ==================== MAIN CONTENT WRAPPER ==================== -->
+<div class="ml-[248px] flex-1 flex flex-col min-h-screen bg-[#020617] bg-grid-pattern relative">
+<!-- ==================== TOP NAVIGATION BAR (64px) ==================== -->
+<header class="h-16 fixed top-0 right-0 left-[248px] z-30 bg-[#020617]/90 backdrop-blur-md border-b border-[#1e293b] flex items-center justify-between px-6">
+<!-- Search Input with Command Key -->
+<div class="flex items-center gap-4 flex-1 max-w-md">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-muted text-lg pointer-events-none" data-icon="search">search</span>
+<input class="w-full pl-9 pr-12 py-1.5 bg-[#0f172a] border border-[#1e293b] rounded-lg text-xs text-on-surface placeholder:text-on-surface-muted focus:outline-none focus:border-[#6366f1] focus:ring-1 focus:ring-[#6366f1] font-body transition-colors" placeholder="Search orders, agent IDs, tx hash, or slippage guard..." type="text"/>
+<kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-mono bg-[#1e293b] text-on-surface-muted px-1.5 py-0.5 rounded border border-[#334155]">⌘K</kbd>
+</div>
+</div>
+<!-- Right Action Cluster -->
+<div class="flex items-center gap-3">
+<!-- 3/3 Chains Healthy Pill -->
+<div class="flex items-center gap-2 px-2.5 py-1 rounded-full bg-[#10b981]/10 border border-[#10b981]/30">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#10b981] opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-[#10b981]"></span>
+</span>
+<span class="font-mono text-[11px] font-semibold text-[#10b981] uppercase tracking-wider">3/3 Chains HEALTHY</span>
+</div>
+<!-- Master Tier Badge -->
+<span class="font-label font-bold text-[10px] tracking-widest uppercase px-2.5 py-1 rounded bg-[#8b5cf6]/15 border border-[#8b5cf6]/30 text-[#8b5cf6]">
+          MASTER TIER
+        </span>
+<!-- Bilingual Toggle Button -->
+<div class="flex items-center bg-[#0f172a] border border-[#1e293b] rounded-md p-0.5 text-[11px] font-mono font-medium">
+<button class="px-2 py-0.5 rounded bg-[#6366f1] text-white">EN</button>
+<span class="text-on-surface-muted px-1">|</span>
+<button class="px-2 py-0.5 rounded text-on-surface-muted hover:text-on-surface">VI</button>
+</div>
+<!-- Notifications -->
+<button class="p-2 rounded-lg bg-[#0f172a] border border-[#1e293b] text-on-surface-variant hover:text-white transition-colors relative">
+<span class="material-symbols-outlined text-[18px]" data-icon="notifications">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-[#6366f1] rounded-full"></span>
+</button>
+<!-- Connected Wallet Badge -->
+<div class="flex items-center gap-2 pl-3 pr-2 py-1 bg-[#0f172a] border border-[#1e293b] rounded-lg">
+<div class="w-2 h-2 rounded-full bg-[#06b6d4]"></div>
+<span class="font-mono text-xs text-on-surface tabular-nums">0x8F94...c4B2</span>
+<button class="ml-1 p-1 hover:bg-[#1e293b] rounded text-on-surface-muted hover:text-on-surface transition-colors" title="Disconnect or Switch">
+<span class="material-symbols-outlined text-sm" data-icon="account_balance_wallet">account_balance_wallet</span>
+</button>
+</div>
+</div>
+</header>
+<!-- ==================== MAIN PAGE BODY ==================== -->
+<main class="mt-16 p-6 space-y-6 flex-1 pb-16">
+<!-- SECTION 1: HEADER & BREADCRUMBS & ACTION CONTROLS -->
+<section class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-[#1e293b]">
+<div class="space-y-1.5">
+<!-- Breadcrumb -->
+<div class="flex items-center gap-2 text-[11px] font-mono tracking-wider text-on-surface-muted uppercase">
+<span>QUANT ENGINES</span>
+<span class="text-[#334155]">/</span>
+<span class="text-[#8b5cf6]">AI SWARM</span>
+<span class="text-[#334155]">/</span>
+<span class="text-[#06b6d4]">AUTONOMOUS EXECUTION v4.9</span>
+</div>
+<!-- Main Title -->
+<h1 class="font-headline font-bold text-xl md:text-2xl text-white tracking-tight flex items-center gap-3">
+            Autonomous Multi-Agent Basis-Point Arbitrage &amp; Risk-Gated Execution Terminal
+            <span class="px-2 py-0.5 rounded text-xs font-mono font-medium bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/30">LIVE RUNTIME</span>
+</h1>
+<!-- Bilingual EN/VI Subtitle -->
+<p class="font-body text-xs md:text-sm text-on-surface-variant max-w-4xl leading-relaxed">
+            Hệ thống Đa Agent Tự Hành Săn Chênh Lệch Phí &amp; Chốt Lãi Delta-Neutral với Rào Chắn Rủi Ro Real-time. Powered by Cloudflare Durable Objects and Ed25519 deterministic cryptographic execution locks.
+          </p>
+</div>
+<!-- Terminal Actions -->
+<div class="flex items-center gap-2.5 flex-wrap">
+<button class="px-3 py-2 rounded-lg bg-[#0f172a] hover:bg-[#1e293b] border border-[#334155] text-xs font-mono text-on-surface flex items-center gap-2 transition-all" id="btn-flash-crash">
+<span class="material-symbols-outlined text-sm text-[#f59e0b]" data-icon="electric_bolt">electric_bolt</span>
+<span>Simulate Flash Crash</span>
+</button>
+<button class="px-3 py-2 rounded-lg bg-[#0f172a] hover:bg-[#1e293b] border border-[#334155] text-xs font-mono text-on-surface flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-sm text-[#06b6d4]" data-icon="download">download</span>
+<span>Export Swarm Audit JSON</span>
+</button>
+<button class="px-3.5 py-2 rounded-lg bg-[#ef4444]/10 hover:bg-[#ef4444]/20 border border-[#ef4444] text-xs font-mono font-bold text-[#ef4444] flex items-center gap-2 transition-all glow-crimson" id="btn-emergency-halt">
+<span class="material-symbols-outlined text-base" data-icon="dangerous">dangerous</span>
+<span>EMERGENCY HALT ALL AGENTS</span>
+</button>
+</div>
+</section>
+<!-- SECTION 2: AUTONOMOUS AGENT SWARM BENTO KPIS (4 HERO METRIC CARDS) -->
+<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+<!-- CARD 1: Active Quant Agent Swarm -->
+<div class="p-4 rounded-xl bg-[#0f172a] border border-[#1e293b] flex flex-col justify-between relative overflow-hidden group hover:border-[#6366f1]/50 transition-all shadow-sm">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-[#6366f1]/5 rounded-full blur-xl pointer-events-none"></div>
+<div class="flex items-center justify-between mb-2">
+<span class="font-label text-[11px] uppercase tracking-wider text-on-surface-muted font-bold flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-[#10b981]"></span>
+              Active Quant Agent Swarm
+            </span>
+<span class="material-symbols-outlined text-lg text-[#6366f1]" data-icon="smart_toy">smart_toy</span>
+</div>
+<div class="space-y-1 mb-3">
+<div class="font-headline font-bold text-2xl text-white tracking-tight flex items-baseline gap-2">
+              4/4 Agents
+              <span class="font-mono text-xs font-semibold px-2 py-0.5 rounded bg-[#10b981]/15 text-[#10b981] border border-[#10b981]/30">ARMED</span>
+</div>
+<p class="font-mono text-xs text-[#06b6d4] tabular-nums">12ms Edge Loop <span class="text-on-surface-muted">• CF Worker + DO</span></p>
+</div>
+<div class="pt-2 border-t border-[#1e293b] flex items-center justify-between text-[11px] font-mono">
+<span class="text-on-surface-muted">Sync State:</span>
+<span class="text-[#10b981] font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="check_circle">check_circle</span>
+              0 Drift / In-Sync
+            </span>
+</div>
+</div>
+<!-- CARD 2: 30-Day Autonomous Alpha -->
+<div class="p-4 rounded-xl bg-[#0f172a] border border-[#1e293b] flex flex-col justify-between relative overflow-hidden group hover:border-[#10b981]/50 transition-all shadow-sm">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-[#10b981]/5 rounded-full blur-xl pointer-events-none"></div>
+<div class="flex items-center justify-between mb-2">
+<span class="font-label text-[11px] uppercase tracking-wider text-on-surface-muted font-bold flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-[#06b6d4]"></span>
+              30-Day Autonomous Alpha
+            </span>
+<span class="material-symbols-outlined text-lg text-[#10b981]" data-icon="trending_up">trending_up</span>
+</div>
+<div class="space-y-1 mb-3">
+<div class="font-mono font-bold text-2xl text-[#10b981] tabular-nums tracking-tight flex items-baseline gap-2">
+              +$19,420.00
+              <span class="font-body text-xs font-normal text-on-surface-muted">USDC</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-mono text-xs text-[#10b981] font-semibold">+34.2% MoM</span>
+<span class="text-on-surface-muted text-xs">•</span>
+<span class="font-mono text-xs text-[#8b5cf6]">Sharpe Ratio 3.42</span>
+</div>
+</div>
+<div class="pt-2 border-t border-[#1e293b] flex items-center justify-between text-[11px] font-mono">
+<span class="text-on-surface-muted">Avg Yield / Trade:</span>
+<span class="text-white font-semibold tabular-nums">+18.4 bps</span>
+</div>
+</div>
+<!-- CARD 3: Risk-Gate Drawdown Ceiling -->
+<div class="p-4 rounded-xl bg-[#0f172a] border border-[#1e293b] flex flex-col justify-between relative overflow-hidden group hover:border-[#f59e0b]/50 transition-all shadow-sm">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-[#f59e0b]/5 rounded-full blur-xl pointer-events-none"></div>
+<div class="flex items-center justify-between mb-2">
+<span class="font-label text-[11px] uppercase tracking-wider text-on-surface-muted font-bold flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-[#f59e0b]"></span>
+              Risk-Gate Drawdown Ceiling
+            </span>
+<span class="material-symbols-outlined text-lg text-[#f59e0b]" data-icon="verified_user">verified_user</span>
+</div>
+<div class="space-y-1 mb-3">
+<div class="font-headline font-bold text-2xl text-white tracking-tight flex items-baseline gap-2">
+              15.0 bps
+              <span class="font-label text-xs uppercase tracking-wide text-on-surface-muted">Slippage Guard</span>
+</div>
+<p class="font-mono text-xs text-[#10b981] flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-[#10b981]"></span>
+              0 Breaches (30d) • Circuit Breaker: GREEN
+            </p>
+</div>
+<div class="pt-2 border-t border-[#1e293b] flex items-center justify-between text-[11px] font-mono">
+<span class="text-on-surface-muted">Max Single-Trade Cap:</span>
+<span class="text-white font-semibold tabular-nums">$50,000 USDC</span>
+</div>
+</div>
+<!-- CARD 4: Sub-Account Execution Scope -->
+<div class="p-4 rounded-xl bg-[#0f172a] border border-[#1e293b] flex flex-col justify-between relative overflow-hidden group hover:border-[#06b6d4]/50 transition-all shadow-sm">
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-[#06b6d4]/5 rounded-full blur-xl pointer-events-none"></div>
+<div class="flex items-center justify-between mb-2">
+<span class="font-label text-[11px] uppercase tracking-wider text-on-surface-muted font-bold flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-[#8b5cf6]"></span>
+              Sub-Account Execution Scope
+            </span>
+<span class="material-symbols-outlined text-lg text-[#06b6d4]" data-icon="lock">lock</span>
+</div>
+<div class="space-y-1 mb-3">
+<div class="font-headline font-bold text-xl text-white tracking-tight flex items-baseline gap-2">
+              100% Read/Trade
+              <span class="font-mono text-[10px] text-[#ef4444] bg-[#ef4444]/10 border border-[#ef4444]/30 px-1.5 py-0.5 rounded font-semibold">0 WITHDRAW</span>
+</div>
+<p class="font-mono text-xs text-on-surface-muted truncate">AES-GCM-256 BYOK Bound</p>
+</div>
+<div class="pt-2 border-t border-[#1e293b] flex items-center justify-between text-[11px] font-mono">
+<span class="text-on-surface-muted">Venues Connected:</span>
+<span class="text-[#06b6d4] font-semibold">Binance, OKX, Bybit, KuCoin</span>
+</div>
+</div>
+</section>
+<!-- SECTION 3: MULTI-AGENT EXECUTION PIPELINE MATRIX (LIVE TABLE) -->
+<section class="rounded-xl bg-[#0f172a] border border-[#1e293b] overflow-hidden">
+<div class="p-4 border-b border-[#1e293b] flex flex-col md:flex-row md:items-center justify-between gap-3 bg-[#0f172a]">
+<div>
+<h2 class="font-headline font-bold text-base text-white flex items-center gap-2">
+<span class="material-symbols-outlined text-[#6366f1]" data-icon="table_chart">table_chart</span>
+              Multi-Agent Execution Pipeline Matrix
+            </h2>
+<p class="font-body text-xs text-on-surface-muted">Telemetry, basis point triggers, and risk thresholds managed autonomously across edge microservices.</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="inline-flex items-center gap-1 text-[11px] font-mono text-on-surface-muted bg-[#1e293b] px-2.5 py-1 rounded border border-[#334155]">
+<span class="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-ping"></span>
+              POLL INTERVAL: 12ms
+            </span>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-[#1e293b] bg-[#1e293b]/40 font-label text-[10px] uppercase tracking-wider text-on-surface-muted">
+<th class="p-3.5 pl-4">Agent Identity &amp; Role</th>
+<th class="p-3.5">Execution Status</th>
+<th class="p-3.5">Min Trigger / Buffer</th>
+<th class="p-3.5">24h Alpha Yield</th>
+<th class="p-3.5">Fill Efficiency / Metrics</th>
+<th class="p-3.5">Target Pairs / Scope</th>
+<th class="p-3.5 pr-4 text-right">Intervention Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-[#1e293b] font-body text-xs">
+<!-- AGENT 1: Scanner-Alpha -->
+<tr class="hover:bg-[#1e293b]/30 transition-colors">
+<td class="p-3.5 pl-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-[#6366f1]/10 border border-[#6366f1]/30 flex items-center justify-center text-[#6366f1] font-mono font-bold text-xs">
+                      α
+                    </div>
+<div>
+<div class="font-headline font-semibold text-white flex items-center gap-1.5">
+                        Scanner-Alpha
+                        <span class="text-[9px] font-mono bg-[#6366f1]/20 text-[#6366f1] px-1 rounded">CRAWLER</span>
+</div>
+<span class="text-[11px] text-on-surface-muted font-body">Exchange Fee &amp; Spread Crawler</span>
+</div>
+</div>
+</td>
+<td class="p-3.5">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-[#10b981] animate-pulse"></span>
+<span class="font-mono text-xs text-[#10b981] font-medium">ACTIVE (12ms poll)</span>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">Latency: 1.1ms</span>
+</td>
+<td class="p-3.5 font-mono tabular-nums text-white">
+                  &gt;= 8.0 bps
+                </td>
+<td class="p-3.5">
+<div class="font-mono font-semibold text-[#10b981] tabular-nums">+$6,840.00 USDC</div>
+<span class="text-[10px] font-mono text-on-surface-muted">+22.4 bps avg</span>
+</td>
+<td class="p-3.5">
+<div class="font-mono text-white tabular-nums">1,420 fills</div>
+<span class="text-[10px] font-mono text-[#10b981]">Success 99.8%</span>
+</td>
+<td class="p-3.5">
+<span class="font-mono text-[11px] text-[#06b6d4] bg-[#06b6d4]/10 border border-[#06b6d4]/20 px-2 py-0.5 rounded">
+                    BTC-USDT, ETH-USDC
+                  </span>
+</td>
+<td class="p-3.5 pr-4 text-right">
+<button class="px-2.5 py-1 rounded bg-[#1e293b] hover:bg-[#334155] border border-[#334155] text-[11px] font-mono text-on-surface-variant hover:text-white transition-colors" onclick="triggerSimBreach('Scanner-Alpha')">
+                    Simulate Risk-Gate Breach
+                  </button>
+</td>
+</tr>
+<!-- AGENT 2: Hedger-Beta -->
+<tr class="hover:bg-[#1e293b]/30 transition-colors">
+<td class="p-3.5 pl-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-[#8b5cf6]/10 border border-[#8b5cf6]/30 flex items-center justify-center text-[#8b5cf6] font-mono font-bold text-xs">
+                      β
+                    </div>
+<div>
+<div class="font-headline font-semibold text-white flex items-center gap-1.5">
+                        Hedger-Beta
+                        <span class="text-[9px] font-mono bg-[#8b5cf6]/20 text-[#8b5cf6] px-1 rounded">DELTA-0</span>
+</div>
+<span class="text-[11px] text-on-surface-muted font-body">Cross-Margin Delta-Neutral Bot</span>
+</div>
+</div>
+</td>
+<td class="p-3.5">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-[#06b6d4]"></span>
+<span class="font-mono text-xs text-[#06b6d4] font-medium">HEDGING (OKX ↔ Binance)</span>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">Delta Exposure: $0.00</span>
+</td>
+<td class="p-3.5 font-mono tabular-nums text-white">
+                  &gt;= 12.5 bps
+                </td>
+<td class="p-3.5">
+<div class="font-mono font-semibold text-[#10b981] tabular-nums">+$7,120.00 USDC</div>
+<span class="text-[10px] font-mono text-[#06b6d4]">Basis Spread +16.8 bps</span>
+</td>
+<td class="p-3.5">
+<div class="font-mono text-white tabular-nums">72% Maker / 28% Taker</div>
+<span class="text-[10px] font-mono text-on-surface-muted">Zero Slippage Slip</span>
+</td>
+<td class="p-3.5">
+<span class="font-mono text-[11px] text-[#8b5cf6] bg-[#8b5cf6]/10 border border-[#8b5cf6]/20 px-2 py-0.5 rounded">
+                    Perp vs Spot Basis
+                  </span>
+</td>
+<td class="p-3.5 pr-4 text-right">
+<button class="px-2.5 py-1 rounded bg-[#1e293b] hover:bg-[#334155] border border-[#334155] text-[11px] font-mono text-on-surface-variant hover:text-white transition-colors" onclick="showToast('Delta Exposure: 0.0001 BTC. Ratio is strictly balanced.')">
+                    Inspect Delta Ratio
+                  </button>
+</td>
+</tr>
+<!-- AGENT 3: Sentinel-Gamma -->
+<tr class="hover:bg-[#1e293b]/30 transition-colors">
+<td class="p-3.5 pl-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-[#f59e0b]/10 border border-[#f59e0b]/30 flex items-center justify-center text-[#f59e0b] font-mono font-bold text-xs">
+                      γ
+                    </div>
+<div>
+<div class="font-headline font-semibold text-white flex items-center gap-1.5">
+                        Sentinel-Gamma
+                        <span class="text-[9px] font-mono bg-[#f59e0b]/20 text-[#f59e0b] px-1 rounded">WATCHDOG</span>
+</div>
+<span class="text-[11px] text-on-surface-muted font-body">Slippage &amp; Drawdown Guard</span>
+</div>
+</div>
+</td>
+<td class="p-3.5">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-[#10b981]"></span>
+<span class="font-mono text-xs text-[#10b981] font-medium">WATCHDOG ARMED</span>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">1.2ms Intercept Window</span>
+</td>
+<td class="p-3.5 font-mono tabular-nums text-[#f59e0b]">
+                  15.0 bps ceiling
+                </td>
+<td class="p-3.5">
+<div class="font-mono text-white tabular-nums">Max Slippage: 4.2 bps</div>
+<span class="text-[10px] font-mono text-[#10b981]">Within Normal Bands</span>
+</td>
+<td class="p-3.5">
+<div class="font-mono text-[#f59e0b] tabular-nums">14 spikes blocked</div>
+<span class="text-[10px] font-mono text-on-surface-muted">Malicious/Illiquid Orderbook</span>
+</td>
+<td class="p-3.5">
+<span class="font-mono text-[11px] text-white bg-[#1e293b] border border-[#334155] px-2 py-0.5 rounded">
+                    Global Order Router
+                  </span>
+</td>
+<td class="p-3.5 pr-4 text-right">
+<button class="px-2.5 py-1 rounded bg-[#ef4444]/15 hover:bg-[#ef4444]/25 border border-[#ef4444]/40 text-[11px] font-mono text-[#ef4444] transition-colors" onclick="testCircuitBreaker()">
+                    Test Circuit Breaker
+                  </button>
+</td>
+</tr>
+<!-- AGENT 4: Settler-Delta -->
+<tr class="hover:bg-[#1e293b]/30 transition-colors">
+<td class="p-3.5 pl-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-[#06b6d4]/10 border border-[#06b6d4]/30 flex items-center justify-center text-[#06b6d4] font-mono font-bold text-xs">
+                      δ
+                    </div>
+<div>
+<div class="font-headline font-semibold text-white flex items-center gap-1.5">
+                        Settler-Delta
+                        <span class="text-[9px] font-mono bg-[#06b6d4]/20 text-[#06b6d4] px-1 rounded">REBATE</span>
+</div>
+<span class="text-[11px] text-on-surface-muted font-body">Multi-Chain Rebate Harvester</span>
+</div>
+</div>
+</td>
+<td class="p-3.5">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-[#8b5cf6]"></span>
+<span class="font-mono text-xs text-[#8b5cf6] font-medium">READY TO HARVEST</span>
+</div>
+<span class="text-[10px] font-mono text-on-surface-muted">Next Epoch: 42m 18s</span>
+</td>
+<td class="p-3.5 font-mono tabular-nums text-white">
+                  &gt;= 5.0 bps fee rebate
+                </td>
+<td class="p-3.5">
+<div class="font-mono font-semibold text-[#10b981] tabular-nums">Pending: $5,460.00 USDC</div>
+<span class="text-[10px] font-mono text-on-surface-muted">Accumulated in VIP Pools</span>
+</td>
+<td class="p-3.5">
+<div class="font-mono text-white tabular-nums">100% Payout Accuracy</div>
+<span class="text-[10px] font-mono text-[#06b6d4]">Zero Tx Failures</span>
+</td>
+<td class="p-3.5">
+<span class="font-mono text-[11px] text-[#06b6d4] bg-[#06b6d4]/10 border border-[#06b6d4]/20 px-2 py-0.5 rounded">
+                    Stellar Horizon &amp; Solana SPL
+                  </span>
+</td>
+<td class="p-3.5 pr-4 text-right">
+<button class="px-2.5 py-1 rounded bg-[#06b6d4]/15 hover:bg-[#06b6d4]/25 border border-[#06b6d4]/40 text-[11px] font-mono text-[#06b6d4] transition-colors" onclick="showToast('Epoch sweep initiated. Stellar Horizon anchor acknowledged.')">
+                    Force Epoch Sweep
+                  </button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- SECTION 4: INTERACTIVE RISK-GATE & SLIPPAGE GUARD SIMULATOR (SIDE-BY-SIDE LAB) -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- LEFT PANEL: Interactive Simulation Workbench (7 Cols) -->
+<div class="lg:col-span-7 rounded-xl bg-[#0f172a] border border-[#1e293b] p-5 flex flex-col justify-between space-y-6">
+<div>
+<div class="flex items-center justify-between pb-3 border-b border-[#1e293b]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[#6366f1]" data-icon="tune">tune</span>
+<h3 class="font-headline font-bold text-base text-white">Risk-Gate &amp; Slippage Guard Workbench</h3>
+</div>
+<span class="font-mono text-[11px] text-on-surface-muted bg-[#1e293b] px-2 py-0.5 rounded border border-[#334155]">
+                DETERMINISTIC SIMULATOR
+              </span>
+</div>
+<p class="font-body text-xs text-on-surface-muted mt-2">
+              Adjust arbitrage spread hurdles against live orderbook micro-slippage. The Sentinel-Gamma agent intercepts executions when safety margin collapses.
+            </p>
+<!-- Sliders Container -->
+<div class="space-y-5 mt-6">
+<!-- Slider 1: Target Basis-Point Spread Threshold -->
+<div class="space-y-2">
+<div class="flex justify-between items-center text-xs">
+<label class="font-label uppercase tracking-wider text-on-surface-variant font-semibold flex items-center gap-1.5" for="spread-slider">
+<span class="w-1.5 h-1.5 rounded-full bg-[#6366f1]"></span>
+                    Target Basis-Point Spread Threshold (bps)
+                  </label>
+<span class="font-mono font-bold text-[#6366f1] text-sm tabular-nums bg-[#6366f1]/10 px-2 py-0.5 rounded border border-[#6366f1]/30" id="spread-val-display">24.5 bps</span>
+</div>
+<input class="w-full h-2 bg-[#1e293b] rounded-lg appearance-none cursor-pointer accent-[#6366f1]" id="spread-slider" max="50" min="5" step="0.5" type="range" value="24.5"/>
+<div class="flex justify-between text-[10px] font-mono text-on-surface-muted">
+<span>5.0 bps (Scalp)</span>
+<span>25.0 bps (Standard)</span>
+<span>50.0 bps (Macro)</span>
+</div>
+</div>
+<!-- Slider 2: Simulated Market Slippage -->
+<div class="space-y-2">
+<div class="flex justify-between items-center text-xs">
+<label class="font-label uppercase tracking-wider text-on-surface-variant font-semibold flex items-center gap-1.5" for="slippage-slider">
+<span class="w-1.5 h-1.5 rounded-full bg-[#f59e0b]"></span>
+                    Simulated Market Slippage (bps)
+                  </label>
+<span class="font-mono font-bold text-[#f59e0b] text-sm tabular-nums bg-[#f59e0b]/10 px-2 py-0.5 rounded border border-[#f59e0b]/30" id="slippage-val-display">6.8 bps</span>
+</div>
+<input class="w-full h-2 bg-[#1e293b] rounded-lg appearance-none cursor-pointer accent-[#f59e0b]" id="slippage-slider" max="35" min="1" step="0.2" type="range" value="6.8"/>
+<div class="flex justify-between text-[10px] font-mono text-on-surface-muted">
+<span>1.0 bps (Deep Book)</span>
+<span>15.0 bps (Threshold Limit)</span>
+<span>35.0 bps (Extreme Stress)</span>
+</div>
+</div>
+<!-- Failsafe Mode Selector -->
+<div class="pt-2">
+<span class="font-label text-xs uppercase tracking-wider text-on-surface-variant font-semibold block mb-2">
+                  Sentinel Intercept Protocol
+                </span>
+<div class="grid grid-cols-2 gap-3">
+<button class="p-2.5 rounded-lg border border-[#6366f1] bg-[#6366f1]/10 text-left flex items-start gap-2.5 transition-all" id="mode-strict" onclick="setMode('strict')">
+<span class="material-symbols-outlined text-base text-[#6366f1] mt-0.5" data-icon="gavel">gavel</span>
+<div>
+<div class="font-headline font-bold text-xs text-white">Strict Abort Mode</div>
+<div class="font-body text-[10px] text-on-surface-muted">&lt;10 bps buffer triggers instant drop</div>
+</div>
+</button>
+<button class="p-2.5 rounded-lg border border-[#334155] bg-[#1e293b]/40 text-left flex items-start gap-2.5 hover:border-[#6366f1]/50 transition-all" id="mode-dynamic" onclick="setMode('dynamic')">
+<span class="material-symbols-outlined text-base text-[#06b6d4] mt-0.5" data-icon="alt_route">alt_route</span>
+<div>
+<div class="font-headline font-bold text-xs text-white">Dynamic Re-route</div>
+<div class="font-body text-[10px] text-on-surface-muted">Offloads via secondary liquidity venue</div>
+</div>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Dynamic Live Status Output Display -->
+<div class="p-4 rounded-lg bg-[#1e293b]/60 border border-[#334155] transition-all" id="status-card">
+<div class="flex items-center justify-between">
+<div>
+<span class="font-label text-[10px] uppercase tracking-wider text-on-surface-muted font-bold block">Calculated Net Alpha Safety Margin</span>
+<div class="flex items-baseline gap-2 mt-0.5">
+<span class="font-mono font-bold text-2xl text-[#10b981] tabular-nums" id="margin-val-display">+17.7 bps</span>
+<span class="font-mono text-xs text-on-surface-muted">(Threshold - Slippage)</span>
+</div>
+</div>
+<!-- Visual Status Badge -->
+<div class="px-3 py-1.5 rounded-md bg-[#10b981]/15 border border-[#10b981]/40 text-[#10b981] font-mono text-xs font-semibold flex items-center gap-2" id="status-badge">
+<span class="material-symbols-outlined text-sm" data-icon="check_circle">check_circle</span>
+<span>CLEAR_TO_EXECUTE</span>
+</div>
+</div>
+<!-- Dynamic Micro-Log Line -->
+<div class="mt-3 pt-3 border-t border-[#334155]/60 text-xs font-mono text-on-surface-variant flex items-center justify-between" id="status-subtext">
+<span>Risk Gate Verification: PASS • Byzantine Consensus OK</span>
+<span class="text-[#06b6d4]">Execution Window: 1.84ms</span>
+</div>
+</div>
+</div>
+<!-- RIGHT PANEL: Agent Telemetry & Cryptographic Invariance Stream (5 Cols) -->
+<div class="lg:col-span-5 rounded-xl bg-[#0f172a] border border-[#1e293b] p-5 flex flex-col justify-between space-y-4">
+<div class="flex items-center justify-between pb-3 border-b border-[#1e293b]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[#06b6d4]" data-icon="terminal">terminal</span>
+<h3 class="font-headline font-bold text-base text-white">Cryptographic Invariance Stream</h3>
+</div>
+<span class="flex items-center gap-1 font-mono text-[10px] text-[#10b981]">
+<span class="w-1.5 h-1.5 rounded-full bg-[#10b981] animate-ping"></span>
+              ED25519 LIVE
+            </span>
+</div>
+<!-- Live Terminal Output Area -->
+<div class="w-full flex-1 min-h-[290px] max-h-[340px] bg-[#020617] p-3 rounded-lg border border-[#1e293b] font-mono text-[11px] leading-relaxed space-y-2 overflow-y-auto" id="terminal-stream">
+<div class="text-[#64748b]">[14:02:18.491] INITIALIZE CF_DO_EXECUTION_ENGINE_V4.9</div>
+<div class="text-[#94a3b8]">[14:02:18.502] <span class="text-[#8b5cf6]">ED25519_SIG</span>: <span class="text-[#06b6d4]">0x4fbc9a...71e0</span> nonce=8104829</div>
+<div class="text-[#10b981]">[14:02:18.514] SCANNER_ALPHA: Triangular spread detect (Binance/OKX) +18.4 bps</div>
+<div class="text-[#94a3b8]">[14:02:18.516] SENTINEL_GAMMA: Check slippage profile -&gt; Estimated 2.1 bps (GUARD_PASS)</div>
+<div class="text-[#6366f1]">[14:02:18.518] HEDGER_BETA: Atomic 2-leg fill completed. Delta-0 verified.</div>
+<div class="text-[#64748b]">[14:02:19.002] D1_PERSIST_AUDIT: Transaction hash <span class="text-white">0x7c99...e21a</span> written to SQLite D1</div>
+<div class="text-[#94a3b8]">[14:02:19.120] SETTLER_DELTA: Epoch timer advanced. Pending harvest: $5,460.00 USDC</div>
+<div class="text-[#10b981]">[14:02:19.490] HEARTBEAT_OK: Swarm drift = 0ms. Memory consumption: 42.1MB</div>
+</div>
+<!-- Bottom Action Buttons inside panel -->
+<div class="pt-2 flex flex-col gap-2">
+<button class="w-full py-2.5 px-3 rounded-lg bg-[#f59e0b]/15 hover:bg-[#f59e0b]/25 border border-[#f59e0b]/40 text-xs font-mono font-semibold text-[#f59e0b] flex items-center justify-center gap-2 transition-all" id="btn-spike" onclick="simulateSpike()">
+<span class="material-symbols-outlined text-base" data-icon="warning">warning</span>
+<span>Simulate 25 bps Flash Slippage Spike</span>
+</button>
+<div class="flex items-center justify-between text-[11px] font-mono text-on-surface-muted px-1">
+<span>HMAC Key: BYOK_GCM_256</span>
+<span class="text-[#06b6d4]">SQLite D1 Lock: ENGAGED</span>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- Floating Global Toast Notification Container -->
+<div class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 pointer-events-none bg-[#0f172a] border border-[#334155] rounded-lg shadow-xl p-3 flex items-center gap-3" id="toast">
+<span class="material-symbols-outlined text-[#10b981]" data-icon="info" id="toast-icon">info</span>
+<span class="font-mono text-xs text-white" id="toast-msg">Notification event</span>
+</div>
+</div>
+<!-- Micro-Interactions & Simulation Logic -->
+<script>
+    // Elements
+    const spreadSlider = document.getElementById('spread-slider');
+    const slippageSlider = document.getElementById('slippage-slider');
+    const spreadDisplay = document.getElementById('spread-val-display');
+    const slippageDisplay = document.getElementById('slippage-val-display');
+    const marginDisplay = document.getElementById('margin-val-display');
+    const statusBadge = document.getElementById('status-badge');
+    const statusCard = document.getElementById('status-card');
+    const statusSubtext = document.getElementById('status-subtext');
+    const terminalStream = document.getElementById('terminal-stream');
+    const toast = document.getElementById('toast');
+    const toastMsg = document.getElementById('toast-msg');
+    const toastIcon = document.getElementById('toast-icon');
+
+    let currentMode = 'strict'; // 'strict' or 'dynamic'
+
+    function updateSimulation() {
+      const spread = parseFloat(spreadSlider.value);
+      const slippage = parseFloat(slippageSlider.value);
+      const margin = (spread - slippage).toFixed(1);
+
+      spreadDisplay.textContent = `${spread.toFixed(1)} bps`;
+      slippageDisplay.textContent = `${slippage.toFixed(1)} bps`;
+
+      // Recalculate Margin Display
+      if (margin > 0) {
+        marginDisplay.textContent = `+${margin} bps`;
+        marginDisplay.className = 'font-mono font-bold text-2xl text-[#10b981] tabular-nums';
+      } else {
+        marginDisplay.textContent = `${margin} bps`;
+        marginDisplay.className = 'font-mono font-bold text-2xl text-[#ef4444] tabular-nums';
+      }
+
+      // Check risk gate breach
+      if (slippage >= spread) {
+        // TRIPPED
+        statusBadge.innerHTML = `
+          <span class="material-symbols-outlined text-sm" data-icon="dangerous">dangerous</span>
+          <span>RISK_GATE_HALTED · SPREAD DEFICIT TRIPPED</span>
+        `;
+        statusBadge.className = 'px-3 py-1.5 rounded-md bg-[#ef4444]/20 border border-[#ef4444] text-[#ef4444] font-mono text-xs font-bold flex items-center gap-2 glow-crimson animate-pulse';
+        statusCard.className = 'p-4 rounded-lg bg-[#ef4444]/10 border border-[#ef4444]/50 transition-all';
+        statusSubtext.innerHTML = `
+          <span class="text-[#ef4444] font-bold">AUTOMATED CIRCUIT TRIPPED: Zero trade dispatched</span>
+          <span class="text-on-surface-muted">Deficit: ${Math.abs(margin)} bps</span>
+        `;
+        appendLog(`[SENTINEL_GAMMA_HALT] SPREAD DEFICIT DETECTED! Spread=${spread}bps &lt; Slippage=${slippage}bps. Atomic cancellation invoked.`, 'text-[#ef4444]');
+      } else if (currentMode === 'strict' && margin < 10.0) {
+        // BUFFER WARNING
+        statusBadge.innerHTML = `
+          <span class="material-symbols-outlined text-sm" data-icon="warning">warning</span>
+          <span>WARNING: SLENDER SAFETY BUFFER</span>
+        `;
+        statusBadge.className = 'px-3 py-1.5 rounded-md bg-[#f59e0b]/20 border border-[#f59e0b] text-[#f59e0b] font-mono text-xs font-semibold flex items-center gap-2';
+        statusCard.className = 'p-4 rounded-lg bg-[#f59e0b]/5 border border-[#f59e0b]/30 transition-all';
+        statusSubtext.innerHTML = `
+          <span class="text-[#f59e0b]">Buffer &lt; 10 bps: Order size scaled down by 50%</span>
+          <span class="text-on-surface-muted">Remaining: +${margin} bps</span>
+        `;
+      } else {
+        // HEALTHY
+        statusBadge.innerHTML = `
+          <span class="material-symbols-outlined text-sm" data-icon="check_circle">check_circle</span>
+          <span>CLEAR_TO_EXECUTE</span>
+        `;
+        statusBadge.className = 'px-3 py-1.5 rounded-md bg-[#10b981]/15 border border-[#10b981]/40 text-[#10b981] font-mono text-xs font-semibold flex items-center gap-2 glow-emerald';
+        statusCard.className = 'p-4 rounded-lg bg-[#1e293b]/60 border border-[#334155] transition-all';
+        statusSubtext.innerHTML = `
+          <span>Risk Gate Verification: PASS • Byzantine Consensus OK</span>
+          <span class="text-[#06b6d4]">Execution Window: 1.84ms</span>
+        `;
+      }
+    }
+
+    spreadSlider.addEventListener('input', updateSimulation);
+    slippageSlider.addEventListener('input', updateSimulation);
+
+    function simulateSpike() {
+      slippageSlider.value = 28.4;
+      updateSimulation();
+      appendLog('[SIMULATOR] Injected +25 bps illiquidity spike on Binance BTC/USDT book.', 'text-[#f59e0b]');
+      showToast('25 bps Flash Slippage Spike Injected!');
+    }
+
+    function appendLog(msg, colorClass) {
+      const now = new Date();
+      const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
+      const div = document.createElement('div');
+      div.className = colorClass || 'text-on-surface-variant';
+      div.innerHTML = `[${timeStr}] ${msg}`;
+      terminalStream.appendChild(div);
+      terminalStream.scrollTop = terminalStream.scrollHeight;
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      const strictBtn = document.getElementById('mode-strict');
+      const dynamicBtn = document.getElementById('mode-dynamic');
+
+      if (mode === 'strict') {
+        strictBtn.className = 'p-2.5 rounded-lg border border-[#6366f1] bg-[#6366f1]/10 text-left flex items-start gap-2.5 transition-all';
+        dynamicBtn.className = 'p-2.5 rounded-lg border border-[#334155] bg-[#1e293b]/40 text-left flex items-start gap-2.5 hover:border-[#6366f1]/50 transition-all';
+        appendLog('[CONFIG] Sentinel Mode: Strict Abort (&lt;10 bps threshold enabled).', 'text-[#6366f1]');
+      } else {
+        dynamicBtn.className = 'p-2.5 rounded-lg border border-[#06b6d4] bg-[#06b6d4]/10 text-left flex items-start gap-2.5 transition-all';
+        strictBtn.className = 'p-2.5 rounded-lg border border-[#334155] bg-[#1e293b]/40 text-left flex items-start gap-2.5 hover:border-[#06b6d4]/50 transition-all';
+        appendLog('[CONFIG] Sentinel Mode: Dynamic Re-route activated across secondary venues.', 'text-[#06b6d4]');
+      }
+      updateSimulation();
+    }
+
+    function testCircuitBreaker() {
+      appendLog('[SENTINEL_GAMMA] Manual Circuit Breaker Test Tripped by Operator.', 'text-[#ef4444]');
+      showToast('Circuit Breaker Test Succeeded (Zero Drift).');
+    }
+
+    function triggerSimBreach(agent) {
+      slippageSlider.value = 32.0;
+      updateSimulation();
+      appendLog(`[WARN] Simulated breach on ${agent}. Risk-gate intercepted order instantly.`, 'text-[#ef4444]');
+      showToast(`Simulated breach triggered on ${agent}!`);
+    }
+
+    document.getElementById('btn-emergency-halt').addEventListener('click', function() {
+      appendLog('🚨 [EMERGENCY_HALT] OPERATOR HALTED ALL 4 AGENTS. All sub-accounts set to READ_ONLY.', 'text-[#ef4444] font-bold');
+      showToast('EMERGENCY HALT EXECUTED: All agents suspended.', true);
+    });
+
+    document.getElementById('btn-flash-crash').addEventListener('click', function() {
+      spreadSlider.value = 8.0;
+      slippageSlider.value = 26.5;
+      updateSimulation();
+      appendLog('⚡ [FLASH_CRASH_SIMULATION] Volatility spike 400%. Depth reduced by 85%. Circuit breaker tripped.', 'text-[#f59e0b]');
+      showToast('Flash Crash Simulation Active.');
+    });
+
+    function showToast(message, isAlert = false) {
+      toastMsg.textContent = message;
+      if (isAlert) {
+        toastIcon.textContent = 'warning';
+        toastIcon.className = 'material-symbols-outlined text-[#ef4444]';
+      } else {
+        toastIcon.textContent = 'info';
+        toastIcon.className = 'material-symbols-outlined text-[#10b981]';
+      }
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+      }, 3500);
+    }
+  </script>
+</body></html>

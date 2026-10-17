@@ -25,6 +25,8 @@
 - [x] `vip-whale-otc-desk.html` — Screen 11: Institutional VIP Whale Rebate Desk & Cross-Margin Basis-Point Hedging Terminal
 - [x] `cron-worker-observability.html` — Screen 12: Cloudflare Edge Cron Worker, Email Queue & D1 Query Latency Observability Command
 - [x] `sepay-vietqr-bank-bridge.html` — Screen 13: SePay & VietQR Instant VND ↔ USDC Settlement Bridge & NOWPayments Tier Billing Console
+- [x] `r2-merkle-snapshot-archiver.html` — Screen 14: Cloudflare R2 Cold-Storage Audit Snapshot Archiver & Zero-Egress Proof Export Console
+- [x] `ai-agent-arbitrage-bot.html` — Screen 15: Autonomous Multi-Agent Basis-Point Arbitrage & Risk-Gated Execution Terminal
 
 ## Roadmap
 
@@ -41,10 +43,12 @@
 11. `vip-whale-otc-desk.html` — **Institutional VIP Whale Rebate Desk & Cross-Margin Basis-Point Hedging Terminal**: `$42.85M` 30d volume KPI cards, `-0.50 bps` negative maker rebate preservation, `+18.6%` delta-neutral funding + rebate APY matrix (`Binance VIP 9`, `Bybit Supreme`, `OKX VIP 8`, `KuCoin LV12`), and custom syndicate sub-account rebate allocator.
 12. `cron-worker-observability.html` — **Cloudflare Edge Cron Worker, Email Queue & D1 Query Latency Observability Command**: 7/7 `wrangler.toml` scheduled cron matrix (`alerts`, `email-queue`, `d1-metrics`, `email-retry`, `analytics-refresh`, `payouts`, `campaigns`), Resend dead-letter queue telemetry, and interactive D1 query latency + storage quota alert simulator.
 13. `sepay-vietqr-bank-bridge.html` — **SePay & VietQR Instant VND ↔ USDC Settlement Bridge & NOWPayments Tier Billing Console**: NAPAS 247 instant Vietnamese bank payout bridge (`VCB`, `TCB`, `MB`, `ACB` at `25,400 VND/USDC`, `1%` fee) and NOWPayments IPN subscription billing matrix (`BASIC $9`, `PREMIUM $29`, `ENTERPRISE $99`, `MASTER $299`).
+14. `r2-merkle-snapshot-archiver.html` — **Cloudflare R2 Cold-Storage Audit Snapshot Archiver & Zero-Egress Proof Export Console**: `1,095` daily WORM Parquet bundles (`$0.00/GB` egress), SHA-256 Merkle root proof catalog, and interactive Merkle leaf tamper rejection simulator.
+15. `ai-agent-arbitrage-bot.html` — **Autonomous Multi-Agent Basis-Point Arbitrage & Risk-Gated Execution Terminal**: 4/4 autonomous quant agents (`Scanner-Alpha`, `Hedger-Beta`, `Sentinel-Gamma`, `Settler-Delta`), `15.0 bps` slippage circuit breaker, and `READ_TRADE_ONLY` zero-withdrawal BYOK policy enforcement.
 
 ## Creative Freedom
 
-- Complete 13-Screen Stitch-Loop Enterprise Fintech Architecture Delivered (`13/13`)
+- Complete 15-Screen Stitch-Loop Enterprise Fintech Architecture Delivered (`15/15`)
 
 
 

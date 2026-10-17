@@ -14,7 +14,29 @@ export type TerminalScreenId =
   | 'byok'
   | 'whale'
   | 'observability'
-  | 'sepay';
+  | 'sepay'
+  | 'r2'
+  | 'aibot';
+
+export interface R2MerkleSnapshotEntry {
+  readonly snapshotId: string;
+  readonly r2ObjectKey: string;
+  readonly rowCount: number;
+  readonly compressedSizeMb: number;
+  readonly merkleRootHash: string;
+  readonly retentionUntil: string;
+  readonly status: 'WORM_SEALED_R2';
+}
+
+export interface AiArbitrageAgentEntry {
+  readonly agentId: 'scanner-alpha' | 'hedger-beta' | 'sentinel-gamma' | 'settler-delta';
+  readonly agentName: string;
+  readonly roleSummary: string;
+  readonly minSpreadTriggerBps: number;
+  readonly maxSlippageGuardBps: number;
+  readonly captured24hUsdc: number;
+  readonly status: 'ARMED_RUNNING';
+}
 
 export interface SepayBankRailEntry {
   readonly bankCode: 'VCB' | 'TCB' | 'MB' | 'ACB';
@@ -264,6 +286,93 @@ export const STITCH_NAV_TABS: readonly StitchNavTab[] = [
     badge: 'NAPAS 247',
     stitchScreenId: 'bcc8931a70524cf2bbbc639ad118dbc6',
     staticHtmlPath: '/sepay-vietqr-bank-bridge.html',
+  },
+  {
+    id: 'r2',
+    index: 14,
+    labelEn: 'R2 Merkle Archiver',
+    labelVi: 'Lưu Trữ R2 & Merkle Proof',
+    badge: '$0 Egress',
+    stitchScreenId: '69f95085b49c4c2fb0cb16faf09fd1fd',
+    staticHtmlPath: '/r2-merkle-snapshot-archiver.html',
+  },
+  {
+    id: 'aibot',
+    index: 15,
+    labelEn: 'AI Arbitrage Bot',
+    labelVi: 'Bot Arbitrage Đa Tác Tử',
+    badge: '4/4 Agents',
+    stitchScreenId: '4fbb8caa49cd4706bdd8510593bdf779',
+    staticHtmlPath: '/ai-agent-arbitrage-bot.html',
+  },
+] as const;
+
+export const R2_MERKLE_SNAPSHOTS: readonly R2MerkleSnapshotEntry[] = [
+  {
+    snapshotId: 'snap-2026-10-17',
+    r2ObjectKey: 'r2://apex-os-audit-worm/2026/10/17/d1-payout-ledger.parquet',
+    rowCount: 148920,
+    compressedSizeMb: 44.8,
+    merkleRootHash: '0x9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1908f7e6d5c4b3a2190876543210',
+    retentionUntil: '2033-10-17 (7Y WORM)',
+    status: 'WORM_SEALED_R2',
+  },
+  {
+    snapshotId: 'snap-2026-10-16',
+    r2ObjectKey: 'r2://apex-os-audit-worm/2026/10/16/d1-payout-ledger.parquet',
+    rowCount: 145110,
+    compressedSizeMb: 43.2,
+    merkleRootHash: '0x4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b',
+    retentionUntil: '2033-10-16 (7Y WORM)',
+    status: 'WORM_SEALED_R2',
+  },
+  {
+    snapshotId: 'snap-2026-10-15',
+    r2ObjectKey: 'r2://apex-os-audit-worm/2026/10/15/d1-payout-ledger.parquet',
+    rowCount: 141840,
+    compressedSizeMb: 41.9,
+    merkleRootHash: '0x7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d',
+    retentionUntil: '2033-10-15 (7Y WORM)',
+    status: 'WORM_SEALED_R2',
+  },
+] as const;
+
+export const AI_ARBITRAGE_AGENTS: readonly AiArbitrageAgentEntry[] = [
+  {
+    agentId: 'scanner-alpha',
+    agentName: 'Scanner-Alpha (Fee & Spread Crawler)',
+    roleSummary: 'Polls Binance, Bybit, OKX, KuCoin orderbooks & VIP rebate tiers every 12ms',
+    minSpreadTriggerBps: 12.0,
+    maxSlippageGuardBps: 15.0,
+    captured24hUsdc: 642.8,
+    status: 'ARMED_RUNNING',
+  },
+  {
+    agentId: 'hedger-beta',
+    agentName: 'Hedger-Beta (Delta-Neutral Leg Executor)',
+    roleSummary: 'Executes simultaneous maker-rebate long +perp short legs with zero withdraw scope',
+    minSpreadTriggerBps: 15.0,
+    maxSlippageGuardBps: 15.0,
+    captured24hUsdc: 894.5,
+    status: 'ARMED_RUNNING',
+  },
+  {
+    agentId: 'sentinel-gamma',
+    agentName: 'Sentinel-Gamma (Slippage & Drawdown Circuit Breaker)',
+    roleSummary: 'Halts autonomous execution immediately if slippage exceeds 15.0 bps or gas spikes',
+    minSpreadTriggerBps: 10.0,
+    maxSlippageGuardBps: 15.0,
+    captured24hUsdc: 0,
+    status: 'ARMED_RUNNING',
+  },
+  {
+    agentId: 'settler-delta',
+    agentName: 'Settler-Delta (Multi-Chain Rebate Sweeper)',
+    roleSummary: 'Sweeps verified exchange rebates into D1 atomic reservation batches ($50+ threshold)',
+    minSpreadTriggerBps: 8.0,
+    maxSlippageGuardBps: 15.0,
+    captured24hUsdc: 412.2,
+    status: 'ARMED_RUNNING',
   },
 ] as const;
 
