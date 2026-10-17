@@ -3,11 +3,13 @@ import {
   ARBITRAGE_OPPORTUNITIES,
   BYOK_VAULT_KEYS,
   CHAIN_TREASURY_RAILS,
+  CRON_WORKER_JOBS,
   D1_IMMUTABLE_AUDIT_LOGS,
   EXCHANGE_REBATES,
   KYC_ROLLING_TIERS,
   REFERRAL_TIERS,
   STITCH_PROJECT_METADATA,
+  VIP_WHALE_HEDGING_PAIRS,
   WEBHOOK_SANDBOX_PRESETS,
 } from '@/data/stitch-terminal-data';
 import {
@@ -15,6 +17,10 @@ import {
   calculateVolumeSavings,
 } from '@/lib/arbitrage/math';
 import { sanctionsScreeningService } from '@/lib/compliance/sanctions-service';
+import {
+  DEFAULT_ALERT_CONFIGS,
+  SLOW_QUERY_THRESHOLD_MS,
+} from '@/lib/monitoring/d1-monitor';
 import { WebhookCrypto } from '@/lib/webhooks/crypto';
 
 export async function GET() {
@@ -40,6 +46,8 @@ export async function GET() {
         benchmark150kAnnualSavingsUsd: benchmark150k.annual,
         ofacWatchlistActive: sampleSanctionCheck.isSanctioned,
         webCryptoHmacSampleDigest: sampleHmacDigest,
+        d1SlowQueryThresholdMs: SLOW_QUERY_THRESHOLD_MS,
+        d1DefaultAlertConfigCount: DEFAULT_ALERT_CONFIGS.length,
       },
       summary: {
         totalSettledUsdc: 28450.8,
@@ -57,6 +65,9 @@ export async function GET() {
       webhookPresets: WEBHOOK_SANDBOX_PRESETS,
       auditLogs: D1_IMMUTABLE_AUDIT_LOGS,
       vaultKeys: BYOK_VAULT_KEYS,
+      hedgingPairs: VIP_WHALE_HEDGING_PAIRS,
+      cronJobs: CRON_WORKER_JOBS,
+      d1AlertConfigs: DEFAULT_ALERT_CONFIGS,
     },
     { status: 200 }
   );

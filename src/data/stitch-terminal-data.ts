@@ -12,7 +12,19 @@ export type TerminalScreenId =
   | 'sandbox'
   | 'audit'
   | 'byok'
-  | 'whale';
+  | 'whale'
+  | 'observability';
+
+export interface CronJobScheduleEntry {
+  readonly jobId: 'alerts' | 'email-queue' | 'd1-metrics' | 'email-retry' | 'analytics-refresh' | 'payouts' | 'campaigns';
+  readonly cronExpression: string;
+  readonly cadenceLabel: string;
+  readonly endpoint: string;
+  readonly handlerName: string;
+  readonly lastDurationMs: number;
+  readonly lastOutputSummary: string;
+  readonly status: 'HEALTHY' | 'IDLE_READY';
+}
 
 export interface VipWhaleHedgingPair {
   readonly symbol: 'BTC-PERP' | 'ETH-PERP' | 'SOL-PERP';
@@ -215,6 +227,88 @@ export const STITCH_NAV_TABS: readonly StitchNavTab[] = [
     badge: '+18.6% APY',
     stitchScreenId: '11d9383ced1b4d5eb014541ee446d8c3',
     staticHtmlPath: '/vip-whale-otc-desk.html',
+  },
+  {
+    id: 'observability',
+    index: 12,
+    labelEn: 'Cron & D1 Observability',
+    labelVi: 'Giám Sát Cron & Độ Trễ D1',
+    badge: '7/7 Crons OK',
+    stitchScreenId: '10070b9dbac74e5a8541046ded082ee5',
+    staticHtmlPath: '/cron-worker-observability.html',
+  },
+] as const;
+
+export const CRON_WORKER_JOBS: readonly CronJobScheduleEntry[] = [
+  {
+    jobId: 'alerts',
+    cronExpression: '*/5 * * * *',
+    cadenceLabel: 'Every 5m',
+    endpoint: '/api/cron?job=alerts',
+    handlerName: 'evaluateBusinessAlerts(db)',
+    lastDurationMs: 18,
+    lastOutputSummary: 'Evaluated 12 rules · 0 triggered · 12 healthy',
+    status: 'HEALTHY',
+  },
+  {
+    jobId: 'email-queue',
+    cronExpression: '*/15 * * * *',
+    cadenceLabel: 'Every 15m',
+    endpoint: '/api/cron?job=email-queue',
+    handlerName: 'processEmailQueue()',
+    lastDurationMs: 142,
+    lastOutputSummary: 'Processed 24 emails: 24 sent via Resend, 0 failed',
+    status: 'HEALTHY',
+  },
+  {
+    jobId: 'd1-metrics',
+    cronExpression: '*/30 * * * *',
+    cadenceLabel: 'Every 30m',
+    endpoint: '/api/cron?job=d1-metrics',
+    handlerName: 'runMonitoringCycle(db)',
+    lastDurationMs: 31,
+    lastOutputSummary: 'Snapshot saved (1.42 GB storage · 14.2ms avg query)',
+    status: 'HEALTHY',
+  },
+  {
+    jobId: 'email-retry',
+    cronExpression: '*/30 * * * *',
+    cadenceLabel: 'Every 30m',
+    endpoint: '/api/cron?job=email-retry',
+    handlerName: 'retryFailedEmails()',
+    lastDurationMs: 11,
+    lastOutputSummary: 'Retried 0 queued dead-letter items (exponential backoff)',
+    status: 'HEALTHY',
+  },
+  {
+    jobId: 'analytics-refresh',
+    cronExpression: '0 */1 * * *',
+    cadenceLabel: 'Hourly',
+    endpoint: '/api/cron?job=analytics-refresh',
+    handlerName: 'refreshAnalyticsViews(db)',
+    lastDurationMs: 64,
+    lastOutputSummary: 'Refreshed 5/5 materialized analytics views',
+    status: 'HEALTHY',
+  },
+  {
+    jobId: 'payouts',
+    cronExpression: '0 0 * * 0',
+    cadenceLabel: 'Weekly (Sun 00:00)',
+    endpoint: '/api/cron?job=payouts',
+    handlerName: 'handleWeeklyPayouts(db)',
+    lastDurationMs: 412,
+    lastOutputSummary: 'Processed 38 affiliate payouts ($14,280.50 USDC · 1% fee)',
+    status: 'HEALTHY',
+  },
+  {
+    jobId: 'campaigns',
+    cronExpression: '0 0 * * 0',
+    cadenceLabel: 'Weekly (Sun 00:00)',
+    endpoint: '/api/cron?job=campaigns',
+    handlerName: 'runLifecycleCampaigns()',
+    lastDurationMs: 89,
+    lastOutputSummary: 'Enqueued: 19 welcome, 8 re-engagement, 4 win-back (0 errors)',
+    status: 'HEALTHY',
   },
 ] as const;
 

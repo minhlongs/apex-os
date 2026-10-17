@@ -5,6 +5,7 @@ import type {
   ArbitrageOpportunityItem,
   ByokVaultKeyEntry,
   ChainTreasuryStatus,
+  CronJobScheduleEntry,
   D1AuditLogEntry,
   ExchangeRebateItem,
   KycRollingTierItem,
@@ -16,6 +17,7 @@ import type {
 } from '@/data/stitch-terminal-data';
 import {
   BYOK_VAULT_KEYS,
+  CRON_WORKER_JOBS,
   D1_IMMUTABLE_AUDIT_LOGS,
   STITCH_PROJECT_METADATA,
   VIP_WHALE_HEDGING_PAIRS,
@@ -28,6 +30,7 @@ import { StitchWebhookSandbox } from './StitchWebhookSandbox';
 import { StitchD1AuditExplorer } from './StitchD1AuditExplorer';
 import { StitchByokVault } from './StitchByokVault';
 import { StitchVipWhaleDesk } from './StitchVipWhaleDesk';
+import { StitchCronWorkerObservability } from './StitchCronWorkerObservability';
 
 export interface StitchTerminalShellProps {
   readonly initialLocale: 'en' | 'vi';
@@ -42,6 +45,7 @@ export interface StitchTerminalShellProps {
   readonly auditLogs?: readonly D1AuditLogEntry[];
   readonly vaultKeys?: readonly ByokVaultKeyEntry[];
   readonly hedgingPairs?: readonly VipWhaleHedgingPair[];
+  readonly cronJobs?: readonly CronJobScheduleEntry[];
 }
 
 export function StitchTerminalShell({
@@ -57,6 +61,7 @@ export function StitchTerminalShell({
   auditLogs = D1_IMMUTABLE_AUDIT_LOGS,
   vaultKeys = BYOK_VAULT_KEYS,
   hedgingPairs = VIP_WHALE_HEDGING_PAIRS,
+  cronJobs = CRON_WORKER_JOBS,
 }: Readonly<StitchTerminalShellProps>) {
   const [activeTab, setActiveTab] = useState<TerminalScreenId>(initialTab);
   const [locale, setLocale] = useState<'en' | 'vi'>(initialLocale);
@@ -212,6 +217,9 @@ export function StitchTerminalShell({
           )}
           {activeTab === 'whale' && (
             <StitchVipWhaleDesk hedgingPairs={hedgingPairs} locale={locale} />
+          )}
+          {activeTab === 'observability' && (
+            <StitchCronWorkerObservability cronJobs={cronJobs} locale={locale} />
           )}
         </main>
       </div>

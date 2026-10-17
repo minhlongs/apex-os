@@ -157,6 +157,26 @@ describe('ApexOS Stitch Obsidian Quant Terminal Suite', () => {
     expect(screen.getByText(/\+\$530,000\/yr/)).toBeInTheDocument();
   });
 
+  it('switches to Screen 12 (Cron & D1 Observability) and simulates cron dispatch + D1 slow query alert', () => {
+    renderTerminal('en');
+
+    fireEvent.click(screen.getByRole('button', { name: /12\.\s*Cron & D1 Observability/i }));
+
+    expect(
+      screen.getByText('Cloudflare Edge Cron Schedule & D1 Query Telemetry Command')
+    ).toBeInTheDocument();
+    expect(screen.getByText('evaluateBusinessAlerts(db)')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Trigger payouts/i }));
+    expect(screen.getByText(/LAST MANUAL DISPATCH: \?job=payouts/i)).toBeInTheDocument();
+
+    const queryLatencySlider = screen.getByLabelText(/Simulated D1 Query Duration/i);
+    fireEvent.change(queryLatencySlider, { target: { value: '1400' } });
+    expect(
+      screen.getByText(/ALERT TRIGGERED: DISPATCHING TO \/api\/monitoring\/alert-engine/i)
+    ).toBeInTheDocument();
+  });
+
   it('renders StitchObsidianBanner deep-link bridge for core app routes', () => {
     render(
       <StitchObsidianBanner
