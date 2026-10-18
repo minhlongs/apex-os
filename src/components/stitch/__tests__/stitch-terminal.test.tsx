@@ -224,6 +224,36 @@ describe('ApexOS Stitch Obsidian Quant Terminal Suite', () => {
     expect(screen.getByText('423 LOCKED · RISK_GATE_HALTED')).toBeInTheDocument();
   });
 
+  it('switches to Screen 16 (Prime API Gateway) and evaluates Cloudflare KV token-bucket rate limits', () => {
+    renderTerminal('en');
+
+    fireEvent.click(screen.getByRole('button', { name: /16\.\s*Prime API Gateway/i }));
+
+    expect(
+      screen.getByText(
+        'Edge Traffic Governance, FIX 4.4 / REST Gateway & KV Token-Bucket Burst Control'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('gateway-rate-limit-result')).toHaveTextContent('ALLOWED_200');
+
+    const rpmInput = screen.getByTestId('gateway-rpm-input');
+    fireEvent.change(rpmInput, { target: { value: '3200' } });
+    fireEvent.click(screen.getByTestId('evaluate-kv-rate-limit-btn'));
+    expect(screen.getByTestId('gateway-rate-limit-result')).toHaveTextContent('RATE_LIMITED_429');
+  });
+
+  it('supports UI/UX Pro Max interactive SVG telemetry chart timeframes and sidebar screen search filter', () => {
+    renderTerminal('en');
+
+    expect(screen.getByTestId('telemetry-active-label')).toHaveTextContent('24H • 23:59');
+    fireEvent.click(screen.getByTestId('telemetry-tf-30D'));
+    expect(screen.getByTestId('telemetry-active-label')).toHaveTextContent('30D • W4');
+
+    const filterInput = screen.getByTestId('sidebar-screen-filter');
+    fireEvent.change(filterInput, { target: { value: 'Gateway' } });
+    expect(screen.getByRole('button', { name: /16\.\s*Prime API Gateway/i })).toBeInTheDocument();
+  });
+
   it('renders StitchObsidianBanner deep-link bridge for core app routes', () => {
     render(
       <StitchObsidianBanner

@@ -9,6 +9,7 @@ import {
   EXCHANGE_REBATES,
   KYC_ROLLING_TIERS,
   NOWPAYMENTS_PLAN_TIERS,
+  PRIME_API_GATEWAY_ROUTES,
   R2_MERKLE_SNAPSHOTS,
   REFERRAL_TIERS,
   SEPAY_VIETQR_RAILS,
@@ -57,6 +58,7 @@ export async function GET() {
         d1DefaultAlertConfigCount: DEFAULT_ALERT_CONFIGS.length,
         r2LatestSnapshotDigest: r2RootProofDigest,
         aiSwarmArmedCount: AI_ARBITRAGE_AGENTS.length,
+        primeGatewayRouteCount: PRIME_API_GATEWAY_ROUTES.length,
       },
       summary: {
         totalSettledUsdc: 28450.8,
@@ -81,6 +83,7 @@ export async function GET() {
       nowPaymentsPlans: NOWPAYMENTS_PLAN_TIERS,
       r2Snapshots: R2_MERKLE_SNAPSHOTS,
       aiAgents: AI_ARBITRAGE_AGENTS,
+      primeGatewayRoutes: PRIME_API_GATEWAY_ROUTES,
     },
     { status: 200 }
   );

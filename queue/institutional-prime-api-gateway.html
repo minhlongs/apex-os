@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS - Cloudflare KV Token-Bucket Rate Limiter &amp; Institutional FIX/REST API Gateway</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            surface: "#020617",
+            "surface-panel": "#0F172A",
+            "surface-well": "#1E293B",
+            "surface-variant": "#1E293B",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8",
+            "outline-variant": "#334155",
+            primary: "#6366F1",
+            "primary-container": "#312E81",
+            "on-primary-container": "#C7D2FE",
+            accent: "#8B5CF6",
+            cyber: "#06B6D4",
+            healthy: "#10B981",
+            danger: "#EF4444",
+            warning: "#F59E0B"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          },
+          borderRadius: {
+            DEFAULT: "0.5rem",
+            lg: "0.75rem",
+            xl: "1rem",
+            full: "9999px"
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .custom-scroll::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .custom-scroll::-webkit-scrollbar-track {
+      background: #0b1120;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 4px;
+    }
+    .custom-scroll::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    .specular-rim {
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+  </style>
+</head>
+<body class="bg-[#020617] text-slate-100 font-body min-h-screen selection:bg-indigo-500/30 selection:text-indigo-200 antialiased overflow-x-hidden">
+<!-- ==================== DESKTOP SIDEBAR ==================== -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-[#070D1E] border-r border-slate-800 flex flex-col justify-between p-4 select-none">
+<div class="flex flex-col gap-6">
+<!-- Terminal Brand Node -->
+<div class="flex items-center gap-3 px-2 py-1">
+<div class="relative w-9 h-9 rounded-lg bg-gradient-to-br from-indigo-500 via-purple-600 to-cyan-500 flex items-center justify-center p-[1px] shadow-lg shadow-indigo-500/20">
+<div class="w-full h-full bg-[#070D1E] rounded-[7px] flex items-center justify-center">
+<span class="material-symbols-outlined text-indigo-400 text-xl" data-icon="terminal">terminal</span>
+</div>
+</div>
+<div class="flex flex-col">
+<span class="font-headline font-bold text-sm tracking-wide text-white leading-tight">ApexOS Terminal</span>
+<span class="font-mono text-[10px] text-slate-400 tracking-tight">Arbitrage &amp; Settlement Hub</span>
+</div>
+</div>
+<!-- Navigation Links -->
+<nav aria-label="Main Navigation" class="flex flex-col gap-1.5">
+<div class="font-label tracking-wide uppercase text-[10px] text-slate-400 px-3 py-1 font-semibold">Edge Architecture</div>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-400 hover:bg-slate-800/60 hover:text-white transition-colors duration-150 text-sm" href="#cockpit">
+<span class="material-symbols-outlined text-lg" data-icon="dashboard">dashboard</span>
+<span>Cashback Cockpit</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-400 hover:bg-slate-800/60 hover:text-white transition-colors duration-150 text-sm" href="#arbitrage">
+<span class="material-symbols-outlined text-lg" data-icon="query_stats">query_stats</span>
+<span>Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- ACTIVE DESTINATION: API Gateway & Rate Limiter -->
+<a aria-current="page" class="flex items-center gap-3 px-3 py-2 rounded text-indigo-400 bg-indigo-500/10 font-medium border border-indigo-500/20 text-sm shadow-sm" href="#gateway">
+<span class="material-symbols-outlined text-lg text-indigo-400" data-icon="shield">shield</span>
+<div class="flex items-center justify-between w-full">
+<span>KYC &amp; Fraud Command</span>
+<span class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
+</div>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-400 hover:bg-slate-800/60 hover:text-white transition-colors duration-150 text-sm" href="#payouts">
+<span class="material-symbols-outlined text-lg" data-icon="currency_exchange">currency_exchange</span>
+<span>Multi-Chain Payouts</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-400 hover:bg-slate-800/60 hover:text-white transition-colors duration-150 text-sm" href="#telegram">
+<span class="material-symbols-outlined text-lg" data-icon="send">send</span>
+<span>Telegram Mini App</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-400 hover:bg-slate-800/60 hover:text-white transition-colors duration-150 text-sm" href="#styleguide">
+<span class="material-symbols-outlined text-lg" data-icon="palette">palette</span>
+<span>Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Sidebar Bottom Footer -->
+<div class="flex flex-col gap-3 pt-4 border-t border-slate-800/80">
+<div class="px-2 py-2 rounded-lg bg-slate-900/80 border border-slate-800 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+<span class="text-[11px] font-mono text-slate-300 font-medium">KV: APAC-SIN-01</span>
+</div>
+<span class="text-[10px] font-mono text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-950/60 border border-emerald-800/40">0.8ms</span>
+</div>
+<div class="flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-colors text-xs" href="#settings">
+<span class="material-symbols-outlined text-base" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-colors text-xs" href="#docs">
+<span class="material-symbols-outlined text-base" data-icon="menu_book">menu_book</span>
+<span>Documentation</span>
+</a>
+</div>
+<button class="w-full mt-1 flex items-center justify-center gap-2 px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-headline text-xs font-semibold tracking-wide transition-all shadow-md shadow-indigo-900/40" type="button">
+<span class="material-symbols-outlined text-sm" data-icon="hub">hub</span>
+<span>Connect Node</span>
+</button>
+</div>
+</aside>
+<!-- ==================== TOP BAR ==================== -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-[#070D1E]/95 backdrop-blur border-b border-slate-800 px-6 flex justify-between items-center select-none">
+<!-- Left: Search & Telemetry Status -->
+<div class="flex items-center gap-4">
+<div class="relative w-80">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-slate-400 text-lg" data-icon="search">search</span>
+<input class="w-full bg-slate-900 border border-slate-800 rounded-lg pl-9 pr-4 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono transition-all" placeholder="Filter KV Route, Method, or IP CIDR..." type="text"/>
+</div>
+<div class="h-4 w-[1px] bg-slate-800"></div>
+<div class="flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+<span>3/3 Chains HEALTHY</span>
+</div>
+<div class="px-2.5 py-1 rounded-full bg-indigo-950/40 border border-indigo-500/20 text-indigo-300 text-[11px] font-label font-bold uppercase tracking-wider">
+        MASTER TIER
+      </div>
+</div>
+<!-- Right: Language Toggle, Actions & Wallet -->
+<div class="flex items-center gap-4">
+<!-- Language Pill -->
+<div class="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-800 text-xs font-mono">
+<button class="px-2 py-0.5 rounded bg-indigo-600 text-white font-semibold shadow-sm">EN</button>
+<span class="text-slate-600 px-0.5">|</span>
+<button class="px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition-colors">VI</button>
+</div>
+<!-- Icon Actions -->
+<div class="flex items-center gap-1">
+<button aria-label="Notifications" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors relative" type="button">
+<span class="material-symbols-outlined text-lg" data-icon="notifications">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-400"></span>
+</button>
+<button aria-label="Terminal Shell" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/60 transition-colors" type="button">
+<span class="material-symbols-outlined text-lg" data-icon="terminal">terminal</span>
+</button>
+</div>
+<div class="h-4 w-[1px] bg-slate-800"></div>
+<!-- Wallet Pill -->
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-200 text-xs font-mono transition-all" type="button">
+<div class="w-2 h-2 rounded-full bg-indigo-400"></div>
+<span class="font-semibold">0x8F94...c4B2</span>
+<span class="material-symbols-outlined text-sm text-slate-400" data-icon="account_balance_wallet">account_balance_wallet</span>
+</button>
+<!-- Connect Wallet Action -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-semibold shadow-md shadow-indigo-900/30 transition-all font-headline" type="button">
+<span>Connect Wallet</span>
+</button>
+</div>
+</header>
+<!-- ==================== MAIN WORKSPACE ==================== -->
+<main class="ml-64 pt-20 px-8 pb-14 min-h-[calc(100vh-4rem)]">
+<!-- 1. HEADER & BREADCRUMBS SECTION -->
+<section class="mb-7">
+<div class="flex items-center gap-2 font-mono text-[11px] text-cyan-400/90 tracking-wider uppercase mb-2 font-semibold">
+<span>CLOUDFLARE EDGE WORKERS</span>
+<span class="text-slate-600">/</span>
+<span>DISTRIBUTED KV</span>
+<span class="text-slate-600">/</span>
+<span class="text-indigo-400">TOKEN-BUCKET SECURITY v4.9</span>
+</div>
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+<div>
+<h1 class="font-headline font-bold text-2xl lg:text-3xl text-white tracking-tight leading-snug">
+            Cloudflare KV Token-Bucket Rate Limiter &amp; Institutional FIX/REST API Gateway
+          </h1>
+<p class="font-body text-xs text-slate-400 max-w-4xl mt-1 leading-relaxed">
+<span class="text-slate-300 font-medium">Bảng điều khiển Giới hạn Tốc độ Token-Bucket Cloudflare KV &amp; Cổng API Thể chế FIX/REST.</span> 
+            Edge-enforced sub-millisecond HMAC rate-limiting, tiered token refill algorithms, and distributed DDoS blast-radius mitigation.
+          </p>
+</div>
+<!-- Action CTAs -->
+<div class="flex items-center gap-2.5 shrink-0">
+<button class="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-rose-950/50 hover:bg-rose-900/70 border border-rose-500/40 text-rose-300 text-xs font-mono font-medium transition-all shadow-sm" id="btn-ddos-flood" type="button">
+<span class="material-symbols-outlined text-sm text-rose-400" data-icon="crisis_alert">crisis_alert</span>
+<span>Simulate 500 RPS DDoS Flood</span>
+</button>
+<button class="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-slate-200 text-xs font-mono font-medium transition-all" type="button">
+<span class="material-symbols-outlined text-sm text-slate-400" data-icon="file_download">file_download</span>
+<span>Export OpenAPI Spec &amp; Rules</span>
+</button>
+<button class="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-headline font-semibold shadow-md shadow-indigo-900/30 transition-all" id="btn-purge-cache" type="button">
+<span class="material-symbols-outlined text-sm" data-icon="delete_sweep">delete_sweep</span>
+<span>PURGE KV RATE LIMIT CACHE</span>
+</button>
+</div>
+</div>
+</section>
+<!-- 2. BENTO KPI METRIC CARDS (4 Grid) -->
+<section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-7">
+<!-- Card 1: Edge Throughput -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-4 relative overflow-hidden specular-rim group hover:border-slate-700 transition-all">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label text-xs uppercase tracking-wider text-slate-400 font-semibold">Global Edge RPS Throughput</span>
+<div class="p-1.5 rounded-md bg-indigo-500/10 text-indigo-400">
+<span class="material-symbols-outlined text-base" data-icon="speed">speed</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2 mb-1">
+<span class="font-mono text-2xl font-bold text-white tracking-tight">4,820</span>
+<span class="font-mono text-xs text-indigo-400 font-medium">req/s</span>
+<span class="ml-auto text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">+18.4% Peak</span>
+</div>
+<p class="font-mono text-[11px] text-slate-400 leading-tight">
+          P95: <span class="text-slate-200 font-semibold">8.4ms</span> · Cloudflare Anycast 310 PoPs
+        </p>
+<div class="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
+<span class="text-slate-500">Edge Sync Status</span>
+<span class="text-emerald-400 font-medium flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> ACTIVE_SYNC (OK)
+          </span>
+</div>
+</div>
+<!-- Card 2: Token-Bucket Shield -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-4 relative overflow-hidden specular-rim group hover:border-slate-700 transition-all">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label text-xs uppercase tracking-wider text-slate-400 font-semibold">Cloudflare KV Token-Bucket</span>
+<div class="p-1.5 rounded-md bg-cyan-500/10 text-cyan-400">
+<span class="material-symbols-outlined text-base" data-icon="layers">layers</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2 mb-1">
+<span class="font-mono text-2xl font-bold text-white tracking-tight">120</span>
+<span class="font-mono text-xs text-cyan-400 font-medium">req/min Burst</span>
+<span class="ml-auto text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/40">2.0 tok/s</span>
+</div>
+<p class="font-mono text-[11px] text-slate-400 leading-tight">
+          Bucket refill velocity · Atomic decrement locks
+        </p>
+<div class="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
+<span class="text-slate-500">Cluster Invalidation</span>
+<span class="text-cyan-400 font-medium">Multi-DC Atomic</span>
+</div>
+</div>
+<!-- Card 3: Blocked Abuse & DDoS -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-4 relative overflow-hidden specular-rim group hover:border-slate-700 transition-all">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label text-xs uppercase tracking-wider text-slate-400 font-semibold">24h Blocked Abuse &amp; Bursts</span>
+<div class="p-1.5 rounded-md bg-rose-500/10 text-rose-400">
+<span class="material-symbols-outlined text-base" data-icon="gpp_bad">gpp_bad</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2 mb-1">
+<span class="font-mono text-2xl font-bold text-rose-400 tracking-tight">1,240</span>
+<span class="font-mono text-xs text-rose-300 font-medium">HTTP 429 Drops</span>
+<span class="ml-auto text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">0 Leaks</span>
+</div>
+<p class="font-mono text-[11px] text-slate-400 leading-tight">
+          0 Origin Breaches · Malicious IP auto-jail
+        </p>
+<div class="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
+<span class="text-slate-500">Sybil / Tor Filtering</span>
+<span class="text-rose-400 font-medium">Active (99.98% Drop)</span>
+</div>
+</div>
+<!-- Card 4: FIX / REST SLA -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-4 relative overflow-hidden specular-rim group hover:border-slate-700 transition-all">
+<div class="flex items-center justify-between mb-2">
+<span class="font-label text-xs uppercase tracking-wider text-slate-400 font-semibold">Institutional FIX / REST API SLA</span>
+<div class="p-1.5 rounded-md bg-purple-500/10 text-purple-400">
+<span class="material-symbols-outlined text-base" data-icon="verified">verified</span>
+</div>
+</div>
+<div class="flex items-baseline gap-2 mb-1">
+<span class="font-mono text-2xl font-bold text-emerald-400 tracking-tight">99.99%</span>
+<span class="font-mono text-xs text-slate-300 font-medium">Availability</span>
+<span class="ml-auto text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40">Tier-1 SLA</span>
+</div>
+<p class="font-mono text-[11px] text-slate-400 leading-tight">
+          WebCrypto HMAC-SHA256 Auth: <span class="text-slate-200 font-semibold">0.34ms</span>
+</p>
+<div class="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[11px] font-mono">
+<span class="text-slate-500">Engine Protocol</span>
+<span class="text-purple-300 font-medium">FIX.4.4 &amp; REST v2</span>
+</div>
+</div>
+</section>
+<!-- 3. ENDPOINT TOKEN-BUCKET RATE LIMIT MATRIX -->
+<section class="bg-[#0F172A] border border-[#1E293B] rounded-xl mb-7 overflow-hidden specular-rim">
+<!-- Table Header Bar -->
+<div class="p-4 border-b border-[#1E293B] flex flex-col md:flex-row md:items-center justify-between gap-3 bg-[#0B132B]/50">
+<div class="flex items-center gap-3">
+<div class="p-1.5 rounded bg-indigo-500/10 text-indigo-400">
+<span class="material-symbols-outlined text-lg" data-icon="tune">tune</span>
+</div>
+<div>
+<h2 class="font-headline font-bold text-base text-white">Endpoint Token-Bucket Rate Limit Matrix</h2>
+<p class="text-xs text-slate-400">Autonomous edge token pools configured via KV keys: `ratelimit:{tier}:{endpoint}:{hash}`</p>
+</div>
+</div>
+<!-- Live Header Preview Telemetry Pill -->
+<div class="flex items-center gap-2 bg-[#1E293B] border border-[#334155] rounded-lg px-3 py-1.5 text-[11px] font-mono text-slate-300 overflow-x-auto">
+<span class="text-slate-400 uppercase font-semibold">Live Headers Preview:</span>
+<span class="text-indigo-400 font-medium">X-RateLimit-Limit: <span class="text-white">120</span></span>
+<span class="text-slate-600">|</span>
+<span class="text-emerald-400 font-medium">X-RateLimit-Remaining: <span class="text-white">94</span></span>
+<span class="text-slate-600">|</span>
+<span class="text-cyan-400 font-medium">X-RateLimit-Reset: <span class="text-white">1713849102</span></span>
+</div>
+</div>
+<!-- High Density Telemetry Table -->
+<div class="overflow-x-auto custom-scroll">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-[#121E36] text-[11px] font-mono uppercase tracking-wider text-slate-400 border-b border-[#1E293B]">
+<th class="py-3 px-4 font-semibold">Endpoint Route &amp; Method</th>
+<th class="py-3 px-4 font-semibold">Tier Permission</th>
+<th class="py-3 px-4 font-semibold text-right">Bucket Capacity</th>
+<th class="py-3 px-4 font-semibold text-right">Refill Velocity</th>
+<th class="py-3 px-4 font-semibold">Current Remaining Tokens</th>
+<th class="py-3 px-4 font-semibold text-right">Reset (s)</th>
+<th class="py-3 px-4 font-semibold text-right">24h 429 Violation</th>
+<th class="py-3 px-4 font-semibold text-center">Status</th>
+<th class="py-3 px-4 font-semibold text-center">Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-[#1E293B] text-xs font-mono">
+<!-- Row 1: Exchange Webhooks -->
+<tr class="hover:bg-slate-800/40 transition-colors">
+<td class="py-3.5 px-4 font-mono font-medium">
+<div class="flex items-center gap-2">
+<span class="px-1.5 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800/50 text-[10px] font-bold">POST</span>
+<span class="text-slate-200">/api/webhooks/exchange</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40 text-[10px]">TIER_INSTITUTIONAL</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-300 font-semibold">300 tokens</td>
+<td class="py-3.5 px-4 text-right text-cyan-400">10.0 tok/s</td>
+<td class="py-3.5 px-4">
+<div class="w-48">
+<div class="flex justify-between text-[11px] mb-1">
+<span class="text-slate-300 font-semibold">284 / 300</span>
+<span class="text-emerald-400">94.6%</span>
+</div>
+<div class="w-full bg-[#1E293B] h-1.5 rounded-full overflow-hidden">
+<div class="bg-emerald-400 h-full rounded-full" style="width: 94.6%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400">1.6s</td>
+<td class="py-3.5 px-4 text-right text-emerald-400 font-medium">0.01%</td>
+<td class="py-3.5 px-4 text-center">
+<span class="px-2 py-0.5 rounded-full bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 text-[10px] font-bold tracking-wide">HEALTHY</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<button class="p-1 rounded text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition-colors" title="Inspect Rules" type="button">
+<span class="material-symbols-outlined text-base" data-icon="settings">settings</span>
+</button>
+</td>
+</tr>
+<!-- Row 2: Multi-Chain Payouts -->
+<tr class="hover:bg-slate-800/40 transition-colors">
+<td class="py-3.5 px-4 font-mono font-medium">
+<div class="flex items-center gap-2">
+<span class="px-1.5 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800/50 text-[10px] font-bold">POST</span>
+<span class="text-slate-200">/api/payouts</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-purple-950/60 text-purple-300 border border-purple-800/40 text-[10px]">TIER_SETTLEMENT</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-300 font-semibold">60 tokens</td>
+<td class="py-3.5 px-4 text-right text-cyan-400">0.5 tok/s</td>
+<td class="py-3.5 px-4">
+<div class="w-48">
+<div class="flex justify-between text-[11px] mb-1">
+<span class="text-slate-300 font-semibold">58 / 60</span>
+<span class="text-emerald-400">96.6%</span>
+</div>
+<div class="w-full bg-[#1E293B] h-1.5 rounded-full overflow-hidden">
+<div class="bg-emerald-400 h-full rounded-full" style="width: 96.6%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400">4.0s</td>
+<td class="py-3.5 px-4 text-right text-emerald-400 font-medium">0.00%</td>
+<td class="py-3.5 px-4 text-center">
+<span class="px-2 py-0.5 rounded-full bg-indigo-950/60 text-indigo-300 border border-indigo-800/40 text-[10px] font-bold tracking-wide">STRICT_GUARD</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<button class="p-1 rounded text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition-colors" title="Inspect Rules" type="button">
+<span class="material-symbols-outlined text-base" data-icon="settings">settings</span>
+</button>
+</td>
+</tr>
+<!-- Row 3: Arbitrage Deals -->
+<tr class="hover:bg-slate-800/40 transition-colors">
+<td class="py-3.5 px-4 font-mono font-medium">
+<div class="flex items-center gap-2">
+<span class="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800/50 text-[10px] font-bold">GET</span>
+<span class="text-slate-200">/api/deals/arbitrage</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">TIER_PUBLIC_FEED</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-300 font-semibold">500 tokens</td>
+<td class="py-3.5 px-4 text-right text-cyan-400">25.0 tok/s</td>
+<td class="py-3.5 px-4">
+<div class="w-48">
+<div class="flex justify-between text-[11px] mb-1">
+<span class="text-slate-300 font-semibold">412 / 500</span>
+<span class="text-cyan-400">82.4%</span>
+</div>
+<div class="w-full bg-[#1E293B] h-1.5 rounded-full overflow-hidden">
+<div class="bg-cyan-400 h-full rounded-full" style="width: 82.4%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400">3.5s</td>
+<td class="py-3.5 px-4 text-right text-amber-400 font-medium">0.12%</td>
+<td class="py-3.5 px-4 text-center">
+<span class="px-2 py-0.5 rounded-full bg-cyan-950/60 text-cyan-300 border border-cyan-800/40 text-[10px] font-bold tracking-wide">CACHED_EDGE</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<button class="p-1 rounded text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition-colors" title="Inspect Rules" type="button">
+<span class="material-symbols-outlined text-base" data-icon="settings">settings</span>
+</button>
+</td>
+</tr>
+<!-- Row 4: Terminal Actions -->
+<tr class="hover:bg-slate-800/40 transition-colors bg-indigo-950/10">
+<td class="py-3.5 px-4 font-mono font-medium">
+<div class="flex items-center gap-2">
+<span class="px-1.5 py-0.5 rounded bg-blue-950 text-blue-400 border border-blue-800/50 text-[10px] font-bold">POST</span>
+<span class="text-indigo-200 font-semibold">/api/terminal/actions</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-indigo-950/60 text-indigo-300 border border-indigo-800/40 text-[10px]">TIER_OPERATOR</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-300 font-semibold">120 tokens</td>
+<td class="py-3.5 px-4 text-right text-cyan-400">2.0 tok/s</td>
+<td class="py-3.5 px-4">
+<div class="w-48">
+<div class="flex justify-between text-[11px] mb-1">
+<span class="text-slate-200 font-semibold" id="table-terminal-remaining">94 / 120</span>
+<span class="text-amber-400 font-semibold" id="table-terminal-pct">78.3%</span>
+</div>
+<div class="w-full bg-[#1E293B] h-1.5 rounded-full overflow-hidden">
+<div class="bg-amber-400 h-full rounded-full transition-all duration-300" id="table-terminal-bar" style="width: 78.3%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400" id="table-terminal-reset">13.0s</td>
+<td class="py-3.5 px-4 text-right text-emerald-400 font-medium">0.04%</td>
+<td class="py-3.5 px-4 text-center">
+<span class="px-2 py-0.5 rounded-full bg-purple-950/60 text-purple-300 border border-purple-800/40 text-[10px] font-bold tracking-wide">ARMED</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<button class="p-1 rounded text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition-colors" title="Inspect Rules" type="button">
+<span class="material-symbols-outlined text-base" data-icon="settings">settings</span>
+</button>
+</td>
+</tr>
+<!-- Row 5: FIX Market Data Engine -->
+<tr class="hover:bg-slate-800/40 transition-colors">
+<td class="py-3.5 px-4 font-mono font-medium">
+<div class="flex items-center gap-2">
+<span class="px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800/50 text-[10px] font-bold">FIX</span>
+<span class="text-slate-200">/fix/v1/marketdata</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="px-2 py-0.5 rounded bg-cyan-950/60 text-cyan-300 border border-cyan-800/40 text-[10px]">TIER_HFT_FIX</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-300 font-semibold">2,000 msg/s</td>
+<td class="py-3.5 px-4 text-right text-cyan-400">100 msg/s</td>
+<td class="py-3.5 px-4">
+<div class="w-48">
+<div class="flex justify-between text-[11px] mb-1">
+<span class="text-slate-300 font-semibold">1,980 / 2,000</span>
+<span class="text-emerald-400">99.0%</span>
+</div>
+<div class="w-full bg-[#1E293B] h-1.5 rounded-full overflow-hidden">
+<div class="bg-emerald-400 h-full rounded-full" style="width: 99.0%"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400">0.2s</td>
+<td class="py-3.5 px-4 text-right text-emerald-400 font-medium">0.00%</td>
+<td class="py-3.5 px-4 text-center">
+<span class="px-2 py-0.5 rounded-full bg-cyan-950/60 text-cyan-300 border border-cyan-800/40 text-[10px] font-bold tracking-wide">LOW_LATENCY</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<button class="p-1 rounded text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition-colors" title="Inspect Rules" type="button">
+<span class="material-symbols-outlined text-base" data-icon="settings">settings</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- 4. INTERACTIVE TOKEN-BUCKET BURST & SIMULATOR + REAL-TIME EDGE TELEMETRY -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-5 mb-7">
+<!-- Left Side: Interactive Workbench (5 cols) -->
+<div class="lg:col-span-5 bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 specular-rim flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between pb-3 border-b border-[#1E293B] mb-4">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-rose-400" data-icon="tune">tune</span>
+<h3 class="font-headline font-bold text-sm text-white">Interactive Token-Bucket Burst &amp; HTTP 429 Simulator</h3>
+</div>
+<span class="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-[11px] font-mono text-slate-300">Target: /api/terminal/actions</span>
+</div>
+<!-- Slider / Input -->
+<div class="space-y-4 mb-4">
+<div>
+<div class="flex justify-between text-xs font-mono mb-1.5">
+<span class="text-slate-300">Simulated Client Burst Rate</span>
+<span class="text-rose-400 font-bold" id="slider-rate-label">145 req/min</span>
+</div>
+<input class="w-full h-1.5 bg-[#1E293B] rounded-lg appearance-none cursor-pointer accent-rose-500" id="rate-slider" max="300" min="10" type="range" value="145"/>
+<div class="flex justify-between text-[10px] font-mono text-slate-500 mt-1">
+<span>10 req/min (Normal)</span>
+<span>120 req/min (Ceiling)</span>
+<span>300 req/min (DDoS)</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-3 text-xs font-mono">
+<div class="bg-[#1E293B] p-2.5 rounded-lg border border-[#334155]">
+<span class="text-slate-400 text-[10px] block uppercase font-semibold">Bucket Capacity</span>
+<span class="text-white font-bold text-sm">120 tokens</span>
+<span class="text-[10px] text-cyan-400 block mt-0.5">Burst Ceiling Limit</span>
+</div>
+<div class="bg-[#1E293B] p-2.5 rounded-lg border border-[#334155]">
+<span class="text-slate-400 text-[10px] block uppercase font-semibold">Refill Velocity</span>
+<span class="text-emerald-400 font-bold text-sm">2.0 tokens / sec</span>
+<span class="text-[10px] text-slate-400 block mt-0.5">Leaky-bucket release</span>
+</div>
+</div>
+<!-- Dynamic Status Banner -->
+<div class="p-3 rounded-lg bg-rose-950/60 border border-rose-500/50 flex items-center gap-3" id="sim-status-banner">
+<span class="material-symbols-outlined text-rose-400 text-xl" data-icon="warning">warning</span>
+<div>
+<span class="text-xs font-mono font-bold text-rose-300 block tracking-wide">429 THROTTLE TRIGGERED</span>
+<span class="text-[11px] text-rose-200/80 font-mono" id="sim-status-subtext">+25 req over burst capacity (Refill wait required)</span>
+</div>
+</div>
+<!-- Dynamic HTTP Response Inspector -->
+<div class="space-y-1.5">
+<span class="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold block">Dynamic Edge Response Inspector</span>
+<div class="bg-[#020617] border border-slate-800 rounded-lg p-3 font-mono text-xs text-slate-300 space-y-1">
+<div class="text-rose-400 font-bold" id="http-status-line">HTTP/2 429 Too Many Requests</div>
+<div class="text-slate-400">Retry-After: <span class="text-amber-300" id="http-retry-after">12.5s</span></div>
+<div class="text-slate-400">X-RateLimit-Remaining: <span class="text-rose-400" id="http-remaining">0</span></div>
+<div class="text-slate-400">X-RateLimit-Reset: <span class="text-cyan-300" id="http-reset">13</span></div>
+<div class="text-slate-500 text-[11px] pt-1 border-t border-slate-800">
+                  Content-Type: application/json
+                </div>
+<div class="text-indigo-300 text-[11px] break-all" id="http-payload">
+                  {"error": "RATE_LIMIT_EXCEEDED", "tier": "PRO", "refill_in_seconds": 12.5}
+                </div>
+</div>
+</div>
+</div>
+</div>
+<!-- Workbench Action Buttons -->
+<div class="grid grid-cols-3 gap-2 pt-3 border-t border-[#1E293B]">
+<button class="flex items-center justify-center gap-1.5 px-2 py-2 rounded bg-rose-600 hover:bg-rose-500 text-white font-mono text-xs font-semibold shadow transition-all" id="btn-inject-burst" type="button">
+<span class="material-symbols-outlined text-sm" data-icon="bolt">bolt</span>
+<span>Inject Spike</span>
+</button>
+<button class="flex items-center justify-center gap-1.5 px-2 py-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-mono text-xs font-semibold transition-all" id="btn-reset-bucket" type="button">
+<span class="material-symbols-outlined text-sm" data-icon="refresh">refresh</span>
+<span>Reset Bucket</span>
+</button>
+<button class="flex items-center justify-center gap-1.5 px-2 py-2 rounded bg-purple-900/60 hover:bg-purple-800/80 text-purple-200 border border-purple-700/50 font-mono text-xs font-semibold transition-all" id="btn-sybil-spray" type="button">
+<span class="material-symbols-outlined text-sm" data-icon="share">share</span>
+<span>Sybil Spray</span>
+</button>
+</div>
+</div>
+<!-- Right Side: Real-time Cloudflare KV Rate Limit Stream & Edge Log (7 cols) -->
+<div class="lg:col-span-7 bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 specular-rim flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between pb-3 border-b border-[#1E293B] mb-3">
+<div class="flex items-center gap-2">
+<div class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></div>
+<h3 class="font-headline font-bold text-sm text-white">Live Cloudflare KV Rate Limit Stream &amp; Edge Log</h3>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-[11px] font-mono text-slate-400">Namespace: <span class="text-indigo-400 font-semibold">apex_ratelimit_kv_prod</span></span>
+<button class="text-xs text-slate-400 hover:text-slate-200 font-mono flex items-center gap-1" id="btn-clear-logs" type="button">
+<span class="material-symbols-outlined text-sm" data-icon="clear_all">clear_all</span>
+<span>Clear</span>
+</button>
+</div>
+</div>
+<!-- Monospace Terminal Log Container -->
+<div class="bg-[#020617] border border-slate-800 rounded-lg p-3 font-mono text-xs h-[360px] overflow-y-auto custom-scroll space-y-2 select-text" id="terminal-stream">
+<!-- Log Entry 1 -->
+<div class="flex items-start gap-2 border-b border-slate-900 pb-1.5 text-slate-300">
+<span class="text-slate-500 shrink-0">15:23:41.104</span>
+<span class="text-cyan-400 shrink-0 font-semibold">[SIN-01]</span>
+<span class="text-slate-400 shrink-0">IP: 103.21.244.12</span>
+<span class="text-slate-400 shrink-0">KEY: 0x8F94...</span>
+<span class="text-slate-300">deduct 1 tok (rem: 94)</span>
+<span class="text-emerald-400 shrink-0">lat: 1.1ms</span>
+<span class="ml-auto px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/40 text-[10px] font-bold">[200 OK]</span>
+</div>
+<!-- Log Entry 2 -->
+<div class="flex items-start gap-2 border-b border-slate-900 pb-1.5 text-slate-300">
+<span class="text-slate-500 shrink-0">15:23:41.420</span>
+<span class="text-cyan-400 shrink-0 font-semibold">[NRT-02]</span>
+<span class="text-slate-400 shrink-0">IP: 141.101.90.34</span>
+<span class="text-slate-400 shrink-0">KEY: 0x3E12...</span>
+<span class="text-slate-300">deduct 1 tok (rem: 18)</span>
+<span class="text-emerald-400 shrink-0">lat: 0.9ms</span>
+<span class="ml-auto px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/40 text-[10px] font-bold">[200 OK]</span>
+</div>
+<!-- Log Entry 3 -->
+<div class="flex items-start gap-2 border-b border-slate-900 pb-1.5 text-slate-300">
+<span class="text-slate-500 shrink-0">15:23:41.890</span>
+<span class="text-cyan-400 shrink-0 font-semibold">[SFO-01]</span>
+<span class="text-slate-400 shrink-0">IP: 198.41.200.77</span>
+<span class="text-slate-400 shrink-0">KEY: 0xCC81...</span>
+<span class="text-slate-300">deduct 1 tok (rem: 284)</span>
+<span class="text-emerald-400 shrink-0">lat: 1.4ms</span>
+<span class="ml-auto px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/40 text-[10px] font-bold">[200 OK]</span>
+</div>
+<!-- Log Entry 4: 429 REJECTION -->
+<div class="flex items-start gap-2 border-b border-slate-900 pb-1.5 text-rose-300 bg-rose-950/20 px-1 py-1 rounded">
+<span class="text-slate-500 shrink-0">15:23:42.012</span>
+<span class="text-cyan-400 shrink-0 font-semibold">[FRA-03]</span>
+<span class="text-rose-400 shrink-0 font-semibold">IP: 185.220.101.5</span>
+<span class="text-slate-400 shrink-0">KEY: 0x99A1...</span>
+<span class="text-rose-300 font-semibold">rem: 0 (bucket empty)</span>
+<span class="text-amber-400 shrink-0">lat: 0.8ms</span>
+<span class="ml-auto px-1.5 py-0.2 rounded bg-rose-950 text-rose-400 border border-rose-800/60 text-[10px] font-bold">[429 REJECTED - RETRY 14s]</span>
+</div>
+<!-- Log Entry 5 -->
+<div class="flex items-start gap-2 border-b border-slate-900 pb-1.5 text-slate-300">
+<span class="text-slate-500 shrink-0">15:23:42.240</span>
+<span class="text-cyan-400 shrink-0 font-semibold">[SIN-01]</span>
+<span class="text-slate-400 shrink-0">IP: 103.21.244.12</span>
+<span class="text-slate-400 shrink-0">KEY: 0x8F94...</span>
+<span class="text-slate-300">deduct 1 tok (rem: 93)</span>
+<span class="text-emerald-400 shrink-0">lat: 1.2ms</span>
+<span class="ml-auto px-1.5 py-0.2 rounded bg-emerald-950/80 text-emerald-400 border border-emerald-800/40 text-[10px] font-bold">[200 OK]</span>
+</div>
+<!-- Log Entry 6: FIX Engine Low Latency -->
+<div class="flex items-start gap-2 border-b border-slate-900 pb-1.5 text-slate-300">
+<span class="text-slate-500 shrink-0">15:23:42.310</span>
+<span class="text-purple-400 shrink-0 font-semibold">[LDN-01]</span>
+<span class="text-slate-400 shrink-0">IP: 194.153.110.2</span>
+<span class="text-purple-300 shrink-0">FIX: FIX.4.4</span>
+<span class="text-slate-300">seq: #89201 tok: ok</span>
+<span class="text-cyan-400 shrink-0">lat: 0.34ms</span>
+<span class="ml-auto px-1.5 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-800/40 text-[10px] font-bold">[FIX STREAM]</span>
+</div>
+</div>
+</div>
+<!-- Edge Status Micro Footbar -->
+<div class="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-3 border-t border-[#1E293B] mt-2">
+<div class="flex items-center gap-2">
+<span class="text-slate-500">Atomic Lock Mechanism:</span>
+<span class="text-indigo-400 font-medium">KV metadata conditional write with lease TTL 60s</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-emerald-400 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Edge Worker P99: 1.8ms
+            </span>
+</div>
+</div>
+</div>
+</section>
+</main>
+<!-- ==================== 5. SYSTEM STATUS FOOTER BAR ==================== -->
+<footer class="fixed bottom-0 left-64 right-0 h-8 bg-[#070D1E] border-t border-slate-800 px-6 flex items-center justify-between text-[11px] font-mono text-slate-400 select-none z-30">
+<div class="flex items-center gap-3">
+<span class="flex items-center gap-1.5 text-slate-300 font-medium">
+<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Cloudflare Workers Edge runtime v4.9
+      </span>
+<span class="text-slate-700">|</span>
+<span>Distributed KV Namespace: <span class="text-indigo-300">apex_ratelimit_kv_prod</span></span>
+<span class="text-slate-700">|</span>
+<span>SHA-256 HMAC Interceptor Active</span>
+</div>
+<div class="flex items-center gap-4">
+<span class="text-emerald-400 font-semibold flex items-center gap-1">
+<span class="material-symbols-outlined text-xs" data-icon="shield">shield</span>
+        Zero-Origin Leakage Guarantee
+      </span>
+<span class="text-slate-500">Sync: Global Anycast</span>
+</div>
+</footer>
+<!-- ==================== JAVASCRIPT MICRO-INTERACTIONS ==================== -->
+<script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const slider = document.getElementById("rate-slider");
+      const sliderLabel = document.getElementById("slider-rate-label");
+      const statusBanner = document.getElementById("sim-status-banner");
+      const subtext = document.getElementById("sim-status-subtext");
+      const httpStatus = document.getElementById("http-status-line");
+      const retryAfter = document.getElementById("http-retry-after");
+      const remainingTokens = document.getElementById("http-remaining");
+      const resetTime = document.getElementById("http-reset");
+      const httpPayload = document.getElementById("http-payload");
+
+      const tableRemaining = document.getElementById("table-terminal-remaining");
+      const tablePct = document.getElementById("table-terminal-pct");
+      const tableBar = document.getElementById("table-terminal-bar");
+      const tableReset = document.getElementById("table-terminal-reset");
+
+      const terminalStream = document.getElementById("terminal-stream");
+      const btnClearLogs = document.getElementById("btn-clear-logs");
+      const btnInject = document.getElementById("btn-inject-burst");
+      const btnReset = document.getElementById("btn-reset-bucket");
+      const btnSybil = document.getElementById("btn-sybil-spray");
+      const btnPurge = document.getElementById("btn-purge-cache");
+      const btnFlood = document.getElementById("btn-ddos-flood");
+
+      function updateSimulation(rate) {
+        sliderLabel.textContent = `${rate} req/min`;
+
+        if (rate > 120) {
+          // 429 Throttle State
+          const overage = rate - 120;
+          statusBanner.className = "p-3 rounded-lg bg-rose-950/60 border border-rose-500/50 flex items-center gap-3";
+          statusBanner.querySelector("span.material-symbols-outlined").className = "material-symbols-outlined text-rose-400 text-xl";
+          statusBanner.querySelector("span.material-symbols-outlined").innerText = "warning";
+          statusBanner.querySelector("span.font-bold").className = "text-xs font-mono font-bold text-rose-300 block tracking-wide";
+          statusBanner.querySelector("span.font-bold").innerText = "429 THROTTLE TRIGGERED";
+          subtext.textContent = `+${overage} req over burst capacity (Refill wait required)`;
+
+          httpStatus.textContent = "HTTP/2 429 Too Many Requests";
+          httpStatus.className = "text-rose-400 font-bold";
+          const waitTime = ((overage / 2.0).toFixed(1));
+          retryAfter.textContent = `${waitTime}s`;
+          remainingTokens.textContent = "0";
+          remainingTokens.className = "text-rose-400 font-bold";
+          resetTime.textContent = Math.ceil(parseFloat(waitTime));
+          httpPayload.textContent = `{"error": "RATE_LIMIT_EXCEEDED", "tier": "PRO", "refill_in_seconds": ${waitTime}}`;
+
+          // Table reflect
+          tableRemaining.textContent = "0 / 120";
+          tablePct.textContent = "0.0%";
+          tablePct.className = "text-rose-400 font-semibold";
+          tableBar.style.width = "0%";
+          tableBar.className = "bg-rose-500 h-full rounded-full transition-all duration-300";
+          tableReset.textContent = `${waitTime}s`;
+        } else {
+          // Normal/Healthy State
+          const tokensLeft = Math.round(120 - (rate * 0.7));
+          const pct = ((tokensLeft / 120) * 100).toFixed(1);
+          statusBanner.className = "p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/40 flex items-center gap-3";
+          statusBanner.querySelector("span.material-symbols-outlined").className = "material-symbols-outlined text-emerald-400 text-xl";
+          statusBanner.querySelector("span.material-symbols-outlined").innerText = "check_circle";
+          statusBanner.querySelector("span.font-bold").className = "text-xs font-mono font-bold text-emerald-300 block tracking-wide";
+          statusBanner.querySelector("span.font-bold").innerText = "RATE LIMIT OK (WITHIN SLIDING WINDOW)";
+          subtext.textContent = `Operating at ${rate} req/min · Sub-capacity tokens available`;
+
+          httpStatus.textContent = "HTTP/2 200 OK";
+          httpStatus.className = "text-emerald-400 font-bold";
+          retryAfter.textContent = "0s (Ready)";
+          remainingTokens.textContent = tokensLeft;
+          remainingTokens.className = "text-emerald-400 font-bold";
+          resetTime.textContent = "1";
+          httpPayload.textContent = `{"status": "AUTHORIZED", "tier": "PRO", "remaining": ${tokensLeft}}`;
+
+          // Table reflect
+          tableRemaining.textContent = `${tokensLeft} / 120`;
+          tablePct.textContent = `${pct}%`;
+          tablePct.className = "text-emerald-400 font-semibold";
+          tableBar.style.width = `${pct}%`;
+          tableBar.className = "bg-emerald-400 h-full rounded-full transition-all duration-300";
+          tableReset.textContent = "1.2s";
+        }
+      }
+
+      slider.addEventListener("input", (e) => {
+        updateSimulation(parseInt(e.target.value));
+      });
+
+      // Append Log Helper
+      function appendLog(pop, ip, key, detail, lat, statusText, isRejected = false) {
+        const d = new Date();
+        const timeStr = `${d.toTimeString().split(' ')[0]}.${d.getMilliseconds()}`;
+        const div = document.createElement("div");
+        div.className = isRejected 
+          ? "flex items-start gap-2 border-b border-slate-900 pb-1.5 text-rose-300 bg-rose-950/20 px-1 py-1 rounded"
+          : "flex items-start gap-2 border-b border-slate-900 pb-1.5 text-slate-300";
+
+        div.innerHTML = `
+          <span class="text-slate-500 shrink-0">${timeStr}</span>
+          <span class="text-cyan-400 shrink-0 font-semibold">[${pop}]</span>
+          <span class="${isRejected ? 'text-rose-400 font-semibold' : 'text-slate-400'} shrink-0">${ip}</span>
+          <span class="text-slate-400 shrink-0">${key}</span>
+          <span class="${isRejected ? 'text-rose-300 font-semibold' : 'text-slate-300'}">${detail}</span>
+          <span class="text-emerald-400 shrink-0">${lat}</span>
+          <span class="ml-auto px-1.5 py-0.2 rounded ${isRejected ? 'bg-rose-950 text-rose-400 border border-rose-800/60' : 'bg-emerald-950/80 text-emerald-400 border border-emerald-800/40'} text-[10px] font-bold">${statusText}</span>
+        `;
+        terminalStream.insertBefore(div, terminalStream.firstChild);
+      }
+
+      btnClearLogs.addEventListener("click", () => {
+        terminalStream.innerHTML = `<div class="text-slate-600 text-center py-8">Log buffer cleared by operator</div>`;
+      });
+
+      btnInject.addEventListener("click", () => {
+        slider.value = 240;
+        updateSimulation(240);
+        appendLog("SFO-01", "IP: 198.41.200.77", "KEY: 0x8F94...", "BURST SPIKE +120 reqs (rem: 0)", "lat: 0.9ms", "[429 REJECTED - RETRY 25s]", true);
+      });
+
+      btnReset.addEventListener("click", () => {
+        slider.value = 45;
+        updateSimulation(45);
+        appendLog("SIN-01", "IP: 103.21.244.12", "KEY: 0x8F94...", "BUCKET REFILLED TO 120 TOKENS", "lat: 1.1ms", "[200 OK]", false);
+      });
+
+      btnSybil.addEventListener("click", () => {
+        appendLog("FRA-02", "IP: 192.42.116.18", "KEY: [ANON_SPRAY]", "Sybil pattern dropped by Tor/Proxy filter", "lat: 0.4ms", "[429 SYBIL_DROP]", true);
+        appendLog("AMS-01", "IP: 194.26.29.90", "KEY: [ANON_SPRAY]", "Sybil pattern dropped by Tor/Proxy filter", "lat: 0.5ms", "[429 SYBIL_DROP]", true);
+      });
+
+      btnPurge.addEventListener("click", () => {
+        appendLog("GLOBAL", "CLUSTER: CF-KV-ALL", "OP: PURGE", "KV Namespace cache invalidated across 310 PoPs", "lat: 3.2ms", "[PURGE_ACK]", false);
+        alert("Cloudflare KV Distributed Rate Limit cache purged globally across 310 PoPs.");
+      });
+
+      btnFlood.addEventListener("click", () => {
+        slider.value = 300;
+        updateSimulation(300);
+        appendLog("IAD-01", "IP: 104.16.12.1", "KEY: 0xDEAD...", "DDOS FLOOD DETECTED (500 RPS) - AUTO JAIL", "lat: 0.3ms", "[429 FLOOD_BLOCK]", true);
+      });
+    });
+  </script>
+</body></html>

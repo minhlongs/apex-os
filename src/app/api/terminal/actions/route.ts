@@ -189,6 +189,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (action === 'evaluate_kv_rate_limit') {
+      const clientTier = String(body.clientTier ?? 'PRIME_INSTITUTIONAL').toUpperCase();
+      const requestedRpm = Number(body.requestedRpm ?? 1800);
+      if (!Number.isFinite(requestedRpm) || requestedRpm <= 0) {
+        return NextResponse.json(
+          { ok: false, error: 'requestedRpm must be a positive number' },
+          { status: 400 }
+        );
+      }
+
+      const tierCapacities: Record<string, number> = {
+        STANDARD: 300,
+        VIP_QUANT: 1200,
+        PRIME_INSTITUTIONAL: 2400,
+      };
+      const bucketCapacity = tierCapacities[clientTier] ?? 300;
+      const allowed = requestedRpm <= bucketCapacity;
+      const remainingTokens = allowed ? bucketCapacity - requestedRpm : 0;
+      const refillPerSec = Math.max(1, Math.round(bucketCapacity / 60));
+      const retryAfterSec = allowed
+        ? 0
+        : Math.max(1, Math.ceil((requestedRpm - bucketCapacity) / refillPerSec));
+
+      return NextResponse.json(
+        {
+          ok: allowed,
+          action,
+          clientTier,
+          requestedRpm,
+          bucketCapacity,
+          remainingTokens,
+          retryAfterSec,
+          verdict: allowed ? 'ALLOWED_200' : 'RATE_LIMITED_429',
+        },
+        { status: allowed ? 200 : 429 }
+      );
+    }
+
     return NextResponse.json(
       { ok: false, error: `Unsupported terminal action: ${String(action)}` },
       { status: 400 }

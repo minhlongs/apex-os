@@ -3,6 +3,8 @@
  * Generated via stitch-nextjs-components from Google Stitch Project 11542622336933833737
  */
 
+export type TerminalLocale = 'en' | 'vi';
+
 export type TerminalScreenId =
   | 'cockpit'
   | 'arbitrage'
@@ -16,7 +18,20 @@ export type TerminalScreenId =
   | 'observability'
   | 'sepay'
   | 'r2'
-  | 'aibot';
+  | 'aibot'
+  | 'gateway';
+
+export interface PrimeApiGatewayRouteEntry {
+  readonly routeId: string;
+  readonly method: 'GET' | 'POST';
+  readonly path: string;
+  readonly protocol: 'REST_EDGE' | 'FIX_4_4' | 'WS_STREAM';
+  readonly tierName: string;
+  readonly burstCapacityRpm: number;
+  readonly refillRatePerSec: number;
+  readonly p99LatencyMs: number;
+  readonly status: 'KV_TOKEN_BUCKET_ACTIVE';
+}
 
 export interface R2MerkleSnapshotEntry {
   readonly snapshotId: string;
@@ -304,6 +319,62 @@ export const STITCH_NAV_TABS: readonly StitchNavTab[] = [
     badge: '4/4 Agents',
     stitchScreenId: '4fbb8caa49cd4706bdd8510593bdf779',
     staticHtmlPath: '/ai-agent-arbitrage-bot.html',
+  },
+  {
+    id: 'gateway',
+    index: 16,
+    labelEn: 'Prime API Gateway',
+    labelVi: 'Cổng API Định Chế & KV Rate Limit',
+    badge: 'KV Token-Bucket',
+    stitchScreenId: '2c5e0ed6396e4de7bb74d3204f2a20d2',
+    staticHtmlPath: '/institutional-prime-api-gateway.html',
+  },
+] as const;
+
+export const PRIME_API_GATEWAY_ROUTES: readonly PrimeApiGatewayRouteEntry[] = [
+  {
+    routeId: 'route-fix-order-stream',
+    method: 'POST',
+    path: '/api/v1/prime/fix-execution',
+    protocol: 'FIX_4_4',
+    tierName: 'PRIME_INSTITUTIONAL',
+    burstCapacityRpm: 2400,
+    refillRatePerSec: 40,
+    p99LatencyMs: 0.9,
+    status: 'KV_TOKEN_BUCKET_ACTIVE',
+  },
+  {
+    routeId: 'route-terminal-snapshot',
+    method: 'GET',
+    path: '/api/terminal/snapshot',
+    protocol: 'REST_EDGE',
+    tierName: 'VIP_QUANT',
+    burstCapacityRpm: 1200,
+    refillRatePerSec: 20,
+    p99LatencyMs: 1.1,
+    status: 'KV_TOKEN_BUCKET_ACTIVE',
+  },
+  {
+    routeId: 'route-terminal-actions',
+    method: 'POST',
+    path: '/api/terminal/actions',
+    protocol: 'REST_EDGE',
+    tierName: 'VIP_QUANT',
+    burstCapacityRpm: 1200,
+    refillRatePerSec: 20,
+    p99LatencyMs: 1.2,
+    status: 'KV_TOKEN_BUCKET_ACTIVE',
+  },
+  {
+    routeId: 'route-rebate-ws-multiplex',
+    method: 'GET',
+    path: '/ws/v1/prime/rebate-ticks',
+    protocol: 'WS_STREAM',
+    tierName: 'PRIME_INSTITUTIONAL',
+    burstCapacityRpm: 3600,
+    refillRatePerSec: 60,
+    p99LatencyMs: 0.7,
+    status: 'KV_TOKEN_BUCKET_ACTIVE',
   },
 ] as const;
 
