@@ -49,6 +49,12 @@ function stripJsonComments(raw) {
       continue;
     }
 
+    // `#` starts a line comment in JSONC, but only outside a string.
+    if (ch === '#' && !inString) {
+      inLineComment = true;
+      continue;
+    }
+
     if (inBlockComment) {
       if (ch === '*' && next === '/') {
         inBlockComment = false;
@@ -100,8 +106,20 @@ function readConfig(fileName) {
   if (fileName.endsWith('.toml')) {
     return null;
   }
-  const raw = fs.readFileSync(full, 'utf8');
-  return JSON.parse(stripJsonComments(raw));
+
+  let parsed;
+  try {
+    const raw = fs.readFileSync(full, 'utf8');
+    parsed = JSON.parse(stripJsonComments(raw));
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    fail(
+      `could not parse ${fileName} as JSON with comments (${detail}). ` +
+        'A config that cannot be read is not a config that can be deployed.'
+    );
+  }
+
+  return parsed;
 }
 
 function main() {
