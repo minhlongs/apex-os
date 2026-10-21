@@ -342,7 +342,7 @@ export class AlertEngine {
 
     // Initialize circuit breakers if enabled
     if (this.config.circuitBreakerEnabled) {
-      await this.initializeCircuitBreakers();
+      await this.initializeCircuitBreakers(db);
     }
 
     logInfo('[AlertEngine] Initialized with notification dispatcher and evaluation state storage');
@@ -351,12 +351,12 @@ export class AlertEngine {
   /**
    * Initialize circuit breakers for external service protection
    */
-  private async initializeCircuitBreakers(): Promise<void> {
+  private async initializeCircuitBreakers(db: D1Database): Promise<void> {
     const breakerNames = ['metrics-api', 'notification-email', 'notification-slack', 'notification-webhook'];
 
     for (const name of breakerNames) {
-      const breaker = getCircuitBreaker(name, {}, this.db);
-      await breaker.initialize(this.db);
+      const breaker = getCircuitBreaker(name, {}, db);
+      await breaker.initialize(db);
       this.circuitBreakers.set(name, breaker);
     }
 
@@ -625,8 +625,8 @@ export class AlertEngine {
       evaluation_run_id: runId,
       total_evaluation_time_ms: Date.now() - this.evaluationStartTime,
       avg_rule_evaluation_time_ms: Math.round(avgTime),
-      slowest_rule_evaluation_ms: evaluationTimes.length > 0 ? Math.max(...evaluationTimes) : null,
-      fastest_rule_evaluation_ms: evaluationTimes.length > 0 ? Math.min(...evaluationTimes) : null,
+      slowest_rule_evaluation_ms: evaluationTimes.length > 0 ? Math.max(...evaluationTimes) : undefined,
+      fastest_rule_evaluation_ms: evaluationTimes.length > 0 ? Math.min(...evaluationTimes) : undefined,
       rules_checked: rulesChecked,
       rules_passed: rulesChecked - rulesFailed,
       rules_failed: rulesFailed,
@@ -699,9 +699,10 @@ export class AlertEngine {
 
   /**
    * Fetch current metric value based on rule source
-   * Returns { currentValue, baselineValue } where baseline is used for drop_pct comparisons
+   * Returns { currentValue, baselineValue } where baseline is used for drop_pct comparisons.
+   * currentValue is null when the metric source is unavailable or has no data.
    */
-  private async fetchMetricValue(rule: AlertRule): Promise<{ currentValue: number; baselineValue: number | null }> {
+  private async fetchMetricValue(rule: AlertRule): Promise<{ currentValue: number | null; baselineValue: number | null }> {
     switch (rule.source) {
       case 'business':
         return await this.fetchBusinessMetric(rule);
@@ -716,9 +717,10 @@ export class AlertEngine {
   /**
    * Fetch business metric using the shared metrics fetcher
    * Queries /api/metrics/business equivalent logic directly from database
-   * Returns { currentValue, baselineValue } where baseline is used for drop_pct comparisons
+   * Returns { currentValue, baselineValue } where baseline is used for drop_pct comparisons.
+   * currentValue is null when the database is unavailable or the metric is unknown.
    */
-  private async fetchBusinessMetric(rule: AlertRule): Promise<{ currentValue: number; baselineValue: number | null }> {
+  private async fetchBusinessMetric(rule: AlertRule): Promise<{ currentValue: number | null; baselineValue: number | null }> {
     if (!this.db) return { currentValue: null, baselineValue: null };
 
     try {
@@ -846,7 +848,7 @@ export class AlertEngine {
   private async fetchMetricValueWithBreaker(
     rule: AlertRule,
     breaker: CircuitBreaker | undefined
-  ): Promise<{ currentValue: number; baselineValue: number | null }> {
+  ): Promise<{ currentValue: number | null; baselineValue: number | null }> {
     if (!breaker) {
       // No circuit breaker, fall back to direct fetch
       return await this.fetchMetricValue(rule);

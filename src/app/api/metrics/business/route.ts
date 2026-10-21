@@ -330,7 +330,15 @@ async function fetchTopDeals(
   params: BusinessMetricsQueryParams & { startDateObj: Date; endDateObj: Date },
   limit: number = 10
 ): Promise<BusinessMetricsResponse['top_deals']> {
-  const { start_date, end_date, deal_type, exchange, status } = params;
+  // parseQueryParams always emits concrete YYYY-MM-DD strings for both bounds; the request type keeps
+  // them optional because they are user-supplied. Narrowed here so the response contract
+  // (TopDealsResponse.period) stays non-optional without changing any emitted value.
+  const { start_date, end_date, deal_type, exchange, status } = params as BusinessMetricsQueryParams & {
+    start_date: string;
+    end_date: string;
+    startDateObj: Date;
+    endDateObj: Date;
+  };
   const startDate = `${start_date}T00:00:00.000Z`;
   const endDate = `${end_date}T23:59:59.999Z`;
 
@@ -430,8 +438,8 @@ async function fetchTopDeals(
 
   return {
     period: {
-      start_date: params.start_date,
-      end_date: params.end_date,
+      start_date,
+      end_date,
     },
     limit,
     deals: dealMetrics,
@@ -506,7 +514,14 @@ export const GET = async (request: NextRequest): Promise<Response> => {
     }
 
     // Parse query parameters
-    let params: BusinessMetricsQueryParams & { startDateObj: Date; endDateObj: Date };
+    // parseQueryParams always emits concrete YYYY-MM-DD strings for both bounds, so downstream
+    // consumers (cache key generation, response period) can rely on non-optional strings.
+    let params: BusinessMetricsQueryParams & {
+      start_date: string;
+      end_date: string;
+      startDateObj: Date;
+      endDateObj: Date;
+    };
     try {
       params = parseQueryParams(request);
     } catch (error) {

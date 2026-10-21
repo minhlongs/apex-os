@@ -2,12 +2,17 @@
   "name": "apex-os",
   "version": "1.5.0",
   "private": true,
+  "engines": {
+    "node": ">=26.0.0 <27"
+  },
   "scripts": {
     "dev": "next dev",
-    "build": "NEXT_DISABLE_TYPE_CHECK=1 next build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
-    "test": "jest",
+    "verify-node": "node scripts/verify-node-version.cjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run verify-node && jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:alerting": "tsx scripts/test-alerting-system.ts",

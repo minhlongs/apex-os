@@ -185,8 +185,9 @@ export class EmailQueueService {
   /** Get a single queue row by id */
   async getById(id: string): Promise<EmailQueueRow | null> {
     const db = this.getDb();
-    const row = await db.prepare('SELECT * FROM email_queue WHERE id = ?').bind(id).first<EmailQueueRow | null>();
-    return row;
+    // D1 first() types the no-row case as undefined while the runtime resolves it as null.
+    const row = await db.prepare('SELECT * FROM email_queue WHERE id = ?').bind(id).first<EmailQueueRow>();
+    return row ?? null;
   }
 
   /** Get queue stats */
@@ -204,8 +205,8 @@ export class EmailQueueService {
     return stats;
   }
 
-  /** Record an email event */
-  async recordEvent(queueId: string, eventType: string, resendId: string | null, reason?: string): Promise<EmailEventRow> {
+  /** Record an email event; returns the persisted event row when the insert is readable back */
+  async recordEvent(queueId: string, eventType: string, resendId: string | null, reason?: string): Promise<EmailEventRow | null> {
     const db = this.getDb();
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
@@ -238,8 +239,9 @@ export class EmailQueueService {
   /** Get a single event by id */
   async getEventById(id: string): Promise<EmailEventRow | null> {
     const db = this.getDb();
-    const row = await db.prepare('SELECT * FROM email_events WHERE id = ?').bind(id).first<EmailEventRow | null>();
-    return row;
+    // D1 first() types the no-row case as undefined while the runtime resolves it as null.
+    const row = await db.prepare('SELECT * FROM email_events WHERE id = ?').bind(id).first<EmailEventRow>();
+    return row ?? null;
   }
 
   /** Get recent events across all emails */

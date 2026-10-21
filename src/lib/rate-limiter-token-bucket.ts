@@ -226,6 +226,15 @@ export async function checkTokenBucket(
       };
     }
   }
+
+  // Every iteration above returns; this is unreachable and exists so the
+  // function is total after the bounded retry loop.
+  return {
+    allowed: false,
+    remaining: 0,
+    resetAfter: config.window,
+    retryAfter: Math.ceil(cost / config.refillRate)
+  };
 }
 
 /**

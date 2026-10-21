@@ -97,7 +97,7 @@ async function handleWeeklyPayouts(
       };
     }
 
-    const affiliateIds = pendingResults.results.map((r) => r.affiliate_id);
+    const affiliateIds = pendingResults.results.map((r: { affiliate_id: string }) => r.affiliate_id);
     const placeholders = affiliateIds.map(() => '?').join(',');
     const affiliates = await db
       .prepare(
@@ -106,8 +106,16 @@ async function handleWeeklyPayouts(
       .bind(...affiliateIds)
       .all()();
 
+    interface AffiliateProfileRow {
+      id: string;
+      email: string;
+      full_name: string | null;
+      payout_method: string | null;
+      payout_method_details: string | null;
+    }
+
     const affiliateMap = new Map(
-      affiliates.results.map((a) => [a.id, a])
+      affiliates.results.map((a: AffiliateProfileRow) => [a.id, a] as const)
     );
     const payoutsService = createPayoutsService(db);
     const results: Array<{
@@ -415,6 +423,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       const campaigns = await handleLifecycleCampaigns();
       results.push({ job: 'campaigns', ...campaigns });
+    }
 
     const allSuccessful = results.every((r) => r.success);
 
@@ -423,7 +432,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       timestamp: new Date().toISOString(),
       results,
     });
-    }
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },

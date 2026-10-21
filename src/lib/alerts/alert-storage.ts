@@ -30,8 +30,9 @@ export class AlertStorage {
 
   /**
    * Create a new alert
+   * Returns null when the insert succeeds but the row cannot be read back.
    */
-  async create(input: CreateAlertInput): Promise<Alert> {
+  async create(input: CreateAlertInput): Promise<Alert | null> {
     const id = `alert_${crypto.randomUUID()}`;
     const now = new Date().toISOString();
 

@@ -81,11 +81,13 @@ export interface CloudflareKVNamespace {
  * In Cloudflare Pages/Workers, KV is bound via wrangler.toml
  */
 function getKV(): CloudflareKVNamespace | null {
-  const kv = globalThis.KV;
+  // The KV binding is injected by the Cloudflare runtime, so it is absent from
+  // the typed global scope; read it structurally to keep the lookup error-free.
+  const kv = (globalThis as { KV?: CloudflareKVNamespace }).KV;
   if (!kv || typeof kv.get !== 'function') {
     return null;
   }
-  return kv as CloudflareKVNamespace;
+  return kv;
 }
 
 /**

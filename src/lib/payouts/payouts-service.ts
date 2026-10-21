@@ -87,7 +87,11 @@ export class PayoutsService {
     ).run();
 
     // Return the created payout
-    return this.getPayoutById(id);
+    const created = await this.getPayoutById(id);
+    if (!created) {
+      throw new Error(`Payout ${id} was inserted but could not be read back`);
+    }
+    return created;
   }
 
   /**
