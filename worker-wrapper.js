@@ -30,8 +30,24 @@ export default {
       globalThis.STORAGE = env.STORAGE;
     }
 
-    // Handle cron-triggered payouts
+    // Handle cron-triggered payouts.
+    //
+    // `cf-cron-trigger` is a request header, so a client can spoof it and reach
+    // the payout path from outside Cloudflare's scheduler. Require the shared
+    // secret that the scheduled invocation is configured to carry, and refuse
+    // anything else.
     if (request.headers.get('cf-cron-trigger')) {
+      const presented = request.headers.get('authorization');
+      const expected = env.CRON_SECRET ? `Bearer ${env.CRON_SECRET}` : null;
+      if (!expected || presented !== expected) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Unauthorized',
+        }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return this.handleCron(request, env, ctx);
     }
 

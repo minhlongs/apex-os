@@ -2,14 +2,17 @@
  * Cron Jobs Handler
  *
  * This endpoint handles scheduled jobs triggered by Cloudflare Workers Cron.
- * Configured in wrangler.toml with:
- * - every 5 minutes - Alert evaluation
- * - 0 0 * * 0 - Weekly payouts (Sunday midnight)
- * - every 30 minutes - D1 metrics collection
- * - every 15 minutes - Email queue processing
- * - 0 0 * * 0 - Lifecycle campaign scan
+ * The schedule strings are defined once in worker-cron-schedules.js and
+ * mirrored into the `crons` array of wrangler.jsonc: every 5 minutes for alert
+ * evaluation, every 30 minutes for D1 metrics collection, and Sunday midnight
+ * UTC for weekly payouts.
  *
  * Each cron pattern calls this endpoint with a `job` query parameter.
+ *
+ * Authorization: this route moves money and sends notifications, so it never
+ * runs unauthenticated. When CRON_SECRET is not configured the request is
+ * refused rather than allowed, because a missing secret is a deployment error
+ * and an open trigger is the worse outcome.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -351,7 +354,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const cronSecret = process.env.CRON_SECRET;
     const authHeader = request.headers.get('Authorization');
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
