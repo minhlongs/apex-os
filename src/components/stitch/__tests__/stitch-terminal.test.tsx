@@ -245,16 +245,59 @@ describe('ApexOS Stitch Obsidian Quant Terminal Suite', () => {
   it('supports UI/UX Pro Max interactive SVG telemetry chart timeframes and sidebar screen search filter', () => {
     renderTerminal('en');
 
+    expect(screen.getByTestId('active-screen-breadcrumb')).toHaveTextContent(
+      'Screen 1/16 · Cashback Cockpit'
+    );
     expect(screen.getByTestId('telemetry-active-label')).toHaveTextContent('24H • 23:59');
+    expect(screen.getByTestId('telemetry-sr-table')).toBeInTheDocument();
+
+    // Interactive metric series legend toggle & CSV export
+    fireEvent.click(screen.getByTestId('telemetry-metric-SPREAD_BPS'));
+    expect(screen.getByTestId('telemetry-metric-SPREAD_BPS')).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    fireEvent.click(screen.getByTestId('telemetry-export-csv'));
+    expect(screen.getByTestId('telemetry-csv-status')).toHaveTextContent('CSV_EXPORTED');
+
+    // Keyboard navigation on SVG chart nodes
+    const firstNode = screen.getByTestId('telemetry-node-0');
+    fireEvent.keyDown(firstNode, { key: 'Enter' });
+    expect(screen.getByTestId('telemetry-active-label')).toHaveTextContent('24H • 00:00');
+    fireEvent.keyDown(firstNode, { key: 'ArrowRight' });
+    expect(screen.getByTestId('telemetry-active-label')).toHaveTextContent('24H • 04:00');
+
     fireEvent.click(screen.getByTestId('telemetry-tf-30D'));
     expect(screen.getByTestId('telemetry-active-label')).toHaveTextContent('30D • W4');
 
     const filterInput = screen.getByTestId('sidebar-screen-filter');
+    fireEvent.change(filterInput, { target: { value: 'nonexistent_screen_xyz' } });
+    expect(screen.getByTestId('sidebar-screen-empty')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('sidebar-screen-reset'));
+    expect(screen.getByTestId('sidebar-screen-count')).toHaveTextContent('14/14');
+
     fireEvent.change(filterInput, { target: { value: 'Gateway' } });
     expect(screen.getByRole('button', { name: /16\.\s*Prime API Gateway/i })).toBeInTheDocument();
+    fireEvent.keyDown(filterInput, { key: 'Enter' });
+    expect(
+      screen.getByText(
+        'Edge Traffic Governance, FIX 4.4 / REST Gateway & KV Token-Bucket Burst Control'
+      )
+    ).toBeInTheDocument();
+    expect(screen.getByTestId('active-screen-breadcrumb')).toHaveTextContent(
+      'Screen 16/16 · Prime API Gateway'
+    );
+    fireEvent.keyDown(filterInput, { key: 'Escape' });
+    expect(screen.getByTestId('sidebar-screen-count')).toHaveTextContent('14/14');
   });
 
-  it('renders StitchObsidianBanner deep-link bridge for core app routes', () => {
+  it('renders StitchObsidianBanner deep-link bridge and resolves ?tab= query parameters', async () => {
+    const { resolveTerminalTab } = await import('@/data/stitch-terminal-data');
+    expect(resolveTerminalTab('gateway')).toBe('gateway');
+    expect(resolveTerminalTab(['payouts'])).toBe('payouts');
+    expect(resolveTerminalTab('invalid_tab')).toBe('cockpit');
+    expect(resolveTerminalTab(undefined)).toBe('cockpit');
+
     render(
       <StitchObsidianBanner
         locale="en"
@@ -268,6 +311,63 @@ describe('ApexOS Stitch Obsidian Quant Terminal Suite', () => {
       'href',
       '/en/terminal?tab=payouts'
     );
+  });
+
+  it('evaluates live KV token-bucket rate limiter API action (/api/terminal/actions)', async () => {
+    const { POST } = await import('@/app/api/terminal/actions/route');
+    const { NextRequest } = await import('next/server');
+
+    // Test 1: Prime Institutional tier below quota (200 OK)
+    const reqAllowed = new NextRequest('http://localhost:3000/api/terminal/actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'evaluate_kv_rate_limit',
+        clientTier: 'PRIME_INSTITUTIONAL',
+        requestedRpm: 1800,
+      }),
+    });
+    const resAllowed = await POST(reqAllowed);
+    expect(resAllowed.status).toBe(200);
+    const bodyAllowed = await resAllowed.json();
+    expect(bodyAllowed.ok).toBe(true);
+    expect(bodyAllowed.verdict).toBe('ALLOWED_200');
+    expect(bodyAllowed.bucketCapacity).toBe(2400);
+    expect(bodyAllowed.remainingTokens).toBe(600);
+    expect(bodyAllowed.retryAfterSec).toBe(0);
+
+    // Test 2: Standard tier exceeded quota (429 Rate Limited)
+    const reqThrottled = new NextRequest('http://localhost:3000/api/terminal/actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'evaluate_kv_rate_limit',
+        clientTier: 'STANDARD',
+        requestedRpm: 600,
+      }),
+    });
+    const resThrottled = await POST(reqThrottled);
+    expect(resThrottled.status).toBe(429);
+    const bodyThrottled = await resThrottled.json();
+    expect(bodyThrottled.ok).toBe(false);
+    expect(bodyThrottled.verdict).toBe('RATE_LIMITED_429');
+    expect(bodyThrottled.bucketCapacity).toBe(300);
+    expect(bodyThrottled.remainingTokens).toBe(0);
+    expect(bodyThrottled.retryAfterSec).toBeGreaterThan(0);
+
+    // Test 3: Invalid input RPM (400 Bad Request)
+    const reqInvalid = new NextRequest('http://localhost:3000/api/terminal/actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'evaluate_kv_rate_limit',
+        requestedRpm: -10,
+      }),
+    });
+    const resInvalid = await POST(reqInvalid);
+    expect(resInvalid.status).toBe(400);
+    const bodyInvalid = await resInvalid.json();
+    expect(bodyInvalid.ok).toBe(false);
   });
 });
 

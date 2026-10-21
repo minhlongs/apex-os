@@ -1,19 +1,20 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Activity, TrendingUp, Zap, ShieldCheck } from 'lucide-react';
+import { Activity, TrendingUp, Zap, ShieldCheck, Download } from 'lucide-react';
 import type { TerminalLocale } from '@/data/stitch-terminal-data';
 
 export type TelemetryTimeframe = '24H' | '7D' | '30D' | 'ALL';
+export type TelemetryMetricKey = 'REBATE_USD' | 'SPREAD_BPS' | 'FINALITY_MS';
 
-interface DataPoint {
-  label: string;
-  rebateUsd: number;
-  spreadBps: number;
-  settlementMs: number;
+export interface TelemetryDataPoint {
+  readonly label: string;
+  readonly rebateUsd: number;
+  readonly spreadBps: number;
+  readonly settlementMs: number;
 }
 
-const TELEMETRY_SERIES: Record<TelemetryTimeframe, DataPoint[]> = {
+export const TELEMETRY_SERIES: Record<TelemetryTimeframe, readonly TelemetryDataPoint[]> = {
   '24H': [
     { label: '00:00', rebateUsd: 16200, spreadBps: 18.4, settlementMs: 410 },
     { label: '04:00', rebateUsd: 19400, spreadBps: 21.2, settlementMs: 395 },
@@ -46,20 +47,33 @@ const TELEMETRY_SERIES: Record<TelemetryTimeframe, DataPoint[]> = {
   ],
 };
 
-interface StitchQuantTelemetryChartProps {
-  locale?: TerminalLocale;
+export interface StitchQuantTelemetryChartProps {
+  readonly locale?: TerminalLocale;
 }
 
-export function StitchQuantTelemetryChart({ locale = 'en' }: StitchQuantTelemetryChartProps) {
+export function StitchQuantTelemetryChart({
+  locale = 'en',
+}: Readonly<StitchQuantTelemetryChartProps>) {
   const [timeframe, setTimeframe] = useState<TelemetryTimeframe>('24H');
+  const [metricKey, setMetricKey] = useState<TelemetryMetricKey>('REBATE_USD');
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [csvExportState, setCsvExportState] = useState<'IDLE' | 'CSV_EXPORTED'>('IDLE');
   const isVi = locale === 'vi';
 
   const series = TELEMETRY_SERIES[timeframe];
-  const activePoint = selectedIndex !== null && series[selectedIndex] ? series[selectedIndex] : series[series.length - 1];
+  const resolvedIndex =
+    selectedIndex !== null && series[selectedIndex] ? selectedIndex : series.length - 1;
+  const activePoint = series[resolvedIndex];
 
-  const maxRebate = Math.max(...series.map((d) => d.rebateUsd));
-  const minRebate = Math.min(...series.map((d) => d.rebateUsd)) * 0.85;
+  const extractValue = (pt: TelemetryDataPoint): number => {
+    if (metricKey === 'SPREAD_BPS') return pt.spreadBps;
+    if (metricKey === 'FINALITY_MS') return pt.settlementMs;
+    return pt.rebateUsd;
+  };
+
+  const values = series.map(extractValue);
+  const maxVal = Math.max(...values);
+  const minVal = Math.min(...values) * 0.85;
 
   const width = 640;
   const height = 160;
@@ -68,7 +82,8 @@ export function StitchQuantTelemetryChart({ locale = 'en' }: StitchQuantTelemetr
 
   const points = series.map((pt, idx) => {
     const x = padX + (idx / Math.max(1, series.length - 1)) * (width - padX * 2);
-    const ratio = (pt.rebateUsd - minRebate) / Math.max(1, maxRebate - minRebate);
+    const val = extractValue(pt);
+    const ratio = (val - minVal) / Math.max(1, maxVal - minVal);
     const y = height - padY - ratio * (height - padY * 2);
     return { x, y, pt, idx };
   });
@@ -76,113 +91,198 @@ export function StitchQuantTelemetryChart({ locale = 'en' }: StitchQuantTelemetr
   const polylinePoints = points.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
   const areaPoints = `${points[0].x.toFixed(1)},${height - padY} ${polylinePoints} ${points[points.length - 1].x.toFixed(1)},${height - padY}`;
 
+  const handleNodeKeyDown = (e: React.KeyboardEvent<SVGGElement>, idx: number) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      setSelectedIndex(idx);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      setSelectedIndex(Math.min(series.length - 1, idx + 1));
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      setSelectedIndex(Math.max(0, idx - 1));
+    }
+  };
+
+  const handleExportCsv = () => {
+    setCsvExportState('CSV_EXPORTED');
+  };
+
   return (
     <section
-      aria-label={isVi ? 'Biểu Đồ Telemetry Định Lượng Thực Thi' : 'Quant Rebate & Basis Spread Telemetry Chart'}
-      className="bg-[#11131a] border border-[#1e2330] rounded-lg p-5 space-y-4"
+      aria-label={
+        isVi
+          ? 'Biểu Đồ Telemetry Định Lượng Thực Thi'
+          : 'Quant Rebate & Basis Spread Telemetry Chart'
+      }
+      className="stitch-obsidian-card p-5 space-y-4"
     >
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#1e2330] pb-3.5">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-stitch-border pb-3.5">
         <div>
-          <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-[#00F0FF]" />
-            <h2 className="text-xs font-mono uppercase tracking-wider text-slate-300 font-semibold">
+          <div className="flex flex-wrap items-center gap-2">
+            <Activity className="w-4 h-4 text-stitch-cyan" aria-hidden="true" />
+            <h2 className="text-xs font-mono uppercase tracking-wider text-stitch-primary font-semibold">
               {isVi
                 ? 'TELEMETRY HOÀN PHÍ & CHÊNH LỆCH ĐIỂM CƠ BẢN (PRO MAX SVG)'
                 : 'QUANT REBATE VELOCITY & BASIS SPREAD TELEMETRY (PRO MAX SVG)'}
             </h2>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#00FF9D]/10 text-[#00FF9D] border border-[#00FF9D]/30">
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-stitch-emerald/10 text-stitch-emerald border border-stitch-emerald/30">
               WCAG 2.1 AA
             </span>
           </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">
+          <p className="text-[11px] text-stitch-muted mt-0.5">
             {isVi
               ? 'Đường cong hoàn phí T+0 trực tiếp kết hợp độ trễ thanh toán Edge và biên lợi nhuận bps.'
               : 'Live T+0 rebate velocity curve fused with edge settlement latency and basis-point yield.'}
           </p>
         </div>
 
-        {/* Timeframe Selector */}
-        <div
-          role="group"
-          aria-label={isVi ? 'Chọn khung thời gian biểu đồ' : 'Select chart timeframe'}
-          className="flex items-center bg-[#0B0C10] border border-[#1e2330] rounded p-0.5 self-start sm:self-auto"
-        >
-          {(['24H', '7D', '30D', 'ALL'] as TelemetryTimeframe[]).map((tf) => {
-            const active = timeframe === tf;
-            return (
-              <button
-                key={tf}
-                type="button"
-                onClick={() => {
-                  setTimeframe(tf);
-                  setSelectedIndex(null);
-                }}
-                aria-pressed={active}
-                data-testid={`telemetry-tf-${tf}`}
-                className={`px-2.5 py-1 rounded text-[11px] font-mono font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00F0FF] ${
-                  active
-                    ? 'bg-[#00F0FF]/15 text-[#00F0FF] border border-[#00F0FF]/40'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {tf}
-              </button>
-            );
-          })}
+        <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+          {/* Interactive Metric Series Legend Toggle (/ak-ui-ux-pro-max §10 legend-interactive) */}
+          <div
+            role="group"
+            aria-label={isVi ? 'Chọn chuỗi dữ liệu biểu đồ' : 'Select telemetry series metric'}
+            className="flex items-center bg-stitch-canvas border border-stitch-divider rounded-lg p-0.5"
+          >
+            {(
+              [
+                { id: 'REBATE_USD', label: 'USD' },
+                { id: 'SPREAD_BPS', label: 'BPS' },
+                { id: 'FINALITY_MS', label: 'P99 MS' },
+              ] as const
+            ).map((m) => {
+              const active = metricKey === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setMetricKey(m.id)}
+                  data-testid={`telemetry-metric-${m.id}`}
+                  className={`px-2 py-1 rounded-md text-[10px] font-mono font-semibold cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan ${
+                    active
+                      ? 'bg-stitch-emerald/15 text-stitch-emerald border border-stitch-emerald/40'
+                      : 'text-stitch-muted hover:text-stitch-primary'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Timeframe Selector */}
+          <div
+            role="group"
+            aria-label={isVi ? 'Chọn khung thời gian biểu đồ' : 'Select chart timeframe'}
+            className="flex items-center bg-stitch-canvas border border-stitch-divider rounded-lg p-0.5"
+          >
+            {(['24H', '7D', '30D', 'ALL'] as TelemetryTimeframe[]).map((tf) => {
+              const active = timeframe === tf;
+              return (
+                <button
+                  key={tf}
+                  type="button"
+                  onClick={() => {
+                    setTimeframe(tf);
+                    setSelectedIndex(null);
+                    setCsvExportState('IDLE');
+                  }}
+                  aria-pressed={active}
+                  data-testid={`telemetry-tf-${tf}`}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-mono font-semibold cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan ${
+                    active
+                      ? 'bg-stitch-cyan/15 text-stitch-cyan border border-stitch-cyan/40'
+                      : 'text-stitch-muted hover:text-stitch-primary'
+                  }`}
+                >
+                  {tf}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* CSV Export Action (/ak-ui-ux-pro-max §10 export-option) */}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            data-testid="telemetry-export-csv"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-stitch-divider bg-stitch-canvas px-2.5 py-1.5 font-mono text-[11px] font-semibold text-stitch-cyan hover:border-stitch-cyan cursor-pointer transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
+          >
+            <Download className="w-3.5 h-3.5" aria-hidden="true" />
+            <span data-testid="telemetry-csv-status">
+              {csvExportState === 'CSV_EXPORTED' ? 'CSV_EXPORTED' : 'Export CSV'}
+            </span>
+          </button>
         </div>
       </div>
 
       {/* Active Point Telemetry Readout Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-[#0B0C10] border border-[#1e2330] rounded p-3">
+      <div
+        aria-live="polite"
+        className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-stitch-canvas border border-stitch-border rounded-lg p-3"
+      >
         <div>
-          <div className="text-[10px] font-mono uppercase text-slate-400">
+          <div className="text-[10px] font-mono uppercase text-stitch-muted">
             {isVi ? 'MỐC THỜI GIAN' : 'ACTIVE WINDOW'}
           </div>
-          <div className="text-sm font-mono font-bold text-white mt-0.5" data-testid="telemetry-active-label">
+          <div
+            className="text-sm font-mono font-bold stitch-tabular-nums text-stitch-primary mt-0.5"
+            data-testid="telemetry-active-label"
+          >
             {timeframe} • {activePoint.label}
           </div>
         </div>
         <div>
-          <div className="text-[10px] font-mono uppercase text-slate-400">
+          <div className="text-[10px] font-mono uppercase text-stitch-muted">
             {isVi ? 'HOÀN PHÍ ĐÃ CHỐT' : 'REBATE CAPTURED'}
           </div>
-          <div className="text-sm font-mono font-bold text-[#00FF9D] mt-0.5 flex items-center gap-1" data-testid="telemetry-active-rebate">
-            <TrendingUp className="w-3.5 h-3.5" />
+          <div
+            className="text-sm font-mono font-bold stitch-tabular-nums text-stitch-emerald mt-0.5 flex items-center gap-1"
+            data-testid="telemetry-active-rebate"
+          >
+            <TrendingUp className="w-3.5 h-3.5" aria-hidden="true" />
             ${activePoint.rebateUsd.toLocaleString('en-US')}
           </div>
         </div>
         <div>
-          <div className="text-[10px] font-mono uppercase text-slate-400">
+          <div className="text-[10px] font-mono uppercase text-stitch-muted">
             {isVi ? 'BIÊN CHÊNH LỆCH RÒNG' : 'NET BASIS SPREAD'}
           </div>
-          <div className="text-sm font-mono font-bold text-[#00F0FF] mt-0.5 flex items-center gap-1">
-            <Zap className="w-3.5 h-3.5" />
+          <div
+            className="text-sm font-mono font-bold stitch-tabular-nums text-stitch-cyan mt-0.5 flex items-center gap-1"
+            data-testid="telemetry-active-spread"
+          >
+            <Zap className="w-3.5 h-3.5" aria-hidden="true" />
             +{activePoint.spreadBps.toFixed(1)} bps
           </div>
         </div>
         <div>
-          <div className="text-[10px] font-mono uppercase text-slate-400">
+          <div className="text-[10px] font-mono uppercase text-stitch-muted">
             {isVi ? 'ĐỘ TRỄ THANH TOÁN P99' : 'P99 EDGE FINALITY'}
           </div>
-          <div className="text-sm font-mono font-bold text-slate-200 mt-0.5 flex items-center gap-1">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#00FF9D]" />
+          <div
+            className="text-sm font-mono font-bold stitch-tabular-nums text-stitch-primary mt-0.5 flex items-center gap-1"
+            data-testid="telemetry-active-finality"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-stitch-emerald" aria-hidden="true" />
             {activePoint.settlementMs} ms
           </div>
         </div>
       </div>
 
       {/* Accessible Interactive SVG Chart */}
-      <div className="relative bg-[#0B0C10] border border-[#1e2330] rounded p-3 overflow-hidden">
+      <div className="relative bg-stitch-canvas border border-stitch-border rounded-lg p-3 overflow-hidden">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           role="img"
-          aria-label={`ApexOS Quant Rebate Telemetry SVG Chart (${timeframe})`}
+          aria-label={`ApexOS Quant Rebate Telemetry SVG Chart (${timeframe} - ${metricKey})`}
           className="w-full h-36 overflow-visible"
         >
           <defs>
             <linearGradient id="apexProMaxCyanGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#00F0FF" stopOpacity="0.32" />
-              <stop offset="100%" stopColor="#00FF9D" stopOpacity="0.0" />
+              <stop offset="0%" stopColor="#06B6D4" stopOpacity="0.32" />
+              <stop offset="100%" stopColor="#10B981" stopOpacity="0.0" />
             </linearGradient>
           </defs>
 
@@ -196,7 +296,7 @@ export function StitchQuantTelemetryChart({ locale = 'en' }: StitchQuantTelemetr
                 y1={y}
                 x2={width - padX}
                 y2={y}
-                stroke="#1e2330"
+                stroke="#1E293B"
                 strokeDasharray="3 3"
                 strokeWidth="1"
               />
@@ -209,37 +309,42 @@ export function StitchQuantTelemetryChart({ locale = 'en' }: StitchQuantTelemetr
           {/* Primary Velocity Curve */}
           <polyline
             fill="none"
-            stroke="#00F0FF"
+            stroke="#06B6D4"
             strokeWidth="2.25"
             strokeLinecap="round"
             strokeLinejoin="round"
             points={polylinePoints}
           />
 
-          {/* Interactive Data Nodes */}
+          {/* Interactive Keyboard-Navigable Data Nodes */}
           {points.map(({ x, y, pt, idx }) => {
-            const isSelected =
-              (selectedIndex === null && idx === points.length - 1) || selectedIndex === idx;
+            const isSelected = resolvedIndex === idx;
             return (
               <g
                 key={pt.label}
-                className="cursor-pointer"
+                role="button"
+                tabIndex={0}
+                aria-label={`${timeframe} ${pt.label}: $${pt.rebateUsd.toLocaleString('en-US')} rebate, +${pt.spreadBps.toFixed(1)} bps spread, ${pt.settlementMs}ms P99`}
+                data-testid={`telemetry-node-${idx}`}
+                className="cursor-pointer focus:outline-none"
                 onClick={() => setSelectedIndex(idx)}
                 onMouseEnter={() => setSelectedIndex(idx)}
+                onKeyDown={(e) => handleNodeKeyDown(e, idx)}
               >
+                <circle cx={x} cy={y} r={12} fill="transparent" />
                 <circle
                   cx={x}
                   cy={y}
                   r={isSelected ? 5.5 : 3.5}
-                  fill={isSelected ? '#00FF9D' : '#0B0C10'}
-                  stroke={isSelected ? '#00FF9D' : '#00F0FF'}
+                  fill={isSelected ? '#10B981' : '#020617'}
+                  stroke={isSelected ? '#10B981' : '#06B6D4'}
                   strokeWidth="2"
                 />
                 <text
                   x={x}
                   y={height - 4}
                   textAnchor="middle"
-                  fill={isSelected ? '#00F0FF' : '#64748b'}
+                  fill={isSelected ? '#06B6D4' : '#94A3B8'}
                   fontSize="10"
                   fontFamily="JetBrains Mono, monospace"
                 >
@@ -249,6 +354,29 @@ export function StitchQuantTelemetryChart({ locale = 'en' }: StitchQuantTelemetr
             );
           })}
         </svg>
+
+        {/* Screen-Reader Accessible Data Table Fallback (/ak-ui-ux-pro-max §10 data-table) */}
+        <table className="sr-only" data-testid="telemetry-sr-table">
+          <caption>ApexOS Quant Rebate Telemetry Data ({timeframe})</caption>
+          <thead>
+            <tr>
+              <th scope="col">Window</th>
+              <th scope="col">Rebate Captured (USD)</th>
+              <th scope="col">Net Basis Spread (bps)</th>
+              <th scope="col">P99 Edge Finality (ms)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {series.map((pt) => (
+              <tr key={pt.label}>
+                <td>{pt.label}</td>
+                <td>${pt.rebateUsd.toLocaleString('en-US')}</td>
+                <td>+{pt.spreadBps.toFixed(1)} bps</td>
+                <td>{pt.settlementMs} ms</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </section>
   );

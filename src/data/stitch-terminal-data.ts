@@ -331,6 +331,18 @@ export const STITCH_NAV_TABS: readonly StitchNavTab[] = [
   },
 ] as const;
 
+export function resolveTerminalTab(
+  tabParam?: string | readonly string[] | null
+): TerminalScreenId {
+  const candidate = Array.isArray(tabParam) ? tabParam[0] : tabParam;
+  if (!candidate || typeof candidate !== 'string') {
+    return 'cockpit';
+  }
+  const normalized = candidate.trim().toLowerCase();
+  const matched = STITCH_NAV_TABS.find((tab) => tab.id === normalized);
+  return matched ? matched.id : 'cockpit';
+}
+
 export const PRIME_API_GATEWAY_ROUTES: readonly PrimeApiGatewayRouteEntry[] = [
   {
     routeId: 'route-fix-order-stream',

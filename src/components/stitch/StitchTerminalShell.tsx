@@ -91,6 +91,7 @@ export function StitchTerminalShell({
   );
 
   const isVi = locale === 'vi';
+  const activeNavTab = navTabs.find((tab) => tab.id === activeTab) ?? navTabs[0];
 
   const filteredNavTabs = navTabs.filter((tab) => {
     const q = screenQuery.trim().toLowerCase();
@@ -148,11 +149,30 @@ export function StitchTerminalShell({
           </div>
 
           {/* UI/UX Pro Max Instant Command Screen Filter */}
-          <div className="mt-3">
+          <div className="mt-3 space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] font-mono text-stitch-muted">
+              <span>{isVi ? 'BỘ LỌC LỆNH (ENTER / ESC)' : 'COMMAND FILTER (ENTER / ESC)'}</span>
+              <span
+                aria-live="polite"
+                data-testid="sidebar-screen-count"
+                className="stitch-tabular-nums text-stitch-cyan"
+              >
+                {filteredNavTabs.length}/{navTabs.length}
+              </span>
+            </div>
             <input
               type="search"
               value={screenQuery}
               onChange={(e) => setScreenQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setScreenQuery('');
+                } else if (e.key === 'Enter' && filteredNavTabs.length > 0) {
+                  e.preventDefault();
+                  setActiveTab(filteredNavTabs[0].id);
+                }
+              }}
               aria-label="Filter terminal screens"
               placeholder={isVi ? 'Tìm màn hình (1-16)...' : 'Filter screens (1-16)...'}
               data-testid="sidebar-screen-filter"
@@ -161,30 +181,52 @@ export function StitchTerminalShell({
           </div>
 
           <nav className="mt-3 space-y-1.5" aria-label="Primary terminal screens">
-            {filteredNavTabs.map((tab) => {
-              const isSelected = activeTab === tab.id;
-              return (
+            {filteredNavTabs.length === 0 ? (
+              <div
+                role="status"
+                data-testid="sidebar-screen-empty"
+                className="rounded-lg border border-stitch-divider bg-stitch-canvas p-3 text-center font-mono text-xs text-stitch-muted space-y-2"
+              >
+                <p>
+                  {isVi
+                    ? 'Không tìm thấy màn hình phù hợp.'
+                    : 'No matching terminal screens.'}
+                </p>
                 <button
-                  key={tab.id}
                   type="button"
-                  aria-pressed={isSelected}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan ${
-                    isSelected
-                      ? 'bg-gradient-primary font-semibold text-stitch-primary shadow-md'
-                      : 'text-stitch-muted hover:bg-stitch-well hover:text-stitch-primary'
-                  }`}
+                  onClick={() => setScreenQuery('')}
+                  data-testid="sidebar-screen-reset"
+                  className="rounded border border-stitch-cyan/40 bg-stitch-cyan/10 px-2.5 py-1 text-[11px] font-semibold text-stitch-cyan hover:bg-stitch-cyan/20 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
                 >
-                  <span>
-                    <span className="font-mono opacity-75">{tab.index}. </span>
-                    {isVi ? tab.labelVi : tab.labelEn}
-                  </span>
-                  <span className="rounded bg-stitch-canvas/50 px-1.5 py-0.5 font-mono text-xs text-stitch-cyan">
-                    {tab.badge}
-                  </span>
+                  {isVi ? 'Xóa bộ lọc (ESC)' : 'Reset filter (ESC)'}
                 </button>
-              );
-            })}
+              </div>
+            ) : (
+              filteredNavTabs.map((tab) => {
+                const isSelected = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-xs cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan ${
+                      isSelected
+                        ? 'bg-gradient-primary font-semibold text-stitch-primary shadow-md'
+                        : 'text-stitch-muted hover:bg-stitch-well hover:text-stitch-primary'
+                    }`}
+                  >
+                    <span>
+                      <span className="font-mono opacity-75">{tab.index}. </span>
+                      {isVi ? tab.labelVi : tab.labelEn}
+                    </span>
+                    <span className="rounded bg-stitch-canvas/50 px-1.5 py-0.5 font-mono text-xs text-stitch-cyan">
+                      {tab.badge}
+                    </span>
+                  </button>
+                );
+              })
+            )}
           </nav>
         </div>
 
@@ -215,8 +257,12 @@ export function StitchTerminalShell({
             <span className="hidden sm:inline-flex items-center rounded-md bg-gradient-primary px-2.5 py-1 font-mono text-xs font-bold text-stitch-primary">
               MASTER TIER · 30%/10%/5%
             </span>
-            <span className="hidden md:inline-flex items-center rounded border border-stitch-divider bg-stitch-well/70 px-2 py-0.5 font-mono text-[11px] text-stitch-cyan">
-              WCAG 2.1 AA · P99 1.1ms
+            <span
+              aria-live="polite"
+              data-testid="active-screen-breadcrumb"
+              className="hidden md:inline-flex items-center rounded border border-stitch-divider bg-stitch-well/70 px-2 py-0.5 font-mono text-[11px] text-stitch-cyan stitch-tabular-nums"
+            >
+              Screen {activeNavTab.index}/16 · {isVi ? activeNavTab.labelVi : activeNavTab.labelEn}
             </span>
           </div>
 
@@ -224,7 +270,7 @@ export function StitchTerminalShell({
             <button
               type="button"
               onClick={handleLiveApiSync}
-              className="rounded-lg border border-stitch-divider bg-stitch-well px-3 py-1.5 font-mono text-xs font-semibold text-stitch-cyan hover:border-stitch-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
+              className="rounded-lg border border-stitch-divider bg-stitch-well px-3 py-1.5 font-mono text-xs font-semibold text-stitch-cyan hover:border-stitch-cyan cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
             >
               {apiSyncState === 'LIVE_EDGE_SYNCED'
                 ? 'API: LIVE_EDGE_SYNCED'
@@ -236,7 +282,7 @@ export function StitchTerminalShell({
               type="button"
               aria-label="Toggle language between English and Vietnamese"
               onClick={() => setLocale((prev) => (prev === 'en' ? 'vi' : 'en'))}
-              className="rounded-lg border border-stitch-divider bg-stitch-well px-3 py-1.5 font-mono text-xs font-bold text-stitch-primary hover:border-stitch-cyan focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
+              className="rounded-lg border border-stitch-divider bg-stitch-well px-3 py-1.5 font-mono text-xs font-bold text-stitch-primary hover:border-stitch-cyan cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
             >
               {locale === 'en' ? 'EN | VI (Switch to VI)' : 'VI | EN (Chuyển sang EN)'}
             </button>
@@ -244,7 +290,11 @@ export function StitchTerminalShell({
         </header>
 
         {/* Active Screen Viewport */}
-        <main id="stitch-main-viewport" className="flex-1 p-6 max-w-7xl w-full mx-auto">
+        <main
+          id="stitch-main-viewport"
+          tabIndex={-1}
+          className="flex-1 p-6 max-w-7xl w-full mx-auto focus:outline-none"
+        >
           {activeTab === 'cockpit' && (
             <StitchCashbackCockpit
               exchanges={exchanges}
