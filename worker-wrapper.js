@@ -5,6 +5,11 @@
  */
 
 import openNextWorker from './.open-next/worker.js';
+import {
+  CRON_ALERT_ENGINE,
+  CRON_D1_METRICS,
+  CRON_WEEKLY_PAYOUTS,
+} from './worker-cron-schedules.js';
 
 // Re-export named exports from OpenNext worker (Durable Objects, etc.)
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from './.open-next/worker.js';
@@ -39,17 +44,17 @@ export default {
     const cronSchedule = request.headers.get('cf-cron-schedule') || '';
 
     // Execute alert engine evaluation (every 5 minutes)
-    if (cronSchedule === '*/5 * * * *') {
+    if (cronSchedule === CRON_ALERT_ENGINE) {
       return this.handleAlertEngineCron(request, env, ctx);
     }
 
     // Execute D1 metrics monitoring (every 30 minutes)
-    if (cronSchedule === '*/30 * * * *') {
+    if (cronSchedule === CRON_D1_METRICS) {
       return this.handleMonitoringCron(request, env, ctx);
     }
 
     // Execute weekly payouts (Sunday at 00:00 UTC)
-    if (cronSchedule === '0 0 * * 0') {
+    if (cronSchedule === CRON_WEEKLY_PAYOUTS) {
       return this.handlePayoutCron(request, env, ctx);
     }
 
