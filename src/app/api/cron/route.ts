@@ -89,7 +89,7 @@ async function handleWeeklyPayouts(
     const pendingResults = await db
       .prepare(pendingEarningsQuery)
       .bind(MIN_PAYOUT_THRESHOLD)
-      .all()();
+      .all();
 
     if (pendingResults.results.length === 0) {
       return {
@@ -107,7 +107,7 @@ async function handleWeeklyPayouts(
         `SELECT id, email, full_name, payout_method, payout_method_details FROM profiles WHERE id IN (${placeholders})`
       )
       .bind(...affiliateIds)
-      .all()();
+      .all();
 
     interface AffiliateProfileRow {
       id: string;
