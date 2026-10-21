@@ -64,6 +64,12 @@ function formatCompact(v: number) {
   return v.toLocaleString();
 }
 
+// Recharts tooltip values are typed as number | string | array; these charts only
+// plot numeric keys, so coerce defensively before formatting.
+function toNumber(v: unknown): number {
+  return typeof v === 'number' ? v : Number(v);
+}
+
 export default function BusinessCharts({ locale, timeRange }: BusinessChartsProps) {
   const t = useTranslations('admin.analytics');
   const [dealsData, setDealsData] = useState<DealPoint[]>([]);
@@ -212,7 +218,7 @@ export default function BusinessCharts({ locale, timeRange }: BusinessChartsProp
                   }}
                 />
                 <YAxis stroke="#6B7280" fontSize={12} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [formatCompact(v), n === 'total_clicks' ? t('charts.totalClicks') : t('charts.totalConversions')]} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [formatCompact(toNumber(v)), n === 'total_clicks' ? t('charts.totalClicks') : t('charts.totalConversions')]} />
                 <Legend formatter={(v: string) => v === 'total_clicks' ? t('charts.totalClicks') : t('charts.totalConversions')} />
                 <Area type="monotone" dataKey="total_clicks" stroke="#3B82F6" fill="url(#clicksGrad)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#3B82F6' }} />
                 <Area type="monotone" dataKey="total_conversions" stroke="#10B981" fill="url(#convGrad)" strokeWidth={2} dot={false} activeDot={{ r: 4, fill: '#10B981' }} />
@@ -247,7 +253,7 @@ export default function BusinessCharts({ locale, timeRange }: BusinessChartsProp
                   >
                     {exchangeData.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                   </Pie>
-                  <Tooltip formatter={(v: number) => [formatCompact(v), 'Volume']} contentStyle={tooltipStyle} />
+                  <Tooltip formatter={(v) => [formatCompact(toNumber(v)), 'Volume']} contentStyle={tooltipStyle} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>
@@ -266,7 +272,7 @@ export default function BusinessCharts({ locale, timeRange }: BusinessChartsProp
                   <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                   <XAxis type="number" stroke="#6B7280" fontSize={12} tickFormatter={(v: number) => formatCompact(v)} />
                   <YAxis dataKey="pair_type" type="category" stroke="#6B7280" fontSize={12} width={100} />
-                  <Tooltip formatter={(v: number) => [formatCurrency(v), 'Volume']} contentStyle={tooltipStyle} />
+                  <Tooltip formatter={(v) => [formatCurrency(toNumber(v)), 'Volume']} contentStyle={tooltipStyle} />
                   <Legend />
                   <Bar dataKey="total_volume" fill="#8B5CF6" radius={[0, 4, 4, 0]} />
                 </BarChart>
@@ -288,7 +294,7 @@ export default function BusinessCharts({ locale, timeRange }: BusinessChartsProp
                 <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
                 <XAxis dataKey="date" stroke="#6B7280" fontSize={12} tickFormatter={(v: string) => new Date(v).toLocaleDateString(locale === 'vi' ? 'vi-VN' : 'en-US', { month: 'short', day: 'numeric' })} />
                 <YAxis stroke="#6B7280" fontSize={12} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: number, n: string) => [formatCompact(v), n === 'visits' ? t('charts.funnelVisits') : n === 'clicks' ? t('charts.funnelClicks') : n === 'signups' ? t('charts.funnelSignups') : t('charts.funnelConversions')]} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v, n) => [formatCompact(toNumber(v)), n === 'visits' ? t('charts.funnelVisits') : n === 'clicks' ? t('charts.funnelClicks') : n === 'signups' ? t('charts.funnelSignups') : t('charts.funnelConversions')]} />
                 <Legend formatter={(v: string) => v === 'visits' ? t('charts.funnelVisits') : v === 'clicks' ? t('charts.funnelClicks') : v === 'signups' ? t('charts.funnelSignups') : t('charts.funnelConversions')} />
                 <Bar dataKey="visits" fill={COLORS[0]} radius={[4, 4, 0, 0]} name="visits" />
                 <Bar dataKey="clicks" fill={COLORS[1]} radius={[4, 4, 0, 0]} name="clicks" />

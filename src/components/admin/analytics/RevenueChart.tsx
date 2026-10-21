@@ -90,7 +90,10 @@ export default function RevenueChart({ data, title = 'Revenue Over Time' }: Reve
                 axisLine={false}
               />
               <Tooltip
-                formatter={(value: number) => [formatCurrency(value), 'Revenue']}
+                formatter={(value) => {
+                  const amount = typeof value === 'number' ? value : Number(value);
+                  return [formatCurrency(amount), 'Revenue'];
+                }}
                 labelFormatter={(label) => formatDate(label)}
                 contentStyle={{
                   backgroundColor: '#fff',
