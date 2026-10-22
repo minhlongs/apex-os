@@ -6,6 +6,8 @@
  */
 
 import type { D1Database } from '@/lib/auth/adapters/d1-adapter';
+import { confirmOnChain, isSettled } from './settlement-gate';
+import { payoutRouter } from './router';
 
 export interface PayoutCreateParams {
   affiliate_id: string;
@@ -206,6 +208,67 @@ export class PayoutsService {
       }>();
 
     return result || { total_payouts: 0, total_paid: 0, pending_amount: 0, total_fees: 0 };
+  }
+
+  /**
+   * Broadcast an already-recorded payout and confirm it on-chain.
+   *
+   * This is the settlement step the weekly cron relies on. Creating a payout
+   * row is bookkeeping, not a transfer: earnings may only be marked paid once
+   * the funds are confirmed received. Returns a verdict rather than throwing
+   * so the caller can leave earnings unpaid and retry next cycle.
+   */
+  async settle(params: {
+    payoutId: string;
+    affiliateId: string;
+    chain: string;
+    recipientAddress: string;
+    amount: number;
+    idempotencyKey: string;
+  }): Promise<import('./settlement-gate').SettlementVerdict> {
+    // Re-broadcasting a payout that already has a transaction would double-pay.
+    const existing = await this.getPayoutById(params.payoutId);
+    if (existing?.transaction_id) {
+      return confirmOnChain({
+        chain: params.chain as import('./types').SupportedPayoutChain,
+        transactionId: existing.transaction_id,
+        router: payoutRouter,
+      });
+    }
+
+    const outcome = await payoutRouter.sendPayout(
+      params.chain as import('./types').SupportedPayoutChain,
+      {
+        payoutId: params.payoutId,
+        affiliateId: params.affiliateId,
+        recipientAddress: params.recipientAddress,
+        amount: params.amount,
+        token: 'USDC',
+        idempotencyKey: params.idempotencyKey,
+      }
+    );
+
+    if (!outcome.success) {
+      return {
+        kind: 'failed',
+        transactionId: null,
+        reason: outcome.error ?? 'Broadcast rejected by adapter',
+      };
+    }
+
+    await this.db.prepare(
+      'UPDATE payouts SET transaction_id = ?, updated_at = datetime(\'now\') WHERE id = ?'
+    )
+      .bind(outcome.transactionId ?? null, params.payoutId)
+      .run();
+
+    const verdict = await confirmOnChain({
+      chain: params.chain as import('./types').SupportedPayoutChain,
+      transactionId: outcome.transactionId,
+      router: payoutRouter,
+    });
+
+    return isSettled(verdict) ? verdict : { ...verdict };
   }
 }
 
