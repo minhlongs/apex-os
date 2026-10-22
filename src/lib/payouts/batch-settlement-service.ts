@@ -31,6 +31,7 @@ import type {
 } from './types';
 import { SUPPORTED_PAYOUT_CHAINS } from './types';
 import { PayoutRouter, payoutRouter } from './router';
+import { confirmOnChain, isSettled } from './settlement-gate';
 import { TreasuryHealthService, treasuryHealthService } from './treasury-health-service';
 import { PayoutAuditService, createAuditStatement } from './audit-service';
 import { keccak256 } from './crypto/keccak';
@@ -1154,8 +1155,52 @@ export class BatchSettlementService implements IBatchSettlementService {
         };
       }
 
-      // Double-entry ledger reconciliation based on transfer outcome
+      // Double-entry ledger reconciliation based on transfer outcome.
+      // `execRes.success` only means the adapter *submitted* a transaction; it
+      // is not evidence that funds arrived. Confirm on-chain before retiring
+      // the payout and flipping earnings to paid.
       if (execRes.success) {
+        const verdict = await confirmOnChain({
+          chain: item.chain,
+          transactionId: execRes.transactionId,
+          router,
+        });
+
+        if (!isSettled(verdict)) {
+          // Leave earnings unpaid so the next cycle retries rather than
+          // marking a transfer settled that may never have happened.
+          await db.batch([
+            db.prepare(`
+              UPDATE payouts
+              SET status = 'pending',
+                  error_message = ?,
+                  updated_at = datetime('now')
+              WHERE id = ?
+            `).bind(verdict.reason, payoutId),
+            createAuditStatement(db, {
+              batch_id: batchId,
+              payout_id: payoutId,
+              action: 'batch_execution',
+              chain: item.chain,
+              admin_id: options?.adminId ?? null,
+              admin_email: options?.adminEmail ?? null,
+              ip_address: options?.ipAddress ?? null,
+              details: {
+                submittedTransactionId: execRes.transactionId ?? null,
+                reason: verdict.reason,
+              },
+            }),
+          ]);
+
+          const pendingResult: PayoutExecutionResult = {
+            ...execRes,
+            status: 'submitted',
+            error: verdict.reason,
+          };
+          executionResults.push(pendingResult);
+          continue;
+        }
+
         const gasUsd = execRes.gasFeeUsd ?? item.estimatedGasFeeUsd;
         const gasNative = execRes.gasFeeNative ?? 0;
 
