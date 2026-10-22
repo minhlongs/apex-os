@@ -322,10 +322,17 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   try {
-    const body = (await request.json()) as Record<string, unknown>;
+    // Read the raw bytes first: a Request body is a single-use stream, so reading
+    // .json() before .text() consumes it and leaves HMAC verification over ''.
+    const rawBody = await request.text();
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
-    const rawBody = await request.text();
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody) as Record<string, unknown>;
+    } catch {
+      return NextResponse.json({ received: true, skipped: true, reason: 'invalid_json' }, { status: 200 });
+    }
 
     // Verify signature
     const signatureCheck = await verifyKuCoinSignatureInternal(rawBody, headers, rawBody);
