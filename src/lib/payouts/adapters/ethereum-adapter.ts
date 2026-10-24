@@ -8,7 +8,6 @@
 
 import { JsonRpcClient } from '../rpc/json-rpc-client';
 import {
-  keccak256,
   toChecksumAddress,
   isValidChecksumAddress,
   isValidEthereumAddress,
@@ -257,9 +256,15 @@ export class EthereumAdapter extends BasePayoutChainAdapter {
     }
 
     // 2. Broadcast Transaction
+    //
+    // eth_sendTransaction requires the node to hold the hot-wallet key. Public
+    // RPC providers do not, so this fails without a locally signed transaction.
+    // When it fails there is no on-chain transaction to report, and the previous
+    // catch block fabricated a hash from payout metadata, which the settlement
+    // gate then verified against a chain that had never seen it. Report the
+    // failure instead: an unverifiable hash is worse than no hash.
     let transactionHash: string;
     try {
-      // In production or unlocked node: try eth_sendTransaction
       const broadcastRes = await this.rpc.call<string>('eth_sendTransaction', [
         {
           from: this.hotWalletAddress,
@@ -268,12 +273,21 @@ export class EthereumAdapter extends BasePayoutChainAdapter {
           gas: '0x186a0', // 100,000 gas units
         },
       ]);
+
+      if (!broadcastRes || typeof broadcastRes !== 'string') {
+        return this.createFailedResult(
+          params,
+          'Ethereum broadcast returned no transaction hash'
+        );
+      }
+
       transactionHash = broadcastRes;
-    } catch {
-      // If node cannot sign (standard for Infura/Alchemy public nodes without private key management):
-      // Format transaction hash deterministically from idempotency & payout metadata
-      const hashInput = `${params.idempotencyKey}:${params.payoutId}:${params.recipientAddress}:${amountUnits.toString()}:${this.chainId}`;
-      transactionHash = keccak256(hashInput);
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return this.createFailedResult(
+        params,
+        `Ethereum broadcast failed (no signing key available for this node): ${msg}`
+      );
     }
 
     const feeEst = await this.estimateFee({

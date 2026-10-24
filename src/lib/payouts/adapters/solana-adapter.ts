@@ -8,7 +8,7 @@
  */
 
 import { JsonRpcClient } from '../rpc/json-rpc-client';
-import { isValidSolanaAddress, encodeBase58 } from '../crypto/base58';
+import { isValidSolanaAddress } from '../crypto/base58';
 import type {
   FeeEstimateParams,
   ChainFeeEstimate,
@@ -188,76 +188,19 @@ export class SolanaAdapter extends BasePayoutChainAdapter {
       );
     }
 
-    // 1. Fetch fresh blockhash
-    let recentBlockhash = '';
-    try {
-      const bhResult = await this.rpc.call<{
-        value: {
-          blockhash: string;
-          lastValidBlockHeight: number;
-        };
-      }>('getLatestBlockhash', [{ commitment: 'confirmed' }]);
-
-      if (bhResult?.value?.blockhash) {
-        recentBlockhash = bhResult.value.blockhash;
-      }
-    } catch {
-      // Fallback pseudo-blockhash for offline or mock testing
-      recentBlockhash = '4uQeVj5tqViQh7yWWGStvkEG1Zmhx6uasJtWCJziofM';
-    }
-
-    // 2. Broadcast / Submit Transaction
-    let signature: string;
-    try {
-      // If a pre-signed or mock payload is submitted:
-      const broadcastRes = await this.rpc.call<string>('sendTransaction', [
-        'MOCK_SIGNED_TX_PAYLOAD',
-        {
-          encoding: 'base64',
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
-        },
-      ]);
-      signature = broadcastRes;
-    } catch {
-      // Deterministic signature generation based on payment execution metadata
-      const rawSeed = new TextEncoder().encode(
-        `${params.idempotencyKey}:${params.payoutId}:${params.recipientAddress}:${params.amount}:${recentBlockhash}`
-      );
-      // Pad or slice to 64 bytes for Ed25519 signature representation
-      const sigBytes = new Uint8Array(64);
-      sigBytes.set(rawSeed.slice(0, 64));
-      if (rawSeed.length < 64) {
-        for (let i = rawSeed.length; i < 64; i++) {
-          sigBytes[i] = (rawSeed[i % rawSeed.length] + i) & 0xff;
-        }
-      }
-      signature = encodeBase58(sigBytes);
-    }
-
-    const feeEst = await this.estimateFee({
-      chain: 'solana',
-      recipientAddress: params.recipientAddress,
-      amount: params.amount,
-      token: params.token,
-    });
-
-    return {
-      success: true,
-      payoutId: params.payoutId,
-      chain: 'solana',
-      transactionId: signature,
-      fromAddress: this.hotWalletAddress,
-      toAddress: params.recipientAddress,
-      amount: params.amount,
-      token: 'USDC',
-      gasFeeNative: feeEst.nativeFeeAmount,
-      gasFeeUsd: feeEst.feeUsd,
-      nativeFeeSymbol: 'SOL',
-      status: 'submitted',
-      explorerUrl: this.getExplorerUrl(signature),
-      timestamp: new Date().toISOString(),
-    };
+    // Solana signing is not implemented: this adapter holds no Ed25519 key and
+    // no serialization library is available, so it cannot build, sign, or submit
+    // a real transaction. Returning success here with a transaction id derived
+    // from payout metadata would mark a user as paid for a transfer that never
+    // happened, so the adapter refuses instead of fabricating an identity.
+    return this.createFailedResult(
+      params,
+      'Solana payouts are not enabled: no Ed25519 signing key is configured, ' +
+        'so this chain cannot broadcast a transfer.',
+      0,
+      0,
+      'SOL'
+    );
   }
 
   /**
