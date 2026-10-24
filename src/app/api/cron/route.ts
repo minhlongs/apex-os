@@ -81,7 +81,7 @@ async function handleWeeklyPayouts(
     const pendingEarningsQuery = `
       SELECT e.affiliate_id, SUM(e.amount) as total_amount, GROUP_CONCAT(e.id) as earning_ids
       FROM earnings e
-      WHERE e.is_paid = 0
+      WHERE e.is_paid = 0 AND e.payout_id IS NULL
       GROUP BY e.affiliate_id
       HAVING total_amount >= ?
     `;
