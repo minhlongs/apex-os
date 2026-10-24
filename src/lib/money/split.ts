@@ -39,7 +39,7 @@ export interface TierRateParts {
 }
 
 /** Parts per million that represent 1.0 (100%). */
-const RATE_DENOMINATOR = 1_000_000n;
+const RATE_DENOMINATOR = BigInt('1000000');
 
 function toRateParts(rate: number): bigint {
   if (!Number.isFinite(rate) || rate < 0 || rate > 1) {

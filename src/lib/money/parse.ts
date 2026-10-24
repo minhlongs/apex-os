@@ -115,7 +115,7 @@ export function fromMinorUnits(value: MinorUnits): bigint {
  * @throws MoneyError 'NEGATIVE'
  */
 export function assertNonNegative(value: MinorUnits, label = 'Money value'): MinorUnits {
-  if (fromMinorUnits(value) < 0n) {
+  if (fromMinorUnits(value) < BigInt(0)) {
     throw new MoneyError('NEGATIVE', `${label} must not be negative`);
   }
   return value;

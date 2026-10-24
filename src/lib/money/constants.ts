@@ -11,7 +11,7 @@
 export const USDC_DECIMALS = 6 as const;
 
 /** Minor units in one whole USDC — the multiplier for every parse and format. */
-export const USDC_SCALE = 1_000_000n;
+export const USDC_SCALE = BigInt('1000000');
 
 /** Denominator that converts a fractional rate into exact integer parts. */
-export const RATE_SCALE = 1_000_000n;
+export const RATE_SCALE = BigInt('1000000');

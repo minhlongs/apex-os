@@ -29,10 +29,10 @@ export function formatMinorUnits(value: MinorUnits, options: FormatOptions = {})
   const decimals = options.decimals ?? USDC_DECIMALS;
   const units = fromMinorUnits(value);
 
-  const negative = units < 0n;
+  const negative = units < BigInt(0);
   const magnitude = negative ? -units : units;
 
-  const scale = 10n ** BigInt(USDC_DECIMALS);
+  const scale = BigInt(10) ** BigInt(USDC_DECIMALS);
   const whole = magnitude / scale;
   const fraction = magnitude % scale;
 
