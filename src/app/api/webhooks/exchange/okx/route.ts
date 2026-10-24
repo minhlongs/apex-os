@@ -116,9 +116,8 @@ function validateTimestampOrError(
 }
 
 async function verifyOkxSignatureInternal(
-  payload: string,
-  headers: Record<string, string>,
-  rawBody: string
+  rawBody: string,
+  headers: Record<string, string>
 ): Promise<{ valid: boolean; error?: string }> {
   if (!OKX_WEBHOOK_SECRET) {
     return { valid: false, error: 'OKX webhook secret not configured' };
@@ -322,20 +321,28 @@ export async function POST(request: NextRequest): Promise<Response> {
     const rawBody = await request.text();
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
-    let body: Record<string, unknown>;
-    try {
-      body = JSON.parse(rawBody) as Record<string, unknown>;
-    } catch {
-      return NextResponse.json({ received: true, skipped: true, reason: 'invalid_json' }, { status: 200 });
-    }
 
-    // Verify signature
-    const signatureCheck = await verifyOkxSignatureInternal(rawBody, headers, rawBody);
+    // Verify the signature over the raw bytes BEFORE parsing. Parsing first
+    // and answering malformed JSON with 200 would skip the signature check
+    // entirely, letting an unauthenticated caller past verification.
+    const signatureCheck = await verifyOkxSignatureInternal(rawBody, headers);
     if (!signatureCheck.valid) {
       logWarn(`[OKX Webhook] Signature verification failed:`, signatureCheck.error);
       return NextResponse.json(
         WebhookErrorResponses.invalidSignature(signatureCheck.error, requestId),
         { status: getHttpStatusCode(WebhookErrorCode.INVALID_SIGNATURE) }
+      );
+    }
+
+    // Parse only now that the bytes are proven authentic. A caller who cannot
+    // sign gets 401 above, never a 200 that reads "malformed JSON".
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json(
+        WebhookErrorResponses.invalidPayload('Invalid JSON in request body', requestId),
+        { status: getHttpStatusCode(WebhookErrorCode.INVALID_PAYLOAD) }
       );
     }
 

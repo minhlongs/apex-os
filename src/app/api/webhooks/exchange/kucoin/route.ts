@@ -121,9 +121,8 @@ function validateTimestampOrError(
 }
 
 async function verifyKuCoinSignatureInternal(
-  payload: string,
-  headers: Record<string, string>,
-  rawBody: string
+  rawBody: string,
+  headers: Record<string, string>
 ): Promise<{ valid: boolean; error?: string }> {
   if (!KUCOIN_WEBHOOK_SECRET) {
     return { valid: false, error: 'KuCoin webhook secret not configured' };
@@ -327,20 +326,25 @@ export async function POST(request: NextRequest): Promise<Response> {
     const rawBody = await request.text();
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
-    let body: Record<string, unknown>;
-    try {
-      body = JSON.parse(rawBody) as Record<string, unknown>;
-    } catch {
-      return NextResponse.json({ received: true, skipped: true, reason: 'invalid_json' }, { status: 200 });
-    }
-
-    // Verify signature
-    const signatureCheck = await verifyKuCoinSignatureInternal(rawBody, headers, rawBody);
+    // Verify the signature over the raw bytes BEFORE parsing. Parsing first and
+    // answering malformed JSON with 200 would let an unsigned caller skip the
+    // signature check entirely, so malformed bytes must answer 401 below.
+    const signatureCheck = await verifyKuCoinSignatureInternal(rawBody, headers);
     if (!signatureCheck.valid) {
       logWarn(`[KuCoin Webhook] Signature verification failed:`, signatureCheck.error);
       return NextResponse.json(
         WebhookErrorResponses.invalidSignature(signatureCheck.error, requestId),
         { status: getHttpStatusCode(WebhookErrorCode.INVALID_SIGNATURE) }
+      );
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody) as Record<string, unknown>;
+    } catch {
+      return NextResponse.json(
+        WebhookErrorResponses.invalidPayload('Invalid JSON in request body', requestId),
+        { status: getHttpStatusCode(WebhookErrorCode.INVALID_PAYLOAD) }
       );
     }
 

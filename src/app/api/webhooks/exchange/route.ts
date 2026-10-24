@@ -106,26 +106,18 @@ function validateTimestampOrError(
   return { valid: true };
 }
 
-function detectExchange(
-  headers: Record<string, string>,
-  body: Record<string, unknown>
-): Exchange | null {
+function detectExchange(headers: Record<string, string>): Exchange | null {
   if (headers['x-binance-signature'] || headers['signature']) return 'binance';
   if (headers['x-bybit-hmac-signature']) return 'bybit';
   if (headers['ok-access-sign'] || headers['ok-access-signature']) return 'okx';
   if (headers['kc-api-sign']) return 'kucoin';
-  if (body.e === 'executionReport' && body.o) return 'binance';
-  if (body.category && (body.execType === 'Trade' || body.execType === 'Fill')) return 'bybit';
-  if (body.instId && body.ordId) return 'okx';
-  if (body.topic && body.data) return 'kucoin';
   return null;
 }
 
 async function verifyWebhookSignature(
   exchange: Exchange,
-  payload: string,
-  headers: Record<string, string>,
-  rawBody: string
+  rawBody: string,
+  headers: Record<string, string>
 ): Promise<{ valid: boolean; error?: string }> {
   const secret = EXCHANGE_SECRETS[exchange];
   if (!secret) {
@@ -321,14 +313,7 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
     const rawBody = await request.text();
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
-    let body: Record<string, unknown>;
-    try {
-      body = JSON.parse(rawBody) as Record<string, unknown>;
-    } catch {
-      return NextResponse.json({ received: true, skipped: true, reason: 'invalid_json' }, { status: 200 });
-    }
-
-    const exchange = detectExchange(headers, body);
+    const exchange = detectExchange(headers);
     if (!exchange) {
       return NextResponse.json(WebhookErrorResponses.unsupportedExchange('unknown', requestId), { status: getHttpStatusCode(WebhookErrorCode.UNSUPPORTED_EXCHANGE) });
     }
@@ -338,10 +323,25 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
       return NextResponse.json(WebhookErrorResponses.missingSignature(requestId), { status: getHttpStatusCode(WebhookErrorCode.MISSING_SIGNATURE) });
     }
 
-    const verification = await verifyWebhookSignature(exchange, rawBody, headers, rawBody);
+    // Verify the signature over the raw bytes BEFORE parsing. Parsing first and
+    // answering malformed JSON with 200 would let an unsigned caller skip the
+    // signature check entirely, so malformed bytes must answer 401 below.
+    const verification = await verifyWebhookSignature(exchange, rawBody, headers);
     if (!verification.valid) {
       logWarn(`[Webhook] ${exchange} signature verification failed:`, verification.error);
       return NextResponse.json(WebhookErrorResponses.invalidSignature(verification.error, requestId), { status: getHttpStatusCode(WebhookErrorCode.INVALID_SIGNATURE) });
+    }
+
+    // Parse only now that the bytes are proven authentic. A caller who cannot
+    // sign gets 401 above, never a 200 that reads "malformed JSON".
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody) as Record<string, unknown>;
+    } catch {
+      return NextResponse.json(
+        WebhookErrorResponses.invalidPayload('Invalid JSON in request body', requestId),
+        { status: getHttpStatusCode(WebhookErrorCode.INVALID_PAYLOAD) }
+      );
     }
 
     const timestampCheck = validateTimestampOrError(exchange, headers, body, requestId);
