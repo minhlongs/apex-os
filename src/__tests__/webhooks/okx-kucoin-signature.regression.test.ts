@@ -54,14 +54,15 @@ function expectMalformedIsRejected(status: number): void {
 }
 
 /**
- * The bypass itself: bytes that are not JSON, sent with no signature at all.
- * This is the case the parse-before-verify ordering answered 200, so it is the
- * only assertion that fails if that ordering is ever restored. Asserted
- * separately from the signed-malformed case because that one still passes on
- * the broken ordering once the signature happens to validate.
+ * Bytes that are not JSON, sent with no signature at all. Verification
+ * precedes parsing, so this is refused at the signature check with 401 rather
+ * than ever reaching the parser. Asserted as exactly 401 (not merely "not 200")
+ * because the pre-verification ordering also refused this caller, answering 500
+ * from its catch block — an assertion that accepts both statuses would pass
+ * against either ordering and would not describe the contract.
  */
 function expectUnsignedMalformedIsRejected(status: number): void {
-  expect(status).not.toBe(200);
+  expect(status).toBe(401);
 }
 
 function buildRequest(url: string, headers: Record<string, string>, body: string): NextRequest {
@@ -160,10 +161,13 @@ describe('OKX webhook signature verification (real handler)', () => {
 
   it('never answers unsigned malformed bytes with a success status', async () => {
     const { POST } = await import('@/app/api/webhooks/exchange/okx/route');
-    // No signature headers at all. This is the bypass the old ordering left
-    // open: nothing here needs the secret, so an attacker with no credentials
-    // reached a 200. Verification happening before parsing is what rejects it.
-    const request = buildRequest(`http://localhost:3000${OKX_PATH}`, {}, 'this-is-not-json');
+    // No signature at all, and bytes that are not JSON. Verification runs before
+    // parsing, so this is refused at the signature check rather than handed to
+    // the parser. A high-value header is sent on its own: a caller who presents
+    // an API key without a signature is still an unsigned caller.
+    const request = buildRequest(`http://localhost:3000${OKX_PATH}`, {
+      'x-okx-api-key': 'b6efc4f0-1111-2222-3333-444455556666',
+    }, 'this-is-not-json');
 
     const response = await POST(request);
 
@@ -233,10 +237,13 @@ describe('KuCoin webhook signature verification (real handler)', () => {
 
   it('never answers unsigned malformed bytes with a success status', async () => {
     const { POST } = await import('@/app/api/webhooks/exchange/kucoin/route');
-    // No signature headers at all. This is the bypass the old ordering left
-    // open: nothing here needs the secret, so an attacker with no credentials
-    // reached a 200. Verification happening before parsing is what rejects it.
-    const request = buildRequest(`http://localhost:3000${KUCOIN_PATH}`, {}, 'this-is-not-json');
+    // No signature at all, and bytes that are not JSON. Verification runs before
+    // parsing, so this is refused at the signature check rather than handed to
+    // the parser. A high-value header is sent on its own: a caller who presents
+    // an API key without a signature is still an unsigned caller.
+    const request = buildRequest(`http://localhost:3000${KUCOIN_PATH}`, {
+      'kc-api-key': '68f4e1a0-1111-2222-3333-444455556666',
+    }, 'this-is-not-json');
 
     const response = await POST(request);
 
