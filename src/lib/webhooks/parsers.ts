@@ -4,6 +4,127 @@
  */
 
 import { StandardizedTrade, Exchange } from './types';
+import { MoneyError, parseDecimal, toMinorUnits, type MinorUnits } from '../money';
+
+/**
+ * Read a decimal field from a payload and convert it to exact minor units.
+ *
+ * Returns null when the field is absent or not a decimal, so a malformed or
+ * missing field fails the parser's own required-field checks rather than
+ * becoming a silently rounded number.
+ */
+function readDecimal(raw: unknown): MinorUnits | null {
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+
+  try {
+    return parseDecimal(String(raw));
+  } catch (error) {
+    if (error instanceof MoneyError) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Read a decimal field as a money amount at the USDC scale.
+ *
+ * Separate from `readDecimal` because payloads mix the two: a trade size is an
+ * asset quantity at 8 decimals, while a reported notional such as KuCoin's
+ * `funds` is money in the quote currency. Reading the latter at the asset scale
+ * would multiply it by a hundred and pay a hundredfold commission.
+ */
+function readUsdcAmount(raw: unknown): MinorUnits | null {
+  if (raw === undefined || raw === null) {
+    return null;
+  }
+
+  try {
+    return toMinorUnits(String(raw));
+  } catch (error) {
+    if (error instanceof MoneyError) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+/** Render an exact asset quantity as the float its consumers expect. */
+function toAssetFloat(value: MinorUnits): number {
+  return Number(value as bigint) / 1e8;
+}
+
+/** Render an exact USDC amount as a float in whole units. */
+function toUsdcFloat(value: MinorUnits): number {
+  return Number(value as bigint) / 1e6;
+}
+
+/**
+ * Multiply two exact asset quantities into an exact USDC amount.
+ *
+ * `quantity * price` in float propagates both operands' binary error into the
+ * commission every tier then draws on, so the product is formed in integers
+ * instead. Returns null when the product is finer than the USDC scale can
+ * hold, so the caller leaves `totalValueMinor` unset rather than round a real
+ * amount.
+ */
+function exactNotional(quantity: MinorUnits, price: MinorUnits): MinorUnits | null {
+  // Each operand carries the asset scale, so the product carries it twice.
+  const assetScale = BigInt('100000000');
+  const divisor = assetScale * assetScale;
+  const product = (quantity as bigint) * (price as bigint);
+
+  if (product % divisor !== BigInt(0)) {
+    return null;
+  }
+
+  try {
+    return toMinorUnits(product / divisor);
+  } catch {
+    return null;
+  }
+}
+
+/** The exact figures behind one trade's amounts. */
+interface TradeAmounts {
+  quantity: MinorUnits | null;
+  price: MinorUnits | null;
+  /** A notional the exchange reported directly, when it sends one. */
+  reportedTotal: MinorUnits | null;
+}
+
+/**
+ * Fill in the amount fields of a standardized trade from exact figures.
+ *
+ * Shared by all four exchange parsers so the relationship between the exact and
+ * float representations -- and which one stands in when the payload cannot be
+ * held at the USDC scale -- is written once rather than four times.
+ *
+ * A notional the exchange reported directly wins over the derived one: it is
+ * what the venue says the trade was worth, which can differ from size times
+ * price once the venue has rounded.
+ */
+function amountFields(amounts: TradeAmounts): {
+  quantity: number;
+  price: number;
+  totalValue: number;
+  totalValueMinor?: bigint;
+} {
+  const { quantity, price, reportedTotal } = amounts;
+
+  const derived =
+    quantity !== null && price !== null ? exactNotional(quantity, price) : null;
+  const exact = reportedTotal ?? derived;
+
+  return {
+    quantity: quantity === null ? 0 : toAssetFloat(quantity),
+    price: price === null ? 0 : toAssetFloat(price),
+    totalValue: exact === null ? 0 : toUsdcFloat(exact),
+    totalValueMinor: exact === null ? undefined : (exact as bigint),
+  };
+}
 
 /**
  * Parse Binance webhook payload
@@ -28,14 +149,24 @@ export function parseBinanceWebhook(
   const userId = String(body.u ?? ''); // User ID on Binance
   const symbol = String(order.s ?? '');
   const side = String(order.S ?? '');
-  const quantity = parseFloat(String(order.l ?? order.q ?? '0'));
-  const price = parseFloat(String(order.L ?? order.p ?? '0'));
-  const fee = parseFloat(String(order.n ?? '0'));
+  const quantityExact = readDecimal(String(order.l ?? order.q ?? '0'));
+  const priceExact = readDecimal(String(order.L ?? order.p ?? '0'));
+  const feeExact = readDecimal(String(order.n ?? '0'));
   const feeCurrency = String(order.N ?? '');
   const execTime = Number(body.E ?? order.T ?? Date.now());
 
-  // Validate required fields
-  if (!symbol || !side || !quantity || !price) {
+  // Validate required fields. A quantity or price that cannot be read exactly
+  // is refused rather than accepted as a rounded float: the exact figures are
+  // what the commission is computed from, so admitting an unreadable one would
+  // compute money from a value nobody checked.
+  if (
+    !symbol ||
+    !side ||
+    quantityExact === null ||
+    priceExact === null ||
+    (quantityExact as bigint) === BigInt(0) ||
+    (priceExact as bigint) === BigInt(0)
+  ) {
     return null;
   }
 
@@ -44,11 +175,13 @@ export function parseBinanceWebhook(
     orderId: String(order.i ?? order.c ?? ''),
     symbol,
     side: side === 'BUY' ? 'BUY' : 'SELL',
-    quantity,
-    price,
-    totalValue: quantity * price,
+    ...amountFields({
+      quantity: quantityExact,
+      price: priceExact,
+      reportedTotal: null,
+    }),
     currency: symbol.replace(/USDT|USDC|BUSD|BTC|ETH/g, ''), // Extract base currency
-    fee,
+    fee: feeExact === null ? 0 : toAssetFloat(feeExact),
     feeCurrency,
     executedAt: new Date(execTime),
     userId,
@@ -75,15 +208,23 @@ export function parseBybitWebhook(
 
   const symbol = String(body.symbol ?? '');
   const side = String(body.side ?? body.type ?? '');
-  const size = parseFloat(String(body.size ?? '0'));
-  const avgPrice = parseFloat(String(body.avgPrice ?? body.price ?? '0'));
-  const fee = parseFloat(String(body.fee ?? '0'));
+  const sizeExact = readDecimal(String(body.size ?? '0'));
+  const priceExact = readDecimal(String(body.avgPrice ?? body.price ?? '0'));
+  const feeExact = readDecimal(String(body.fee ?? '0'));
   const feeCurrency = String(body.feeCurrency ?? '');
   const transactTime = Number(body.transactTime ?? body.execTime ?? Date.now());
   const accountId = String(body.accountId ?? '');
 
-  // Validate required fields
-  if (!symbol || !side || !size || !avgPrice) {
+  // Validate required fields. An unreadable size or price is refused rather
+  // than rounded into a float nobody can audit.
+  if (
+    !symbol ||
+    !side ||
+    sizeExact === null ||
+    priceExact === null ||
+    (sizeExact as bigint) === BigInt(0) ||
+    (priceExact as bigint) === BigInt(0)
+  ) {
     return null;
   }
 
@@ -95,11 +236,13 @@ export function parseBybitWebhook(
     orderId: String(body.orderId ?? ''),
     symbol,
     side: side === 'Buy' ? 'BUY' : 'SELL',
-    quantity: size,
-    price: avgPrice,
-    totalValue: size * avgPrice,
+    ...amountFields({
+      quantity: sizeExact,
+      price: priceExact,
+      reportedTotal: null,
+    }),
     currency,
-    fee,
+    fee: feeExact === null ? 0 : toAssetFloat(feeExact),
     feeCurrency,
     executedAt: new Date(transactTime),
     userId: accountId,
@@ -118,14 +261,21 @@ export function parseOkxWebhook(
   // OKX sends order update events
   const instId = String(body.instId ?? '');
   const ordId = String(body.ordId ?? '');
-  const sz = parseFloat(String(body.sz ?? '0'));
-  const px = parseFloat(String(body.px ?? '0'));
-  const fee = parseFloat(String(body.fee ?? '0'));
+  const szExact = readDecimal(String(body.sz ?? '0'));
+  const pxExact = readDecimal(String(body.px ?? '0'));
+  const feeExact = readDecimal(String(body.fee ?? '0'));
   const side = String(body.side ?? '').toLowerCase();
   const timestampMs = body.ts ? Number(body.ts) : Date.now();
 
   // Validate required fields
-  if (!instId || !ordId || !sz || !px) {
+  if (
+    !instId ||
+    !ordId ||
+    szExact === null ||
+    pxExact === null ||
+    (szExact as bigint) === BigInt(0) ||
+    (pxExact as bigint) === BigInt(0)
+  ) {
     return null;
   }
 
@@ -143,11 +293,13 @@ export function parseOkxWebhook(
     orderId: ordId,
     symbol,
     side: side === 'buy' ? 'BUY' : 'SELL',
-    quantity: sz,
-    price: px,
-    totalValue: sz * px,
+    ...amountFields({
+      quantity: szExact,
+      price: pxExact,
+      reportedTotal: null,
+    }),
     currency,
-    fee,
+    fee: feeExact === null ? 0 : toAssetFloat(feeExact),
     feeCurrency,
     executedAt: new Date(timestampMs),
     userId: undefined, // OKX does not include user identifier in webhook
@@ -179,14 +331,21 @@ export function parseKuCoinWebhook(
   const orderId = String(data.orderId ?? '');
   const symbol = String(data.symbol ?? '');
   const side = String(data.side ?? '').toLowerCase();
-  const price = parseFloat(String(data.price ?? '0'));
-  const size = parseFloat(String(data.size ?? '0'));
-  const fee = parseFloat(String(data.fee ?? '0'));
-  const funds = parseFloat(String(data.funds ?? '0')); // Total funds (alternative to size * price)
+  const priceExact = readDecimal(String(data.price ?? '0'));
+  const sizeExact = readDecimal(String(data.size ?? '0'));
+  const feeExact = readDecimal(String(data.fee ?? '0'));
   const timestampMs = Number(body.ts ?? Date.now());
 
   // Validate required fields
-  if (!orderId || !symbol || !side || !price || !size) {
+  if (
+    !orderId ||
+    !symbol ||
+    !side ||
+    priceExact === null ||
+    sizeExact === null ||
+    (priceExact as bigint) === BigInt(0) ||
+    (sizeExact as bigint) === BigInt(0)
+  ) {
     return null;
   }
 
@@ -201,8 +360,11 @@ export function parseKuCoinWebhook(
     currency = symbol.replace(/USDT|USDC|USD|PERP|M$/g, '');
   }
 
-  // Calculate total value: prefer funds if available, otherwise size * price
-  const totalValue = funds > 0 ? funds : size * price;
+  // Calculate total value: prefer funds if available, otherwise size * price.
+  // Unlike size and price, `funds` is a money amount in the quote currency, so
+  // it is read at the USDC scale -- reading it at the asset scale would
+  // multiply it by a hundred and pay a hundredfold commission.
+  const reportedTotal = readUsdcAmount(data.funds);
 
   // KuCoin fee currency typically matches the quote currency
   const feeCurrency = symbol.includes('-') ? symbol.split('-')[1] : 'USDT';
@@ -212,11 +374,9 @@ export function parseKuCoinWebhook(
     orderId,
     symbol,
     side: side === 'buy' ? 'BUY' : 'SELL',
-    quantity: size,
-    price,
-    totalValue,
+    ...amountFields({ quantity: sizeExact, price: priceExact, reportedTotal }),
     currency,
-    fee,
+    fee: feeExact === null ? 0 : toAssetFloat(feeExact),
     feeCurrency,
     executedAt: new Date(timestampMs),
     userId: undefined, // KuCoin does not include user identifier in webhook
