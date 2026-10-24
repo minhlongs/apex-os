@@ -61,6 +61,43 @@ function toRateParts(rate: number): bigint {
   return BigInt(scaled);
 }
 
+/** Percent units that represent 100%. */
+const PERCENT_DENOMINATOR = BigInt('100');
+
+/**
+ * Take a percentage of an amount, in percent units, exactly.
+ *
+ * Percentages in this system are configured in percent units rather than
+ * fractions -- a 10% cashback deal stores 10 -- so the conversion to a fraction
+ * has to happen somewhere. `amount * (percent / 100)` does it in float, where
+ * `100 * (10 / 100)` is not exactly `10`: the division runs first and the
+ * binary error is then amplified by the multiplication. Rewriting it as
+ * `(amount * percent) / 100` multiplies first, so the only inexactness is the
+ * single floor at the end, which is the same rounding the tier split uses.
+ *
+ * @throws MoneyError 'OVERFLOW' when the percent is outside 0..100.
+ */
+export function percentOf(amount: MinorUnits, percent: number): MinorUnits {
+  assertNonNegative(amount, 'Amount');
+
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    throw new MoneyError('OVERFLOW', `Percent ${percent} is outside the 0..100 range`);
+  }
+
+  // A percentage finer than 6 decimals cannot land exactly on an integer
+  // number of parts per million, so refuse it rather than round.
+  const parts = percent * 1e6;
+  if (!Number.isInteger(parts)) {
+    throw new MoneyError(
+      'PRECISION_LOSS',
+      `Percent ${percent} is finer than 6-decimal fractional precision`
+    );
+  }
+
+  const units = (amount as bigint) * BigInt(parts);
+  return minorUnits(units / (RATE_DENOMINATOR * PERCENT_DENOMINATOR));
+}
+
 /**
  * Split a commission total across three referral tiers.
  *

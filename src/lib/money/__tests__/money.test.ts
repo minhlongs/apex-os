@@ -1,6 +1,9 @@
 import {
   toMinorUnits,
   fromMinorUnits,
+  minorUnits,
+  parseDecimal,
+  percentOf,
   assertNonNegative,
   formatUsdc,
   MoneyError,
@@ -119,5 +122,101 @@ describe('formatUsdc', () => {
 
   it('renders a large amount without exponent notation', () => {
     expect(formatUsdc(toMinorUnits(1_234_567_890n))).toBe('1234.56789');
+  });
+});
+
+describe('parseDecimal', () => {
+  it('reads a BTC satoshi, which the USDC scale cannot hold', () => {
+    expect(fromMinorUnits(parseDecimal('0.00000001'))).toBe(1n);
+  });
+
+  it('reads a whole BTC at the fixed asset scale', () => {
+    expect(fromMinorUnits(parseDecimal('1'))).toBe(100_000_000n);
+  });
+
+  it('pads a coarse input up to the fixed scale instead of truncating it', () => {
+    expect(fromMinorUnits(parseDecimal('0.5'))).toBe(50_000_000n);
+    expect(fromMinorUnits(parseDecimal('0.12345678'))).toBe(12_345_678n);
+  });
+
+  it('keeps every parsed value on the same scale so they can be compared', () => {
+    const a = parseDecimal('0.5');
+    const b = parseDecimal('0.50000000');
+    expect(a).toBe(b);
+  });
+
+  it('reads a negative fee', () => {
+    expect(fromMinorUnits(parseDecimal('-0.00000001'))).toBe(-1n);
+  });
+
+  it('refuses a value finer than the fixed scale rather than truncating', () => {
+    expect(() => parseDecimal('0.000000001')).toThrow(/fractional digits/);
+    expect(() => parseDecimal('1.123456789')).toThrow(MoneyError);
+  });
+
+  it('refuses non-numeric input', () => {
+    expect(() => parseDecimal('abc')).toThrow(/not a decimal/);
+    expect(() => parseDecimal('')).toThrow(/empty string/);
+  });
+
+  it('accepts a bigint and a finite number', () => {
+    expect(fromMinorUnits(parseDecimal(42n))).toBe(42n);
+    expect(fromMinorUnits(parseDecimal(1.5))).toBe(150_000_000n);
+    expect(() => parseDecimal(NaN)).toThrow(/not a finite number/);
+    expect(() => parseDecimal(Infinity)).toThrow(/not a finite number/);
+  });
+});
+
+describe('percentOf', () => {
+  const amount = (units: bigint) => minorUnits(units);
+
+  it('takes a percentage in percent units, not fractions', () => {
+    expect(fromMinorUnits(percentOf(amount(1_000_000n), 10))).toBe(100_000n);
+    expect(fromMinorUnits(percentOf(amount(1_000_000n), 0.30))).toBe(3_000n);
+    expect(fromMinorUnits(percentOf(amount(1_000_000n), 30))).toBe(300_000n);
+  });
+
+  it('multiplies before dividing so the only inexactness is the final floor', () => {
+    // 100 * (10 / 100) in float is not exactly 10; this must be.
+    expect(fromMinorUnits(percentOf(amount(100n), 10))).toBe(10n);
+    expect(fromMinorUnits(percentOf(amount(123n), 10))).toBe(12n); // 12.3 floors to 12
+  });
+
+  it('pays nothing when the percentage is finer than one minor unit', () => {
+    expect(fromMinorUnits(percentOf(amount(1n), 45))).toBe(0n);
+  });
+
+  it('takes the whole amount at 100% and nothing at 0%', () => {
+    expect(fromMinorUnits(percentOf(amount(7n), 100))).toBe(7n);
+    expect(fromMinorUnits(percentOf(amount(7n), 0))).toBe(0n);
+  });
+
+  it('never hands back more than the amount', () => {
+    for (let units = 1n; units <= 500n; units += 1n) {
+      const pct = units % 101n;
+      const share = fromMinorUnits(percentOf(amount(units), Number(pct)));
+      expect(share <= units).toBe(true);
+      expect(share >= 0n).toBe(true);
+    }
+  });
+
+  it('refuses a percent outside 0..100', () => {
+    expect(() => percentOf(amount(100n), 101)).toThrow(/outside the 0\.\.100/);
+    expect(() => percentOf(amount(100n), -1)).toThrow(/outside the 0\.\.100/);
+    expect(() => percentOf(amount(100n), NaN)).toThrow(/outside the 0\.\.100/);
+  });
+
+  it('refuses a percent finer than the rate scale', () => {
+    expect(() => percentOf(amount(100n), 0.1234565)).toThrow(/finer than 6-decimal/);
+  });
+
+  it('refuses a negative amount', () => {
+    expect(() => percentOf(amount(-10n), 10)).toThrow(/must not be negative/);
+  });
+
+  it('handles the full-scale maximum exactly', () => {
+    const big = BigInt('10') ** BigInt(25);
+    expect(fromMinorUnits(percentOf(amount(big), 100))).toBe(big);
+    expect(fromMinorUnits(percentOf(amount(big), 10))).toBe(big / BigInt(10));
   });
 });

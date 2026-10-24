@@ -12,10 +12,10 @@ export type { MoneyErrorKind, MinorUnits } from './types';
 
 export { USDC_DECIMALS, USDC_SCALE, RATE_SCALE } from './constants';
 
-export { toMinorUnits, fromMinorUnits, assertNonNegative, minorUnits, usdc } from './parse';
+export { toMinorUnits, fromMinorUnits, assertNonNegative, minorUnits, usdc, parseDecimal } from './parse';
 
 export { formatMinorUnits, formatUsdc } from './format';
 export type { FormatOptions } from './format';
 
-export { splitCommission } from './split';
+export { splitCommission, percentOf } from './split';
 export type { TierRateParts, TierShare } from './split';
