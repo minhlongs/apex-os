@@ -26,8 +26,10 @@ jobs:
           cache-dependency-path: package-lock.json
 
       # package-lock.json is the install path in CI. The tree was originally
-      # installed with pnpm (see CLAUDE.md), but the lockfiles have diverged;
-      # keep them in sync before switching CI to pnpm.
+      # installed with pnpm (see CLAUDE.md), and that lockfile had drifted
+      # several devDependencies behind package.json, so `npm ci` refused to
+      # install. It is regenerated here to match; switch CI to pnpm only after
+      # doing the same on pnpm-lock.yaml.
       - name: Install dependencies
         run: npm ci
 
