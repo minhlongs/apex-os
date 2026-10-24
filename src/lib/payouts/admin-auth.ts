@@ -144,7 +144,8 @@ export async function verifyAdminPayoutAccess(
   }
 
   // 3. Query profiles table for role
-  let profile: { id: string; role: string | null; email: string | null } | null = null;
+  // D1 first() resolves to undefined when no row matches; the guards below treat that as "no profile".
+  let profile: { id: string; role: string | null; email: string | null } | null | undefined = null;
   try {
     profile = await db
       .prepare('SELECT id, role, email FROM profiles WHERE id = ?')

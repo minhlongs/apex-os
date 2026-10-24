@@ -30,9 +30,20 @@
       }
     },
     {
-      "files": ["scripts/**"],
+      "files": [
+        "check-braces.js",
+        "fix-vi-json.js",
+        "next.config.js",
+        "k6/**",
+        "worker-wrapper.js",
+        "scripts/**"
+      ],
       "parserOptions": {
         "project": null
+      },
+      "rules": {
+        "@typescript-eslint/no-require-imports": "off",
+        "import/no-anonymous-default-export": "off"
       }
     }
   ]

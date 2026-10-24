@@ -960,4 +960,58 @@ describe('BatchSettlementService (Milestone 4)', () => {
       expect(payout.retry_count).toBe(1);
     });
   });
+
+  // --------------------------------------------------------------------------
+  // Settlement integrity: "submitted" must never be treated as "confirmed".
+  // --------------------------------------------------------------------------
+  describe('executeBatch — on-chain confirmation is required before marking paid', () => {
+    beforeEach(() => {
+      // The adapter reports success, but verification is not yet confirmed.
+      stellarAdapter.verifyHandler = async () => ({
+        verified: true,
+        status: 'pending',
+        transactionId: 'tx-pending',
+        timestamp: new Date().toISOString(),
+      }) as never;
+    });
+
+    it('leaves earnings unpaid when the transfer is not confirmed on-chain', async () => {
+      sqlite.prepare(`
+        INSERT INTO profiles (id, email, full_name, wallet_address, preferred_chain)
+        VALUES ('aff_unconfirmed', 'unconf@example.com', 'Unconfirmed User', 'GA2C5RFPE6GCKMY3US5PAB6UZLKIGAHWKXX2GFFMDNAHG4JJSV27GCGZ', 'stellar')
+      `).run();
+      sqlite.prepare(`INSERT INTO earnings (id, affiliate_id, amount) VALUES ('e_uc', 'aff_unconfirmed', 50.00)`).run();
+
+      const result = await service.executeBatch();
+
+      // The submission happened, but the payout is not retired and earnings are
+      // untouched: the next cycle retries instead of marking users paid for a
+      // transfer that has not landed.
+      expect(result.successfulPayouts).toBe(0);
+
+      const earnings = sqlite.prepare('SELECT * FROM earnings WHERE affiliate_id = ?').all('aff_unconfirmed') as Array<{ is_paid: number }>;
+      expect(earnings[0].is_paid).toBe(0);
+    });
+
+    it('marks earnings paid once verification confirms the transfer', async () => {
+      stellarAdapter.verifyHandler = async () => ({
+        verified: true,
+        status: 'confirmed',
+        transactionId: 'tx-confirmed',
+        timestamp: new Date().toISOString(),
+      }) as never;
+
+      sqlite.prepare(`
+        INSERT INTO profiles (id, email, full_name, wallet_address, preferred_chain)
+        VALUES ('aff_confirmed', 'conf@example.com', 'Confirmed User', 'GA2C5RFPE6GCKMY3US5PAB6UZLKIGAHWKXX2GFFMDNAHG4JJSV27GCGZ', 'stellar')
+      `).run();
+      sqlite.prepare(`INSERT INTO earnings (id, affiliate_id, amount) VALUES ('e_c', 'aff_confirmed', 50.00)`).run();
+
+      const result = await service.executeBatch();
+
+      expect(result.successfulPayouts).toBe(1);
+      const earnings = sqlite.prepare('SELECT * FROM earnings WHERE affiliate_id = ?').all('aff_confirmed') as Array<{ is_paid: number }>;
+      expect(earnings[0].is_paid).toBe(1);
+    });
+  });
 });

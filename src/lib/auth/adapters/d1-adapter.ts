@@ -205,7 +205,8 @@ export function createD1Adapter({ db }: D1AdapterOptions) {
 export async function withAuth(request: NextRequest): Promise<AuthResult> {
   try {
     // Get DB from global scope (Cloudflare Workers binding)
-    const db = (typeof globalThis.DB !== 'undefined' ? globalThis.DB : null) as D1Database | null
+    const globalDb = (globalThis as unknown as { DB?: D1Database }).DB
+    const db = (typeof globalDb !== 'undefined' ? globalDb : null) as D1Database | null
     if (!db) {
       return { success: false }
     }

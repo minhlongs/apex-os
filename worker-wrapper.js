@@ -5,6 +5,11 @@
  */
 
 import openNextWorker from './.open-next/worker.js';
+import {
+  CRON_ALERT_ENGINE,
+  CRON_D1_METRICS,
+  CRON_WEEKLY_PAYOUTS,
+} from './worker-cron-schedules.js';
 
 // Re-export named exports from OpenNext worker (Durable Objects, etc.)
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from './.open-next/worker.js';
@@ -25,8 +30,24 @@ export default {
       globalThis.STORAGE = env.STORAGE;
     }
 
-    // Handle cron-triggered payouts
+    // Handle cron-triggered payouts.
+    //
+    // `cf-cron-trigger` is a request header, so a client can spoof it and reach
+    // the payout path from outside Cloudflare's scheduler. Require the shared
+    // secret that the scheduled invocation is configured to carry, and refuse
+    // anything else.
     if (request.headers.get('cf-cron-trigger')) {
+      const presented = request.headers.get('authorization');
+      const expected = env.CRON_SECRET ? `Bearer ${env.CRON_SECRET}` : null;
+      if (!expected || presented !== expected) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Unauthorized',
+        }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return this.handleCron(request, env, ctx);
     }
 
@@ -39,17 +60,17 @@ export default {
     const cronSchedule = request.headers.get('cf-cron-schedule') || '';
 
     // Execute alert engine evaluation (every 5 minutes)
-    if (cronSchedule === '*/5 * * * *') {
+    if (cronSchedule === CRON_ALERT_ENGINE) {
       return this.handleAlertEngineCron(request, env, ctx);
     }
 
     // Execute D1 metrics monitoring (every 30 minutes)
-    if (cronSchedule === '*/30 * * * *') {
+    if (cronSchedule === CRON_D1_METRICS) {
       return this.handleMonitoringCron(request, env, ctx);
     }
 
     // Execute weekly payouts (Sunday at 00:00 UTC)
-    if (cronSchedule === '0 0 * * 0') {
+    if (cronSchedule === CRON_WEEKLY_PAYOUTS) {
       return this.handlePayoutCron(request, env, ctx);
     }
 
@@ -77,6 +98,9 @@ export default {
       }
 
       const payoutsService = createPayoutsService(db);
+
+      // Affiliates whose payout could not be confirmed on-chain this run.
+      const unsettled = [];
 
       // Get pending earnings grouped by affiliate
       const pendingEarningsQuery = `
@@ -109,7 +133,8 @@ export default {
       const affiliateIds = pendingResults.results.map(r => r.affiliate_id);
       const placeholders = affiliateIds.map(() => '?').join(',');
       const affiliates = await db.prepare(`
-        SELECT id, email, full_name, payout_method, payout_method_details
+        SELECT id, email, full_name, payout_method, payout_method_details,
+               wallet_address, preferred_chain
         FROM profiles
         WHERE id IN (${placeholders})
       `)
@@ -133,8 +158,18 @@ export default {
         const payoutDetails = affiliate.payout_method_details
           ? JSON.parse(affiliate.payout_method_details)
           : {};
+        // Chain and destination follow the same resolution the settlement
+        // service uses, so the cron and the admin path agree on where money
+        // actually goes.
+        const chain = String(affiliate.preferred_chain || payoutDetails.chain || 'stellar').toLowerCase();
+        const recipientAddress = affiliate.wallet_address || payoutDetails.address || '';
 
         try {
+          // Payout is a money movement, not a bookkeeping entry. Record it,
+          // actually broadcast the transfer on the affiliate's chain, then
+          // confirm on-chain before earnings are retired. Marking is_paid here
+          // without a confirmed transfer previously meant users were recorded
+          // as paid for transfers that never happened.
           const payout = await payoutsService.createPayout({
             affiliate_id: pending.affiliate_id,
             payout_method: payoutMethod,
@@ -147,21 +182,45 @@ export default {
             notes: `Auto-generated payout for ${pending.earning_ids.split(',').length} earnings`,
           });
 
-          // Mark earnings as paid
-          const earningIds = pending.earning_ids.split(',');
-          for (const earningId of earningIds) {
-            await db.prepare('UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?')
-              .bind(payout.id, earningId)
-              .run();
-          }
-
-          results.push({
-            affiliate_id: pending.affiliate_id,
-            affiliate_email: affiliate.email,
+          const verification = await payoutsService.settle({
+            payoutId: payout.id,
+            affiliateId: pending.affiliate_id,
+            chain,
+            recipientAddress,
             amount: pending.total_amount,
-            payout_id: payout.id,
+            idempotencyKey: `cron_payout_${payout.id}`,
           });
-          totalPayoutAmount += pending.total_amount;
+
+          if (verification.kind === 'paid') {
+            const earningIds = pending.earning_ids.split(',');
+            for (const earningId of earningIds) {
+              await db.prepare('UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?')
+                .bind(payout.id, earningId)
+                .run();
+            }
+            results.push({
+              affiliate_id: pending.affiliate_id,
+              affiliate_email: affiliate.email,
+              amount: pending.total_amount,
+              payout_id: payout.id,
+              transaction_id: verification.transactionId,
+            });
+            totalPayoutAmount += pending.total_amount;
+          } else {
+            // Not confirmed on-chain: leave earnings unpaid so the next cycle
+            // retries, and record the reason against the payout for operators.
+            await db.prepare("UPDATE payouts SET status = 'pending', error_message = ?, transaction_id = ?, updated_at = datetime('now') WHERE id = ?")
+              .bind(verification.reason, verification.transactionId ?? null, payout.id)
+              .run();
+            unsettled.push({
+              affiliate_id: pending.affiliate_id,
+              affiliate_email: affiliate.email,
+              amount: pending.total_amount,
+              payout_id: payout.id,
+              reason: verification.reason,
+            });
+            console.error(`Payout ${payout.id} not confirmed on-chain: ${verification.reason}`);
+          }
         } catch (error) {
           console.error(`Failed to create payout for ${pending.affiliate_id}:`, error);
         }

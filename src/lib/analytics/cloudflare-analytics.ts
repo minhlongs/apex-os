@@ -82,7 +82,7 @@ export async function getAnalyticsOverview(
   accountId: string,
   token: string,
   timeRange: '24h' | '7d' | '30d' = '7d'
-): Promise<AnalyticsOverview | null> {
+): Promise<AnalyticsOverview | null | undefined> {
   const cacheKey = getCacheKey(accountId, 'analytics/overview', { time_range: timeRange });
   const cached = analyticsCache.get(cacheKey);
 
@@ -129,7 +129,7 @@ export async function getAnalyticsTimeSeries(
   token: string,
   timeRange: '24h' | '7d' | '30d' = '7d',
   interval: 'hour' | 'day' = 'day'
-): Promise<AnalyticsTimeSeriesData[]> {
+): Promise<AnalyticsTimeSeriesData[] | undefined> {
   const cacheKey = getCacheKey(accountId, 'analytics/timeseries', { time_range: timeRange, interval: interval });
   const cached = analyticsCache.get(cacheKey);
 
@@ -182,7 +182,7 @@ export async function getTopPages(
   token: string,
   timeRange: '24h' | '7d' | '30d' = '7d',
   limit: number = 10
-): Promise<AnalyticsTopPages[]> {
+): Promise<AnalyticsTopPages[] | undefined> {
   const cacheKey = getCacheKey(accountId, 'analytics/top-pages', { time_range: timeRange, limit: limit.toString() });
   const cached = analyticsCache.get(cacheKey);
 
@@ -234,7 +234,7 @@ export async function getReferrers(
   token: string,
   timeRange: '24h' | '7d' | '30d' = '7d',
   limit: number = 10
-): Promise<AnalyticsReferrers[]> {
+): Promise<AnalyticsReferrers[] | undefined> {
   const cacheKey = getCacheKey(accountId, 'analytics/referrers', { time_range: timeRange, limit: limit.toString() });
   const cached = analyticsCache.get(cacheKey);
 
@@ -285,7 +285,7 @@ export async function getCountries(
   token: string,
   timeRange: '24h' | '7d' | '30d' = '7d',
   limit: number = 15
-): Promise<AnalyticsCountries[]> {
+): Promise<AnalyticsCountries[] | undefined> {
   const cacheKey = getCacheKey(accountId, 'analytics/countries', { time_range: timeRange, limit: limit.toString() });
   const cached = analyticsCache.get(cacheKey);
 
@@ -336,7 +336,7 @@ export async function getDevices(
   accountId: string,
   token: string,
   timeRange: '24h' | '7d' | '30d' = '7d'
-): Promise<AnalyticsDevices[]> {
+): Promise<AnalyticsDevices[] | undefined> {
   const cacheKey = getCacheKey(accountId, 'analytics/devices', { time_range: timeRange });
   const cached = analyticsCache.get(cacheKey);
 
@@ -386,7 +386,7 @@ export async function getBrowsers(
   token: string,
   timeRange: '24h' | '7d' | '30d' = '7d',
   limit: number = 10
-): Promise<AnalyticsBrowserInfo[]> {
+): Promise<AnalyticsBrowserInfo[] | undefined> {
   const cacheKey = getCacheKey(accountId, 'analytics/browsers', { time_range: timeRange, limit: limit.toString() });
   const cached = analyticsCache.get(cacheKey);
 

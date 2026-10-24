@@ -1,7 +1,7 @@
 {
   "projectId": "11542622336933833737",
   "designSystemAssetId": "assets/16812736714591355271",
-  "generatedAt": "2026-10-17T10:03:15.335Z",
+  "generatedAt": "2026-10-18T00:00:00.000Z",
   "screens": [
     {
       "index": 1,
@@ -13,8 +13,7 @@
       "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=dba3be1aab6c47e9a70c314f39a7c877",
       "queueHtml": "/Users/macbook/apex-os/queue/index.html",
       "queuePng": "/Users/macbook/apex-os/queue/index.png",
-      "publicHtml": "/Users/macbook/apex-os/site/public/index.html",
-      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-index.png"
+      "publicHtml": "/Users/macbook/apex-os/site/public/index.html"
     },
     {
       "index": 2,
@@ -26,8 +25,7 @@
       "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=02984cc58005482e900bebb9a136929f",
       "queueHtml": "/Users/macbook/apex-os/queue/arbitrage-deals.html",
       "queuePng": "/Users/macbook/apex-os/queue/arbitrage-deals.png",
-      "publicHtml": "/Users/macbook/apex-os/site/public/arbitrage-deals.html",
-      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-arbitrage-deals.png"
+      "publicHtml": "/Users/macbook/apex-os/site/public/arbitrage-deals.html"
     },
     {
       "index": 3,
@@ -39,8 +37,7 @@
       "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=53abd8e29f434dfcba0c956707e07b1d",
       "queueHtml": "/Users/macbook/apex-os/queue/multichain-payouts.html",
       "queuePng": "/Users/macbook/apex-os/queue/multichain-payouts.png",
-      "publicHtml": "/Users/macbook/apex-os/site/public/multichain-payouts.html",
-      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-multichain-payouts.png"
+      "publicHtml": "/Users/macbook/apex-os/site/public/multichain-payouts.html"
     },
     {
       "index": 4,
@@ -52,8 +49,7 @@
       "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=5f9ae96775c14d46b812ac5126dd5916",
       "queueHtml": "/Users/macbook/apex-os/queue/compliance-fraud.html",
       "queuePng": "/Users/macbook/apex-os/queue/compliance-fraud.png",
-      "publicHtml": "/Users/macbook/apex-os/site/public/compliance-fraud.html",
-      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-compliance-fraud.png"
+      "publicHtml": "/Users/macbook/apex-os/site/public/compliance-fraud.html"
     },
     {
       "index": 5,
@@ -65,8 +61,7 @@
       "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=1cacd26543d84119a4455bf669605261",
       "queueHtml": "/Users/macbook/apex-os/queue/telegram-mini-app.html",
       "queuePng": "/Users/macbook/apex-os/queue/telegram-mini-app.png",
-      "publicHtml": "/Users/macbook/apex-os/site/public/telegram-mini-app.html",
-      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-telegram-mini-app.png"
+      "publicHtml": "/Users/macbook/apex-os/site/public/telegram-mini-app.html"
     },
     {
       "index": 6,
@@ -78,8 +73,7 @@
       "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=4f54ec05c0af428e9981de78569100f4",
       "queueHtml": "/Users/macbook/apex-os/queue/style-guide.html",
       "queuePng": "/Users/macbook/apex-os/queue/style-guide.png",
-      "publicHtml": "/Users/macbook/apex-os/site/public/style-guide.html",
-      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-style-guide.png"
+      "publicHtml": "/Users/macbook/apex-os/site/public/style-guide.html"
     },
     {
       "index": 7,
@@ -91,8 +85,7 @@
       "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=5107ac145136463bac751876243e8bc6",
       "queueHtml": "/Users/macbook/apex-os/queue/webhook-replay-sandbox.html",
       "queuePng": "/Users/macbook/apex-os/queue/webhook-replay-sandbox.png",
-      "publicHtml": "/Users/macbook/apex-os/site/public/webhook-replay-sandbox.html",
-      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-webhook-replay-sandbox.png"
+      "publicHtml": "/Users/macbook/apex-os/site/public/webhook-replay-sandbox.html"
     },
     {
       "index": 8,
@@ -104,8 +97,103 @@
       "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=0785ce0d6ef3426bb87ab8187f6123ed",
       "queueHtml": "/Users/macbook/apex-os/queue/fee-surge-simulator.html",
       "queuePng": "/Users/macbook/apex-os/queue/fee-surge-simulator.png",
-      "publicHtml": "/Users/macbook/apex-os/site/public/fee-surge-simulator.html",
-      "artifactPng": "/Users/macbook/.gemini/antigravity/brain/0a538378-a4c3-4983-9322-871e0bb59b34/apex-os-fee-surge-simulator.png"
+      "publicHtml": "/Users/macbook/apex-os/site/public/fee-surge-simulator.html"
+    },
+    {
+      "index": 9,
+      "page": "immutable-d1-audit-explorer",
+      "file": "immutable-d1-audit-explorer.html",
+      "title": "ApexOS - Forensic D1 Audit Trail & SQLite Immutability Guard",
+      "deviceType": "DESKTOP",
+      "screenId": "e0cdfaa55c544e52b96b5c5a47333c82",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=e0cdfaa55c544e52b96b5c5a47333c82",
+      "queueHtml": "/Users/macbook/apex-os/queue/immutable-d1-audit-explorer.html",
+      "queuePng": "/Users/macbook/apex-os/queue/immutable-d1-audit-explorer.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/immutable-d1-audit-explorer.html"
+    },
+    {
+      "index": 10,
+      "page": "byok-encryption-vault",
+      "file": "byok-encryption-vault.html",
+      "title": "ApexOS - Zero-Knowledge BYOK Envelope Vault & Read-Only Policy Guard",
+      "deviceType": "DESKTOP",
+      "screenId": "3db8be97403844ccba6cfb32d913cf3f",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=3db8be97403844ccba6cfb32d913cf3f",
+      "queueHtml": "/Users/macbook/apex-os/queue/byok-encryption-vault.html",
+      "queuePng": "/Users/macbook/apex-os/queue/byok-encryption-vault.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/byok-encryption-vault.html"
+    },
+    {
+      "index": 11,
+      "page": "vip-whale-otc-desk",
+      "file": "vip-whale-otc-desk.html",
+      "title": "ApexOS - Institutional VIP Whale Desk & Delta-Neutral Funding Terminal",
+      "deviceType": "DESKTOP",
+      "screenId": "11d9383ced1b4d5eb014541ee446d8c3",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=11d9383ced1b4d5eb014541ee446d8c3",
+      "queueHtml": "/Users/macbook/apex-os/queue/vip-whale-otc-desk.html",
+      "queuePng": "/Users/macbook/apex-os/queue/vip-whale-otc-desk.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/vip-whale-otc-desk.html"
+    },
+    {
+      "index": 12,
+      "page": "cron-worker-observability",
+      "file": "cron-worker-observability.html",
+      "title": "ApexOS - Cloudflare Edge Cron Schedule & D1 Query Telemetry Command",
+      "deviceType": "DESKTOP",
+      "screenId": "10070b9dbac74e5a8541046ded082ee5",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=10070b9dbac74e5a8541046ded082ee5",
+      "queueHtml": "/Users/macbook/apex-os/queue/cron-worker-observability.html",
+      "queuePng": "/Users/macbook/apex-os/queue/cron-worker-observability.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/cron-worker-observability.html"
+    },
+    {
+      "index": 13,
+      "page": "sepay-vietqr-bank-bridge",
+      "file": "sepay-vietqr-bank-bridge.html",
+      "title": "ApexOS - SePay VietQR Instant VND Off-Ramp & NOWPayments IPN Billing",
+      "deviceType": "DESKTOP",
+      "screenId": "bcc8931a70524cf2bbbc639ad118dbc6",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=bcc8931a70524cf2bbbc639ad118dbc6",
+      "queueHtml": "/Users/macbook/apex-os/queue/sepay-vietqr-bank-bridge.html",
+      "queuePng": "/Users/macbook/apex-os/queue/sepay-vietqr-bank-bridge.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/sepay-vietqr-bank-bridge.html"
+    },
+    {
+      "index": 14,
+      "page": "r2-merkle-snapshot-archiver",
+      "file": "r2-merkle-snapshot-archiver.html",
+      "title": "ApexOS - Cloudflare R2 Cold-Storage Snapshot Archiver & Zero-Egress Proof Verifier",
+      "deviceType": "DESKTOP",
+      "screenId": "69f95085b49c4c2fb0cb16faf09fd1fd",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=69f95085b49c4c2fb0cb16faf09fd1fd",
+      "queueHtml": "/Users/macbook/apex-os/queue/r2-merkle-snapshot-archiver.html",
+      "queuePng": "/Users/macbook/apex-os/queue/r2-merkle-snapshot-archiver.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/r2-merkle-snapshot-archiver.html"
+    },
+    {
+      "index": 15,
+      "page": "ai-agent-arbitrage-bot",
+      "file": "ai-agent-arbitrage-bot.html",
+      "title": "ApexOS - Autonomous Multi-Agent Arbitrage Swarm & Risk-Gate Command",
+      "deviceType": "DESKTOP",
+      "screenId": "4fbb8caa49cd4706bdd8510593bdf779",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=4fbb8caa49cd4706bdd8510593bdf779",
+      "queueHtml": "/Users/macbook/apex-os/queue/ai-agent-arbitrage-bot.html",
+      "queuePng": "/Users/macbook/apex-os/queue/ai-agent-arbitrage-bot.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/ai-agent-arbitrage-bot.html"
+    },
+    {
+      "index": 16,
+      "page": "institutional-prime-api-gateway",
+      "file": "institutional-prime-api-gateway.html",
+      "title": "ApexOS - Institutional Prime API Gateway & Cloudflare KV Token-Bucket Rate Limiter Console",
+      "deviceType": "DESKTOP",
+      "screenId": "2c5e0ed6396e4de7bb74d3204f2a20d2",
+      "stitchUrl": "https://stitch.withgoogle.com/projects/11542622336933833737?node-id=2c5e0ed6396e4de7bb74d3204f2a20d2",
+      "queueHtml": "/Users/macbook/apex-os/queue/institutional-prime-api-gateway.html",
+      "queuePng": "/Users/macbook/apex-os/queue/institutional-prime-api-gateway.png",
+      "publicHtml": "/Users/macbook/apex-os/site/public/institutional-prime-api-gateway.html"
     }
   ]
 }

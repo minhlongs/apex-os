@@ -8,6 +8,7 @@ import {
   REFERRAL_TIERS,
   STITCH_NAV_TABS,
   WEBHOOK_SANDBOX_PRESETS,
+  resolveTerminalTab,
 } from '@/data/stitch-terminal-data';
 import { StitchTerminalShell } from '@/components/stitch/StitchTerminalShell';
 
@@ -15,14 +16,22 @@ export interface TerminalPageProps {
   readonly params: {
     readonly locale: string;
   };
+  readonly searchParams?: {
+    readonly tab?: string | readonly string[];
+  };
 }
 
-export default function StitchTerminalPage({ params }: Readonly<TerminalPageProps>) {
+export default function StitchTerminalPage({
+  params,
+  searchParams,
+}: Readonly<TerminalPageProps>) {
   const initialLocale = params?.locale === 'vi' ? 'vi' : 'en';
+  const initialTab = resolveTerminalTab(searchParams?.tab);
 
   return (
     <StitchTerminalShell
       initialLocale={initialLocale}
+      initialTab={initialTab}
       navTabs={STITCH_NAV_TABS}
       exchanges={EXCHANGE_REBATES}
       referralTiers={REFERRAL_TIERS}

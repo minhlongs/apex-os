@@ -31,6 +31,8 @@ export type { BatchSettlementServiceDependencies } from './batch-settlement-serv
 
 // Multi-Chain Routing, Treasury, and Audit Services
 export { PayoutRouter, payoutRouter } from './router';
+export { confirmOnChain, isSettled, CONFIRMED_STATUSES } from './settlement-gate';
+export type { SettlementVerdict, ConfirmOnChainParams } from './settlement-gate';
 export {
   TreasuryHealthService,
   treasuryHealthService,

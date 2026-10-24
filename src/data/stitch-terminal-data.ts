@@ -3,6 +3,8 @@
  * Generated via stitch-nextjs-components from Google Stitch Project 11542622336933833737
  */
 
+export type TerminalLocale = 'en' | 'vi';
+
 export type TerminalScreenId =
   | 'cockpit'
   | 'arbitrage'
@@ -14,7 +16,42 @@ export type TerminalScreenId =
   | 'byok'
   | 'whale'
   | 'observability'
-  | 'sepay';
+  | 'sepay'
+  | 'r2'
+  | 'aibot'
+  | 'gateway';
+
+export interface PrimeApiGatewayRouteEntry {
+  readonly routeId: string;
+  readonly method: 'GET' | 'POST';
+  readonly path: string;
+  readonly protocol: 'REST_EDGE' | 'FIX_4_4' | 'WS_STREAM';
+  readonly tierName: string;
+  readonly burstCapacityRpm: number;
+  readonly refillRatePerSec: number;
+  readonly p99LatencyMs: number;
+  readonly status: 'KV_TOKEN_BUCKET_ACTIVE';
+}
+
+export interface R2MerkleSnapshotEntry {
+  readonly snapshotId: string;
+  readonly r2ObjectKey: string;
+  readonly rowCount: number;
+  readonly compressedSizeMb: number;
+  readonly merkleRootHash: string;
+  readonly retentionUntil: string;
+  readonly status: 'WORM_SEALED_R2';
+}
+
+export interface AiArbitrageAgentEntry {
+  readonly agentId: 'scanner-alpha' | 'hedger-beta' | 'sentinel-gamma' | 'settler-delta';
+  readonly agentName: string;
+  readonly roleSummary: string;
+  readonly minSpreadTriggerBps: number;
+  readonly maxSlippageGuardBps: number;
+  readonly captured24hUsdc: number;
+  readonly status: 'ARMED_RUNNING';
+}
 
 export interface SepayBankRailEntry {
   readonly bankCode: 'VCB' | 'TCB' | 'MB' | 'ACB';
@@ -264,6 +301,161 @@ export const STITCH_NAV_TABS: readonly StitchNavTab[] = [
     badge: 'NAPAS 247',
     stitchScreenId: 'bcc8931a70524cf2bbbc639ad118dbc6',
     staticHtmlPath: '/sepay-vietqr-bank-bridge.html',
+  },
+  {
+    id: 'r2',
+    index: 14,
+    labelEn: 'R2 Merkle Archiver',
+    labelVi: 'Lưu Trữ R2 & Merkle Proof',
+    badge: '$0 Egress',
+    stitchScreenId: '69f95085b49c4c2fb0cb16faf09fd1fd',
+    staticHtmlPath: '/r2-merkle-snapshot-archiver.html',
+  },
+  {
+    id: 'aibot',
+    index: 15,
+    labelEn: 'AI Arbitrage Bot',
+    labelVi: 'Bot Arbitrage Đa Tác Tử',
+    badge: '4/4 Agents',
+    stitchScreenId: '4fbb8caa49cd4706bdd8510593bdf779',
+    staticHtmlPath: '/ai-agent-arbitrage-bot.html',
+  },
+  {
+    id: 'gateway',
+    index: 16,
+    labelEn: 'Prime API Gateway',
+    labelVi: 'Cổng API Định Chế & KV Rate Limit',
+    badge: 'KV Token-Bucket',
+    stitchScreenId: '2c5e0ed6396e4de7bb74d3204f2a20d2',
+    staticHtmlPath: '/institutional-prime-api-gateway.html',
+  },
+] as const;
+
+export function resolveTerminalTab(
+  tabParam?: string | readonly string[] | null
+): TerminalScreenId {
+  const candidate = Array.isArray(tabParam) ? tabParam[0] : tabParam;
+  if (!candidate || typeof candidate !== 'string') {
+    return 'cockpit';
+  }
+  const normalized = candidate.trim().toLowerCase();
+  const matched = STITCH_NAV_TABS.find((tab) => tab.id === normalized);
+  return matched ? matched.id : 'cockpit';
+}
+
+export const PRIME_API_GATEWAY_ROUTES: readonly PrimeApiGatewayRouteEntry[] = [
+  {
+    routeId: 'route-fix-order-stream',
+    method: 'POST',
+    path: '/api/v1/prime/fix-execution',
+    protocol: 'FIX_4_4',
+    tierName: 'PRIME_INSTITUTIONAL',
+    burstCapacityRpm: 2400,
+    refillRatePerSec: 40,
+    p99LatencyMs: 0.9,
+    status: 'KV_TOKEN_BUCKET_ACTIVE',
+  },
+  {
+    routeId: 'route-terminal-snapshot',
+    method: 'GET',
+    path: '/api/terminal/snapshot',
+    protocol: 'REST_EDGE',
+    tierName: 'VIP_QUANT',
+    burstCapacityRpm: 1200,
+    refillRatePerSec: 20,
+    p99LatencyMs: 1.1,
+    status: 'KV_TOKEN_BUCKET_ACTIVE',
+  },
+  {
+    routeId: 'route-terminal-actions',
+    method: 'POST',
+    path: '/api/terminal/actions',
+    protocol: 'REST_EDGE',
+    tierName: 'VIP_QUANT',
+    burstCapacityRpm: 1200,
+    refillRatePerSec: 20,
+    p99LatencyMs: 1.2,
+    status: 'KV_TOKEN_BUCKET_ACTIVE',
+  },
+  {
+    routeId: 'route-rebate-ws-multiplex',
+    method: 'GET',
+    path: '/ws/v1/prime/rebate-ticks',
+    protocol: 'WS_STREAM',
+    tierName: 'PRIME_INSTITUTIONAL',
+    burstCapacityRpm: 3600,
+    refillRatePerSec: 60,
+    p99LatencyMs: 0.7,
+    status: 'KV_TOKEN_BUCKET_ACTIVE',
+  },
+] as const;
+
+export const R2_MERKLE_SNAPSHOTS: readonly R2MerkleSnapshotEntry[] = [
+  {
+    snapshotId: 'snap-2026-10-17',
+    r2ObjectKey: 'r2://apex-os-audit-worm/2026/10/17/d1-payout-ledger.parquet',
+    rowCount: 148920,
+    compressedSizeMb: 44.8,
+    merkleRootHash: '0x9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1908f7e6d5c4b3a2190876543210',
+    retentionUntil: '2033-10-17 (7Y WORM)',
+    status: 'WORM_SEALED_R2',
+  },
+  {
+    snapshotId: 'snap-2026-10-16',
+    r2ObjectKey: 'r2://apex-os-audit-worm/2026/10/16/d1-payout-ledger.parquet',
+    rowCount: 145110,
+    compressedSizeMb: 43.2,
+    merkleRootHash: '0x4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b',
+    retentionUntil: '2033-10-16 (7Y WORM)',
+    status: 'WORM_SEALED_R2',
+  },
+  {
+    snapshotId: 'snap-2026-10-15',
+    r2ObjectKey: 'r2://apex-os-audit-worm/2026/10/15/d1-payout-ledger.parquet',
+    rowCount: 141840,
+    compressedSizeMb: 41.9,
+    merkleRootHash: '0x7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d',
+    retentionUntil: '2033-10-15 (7Y WORM)',
+    status: 'WORM_SEALED_R2',
+  },
+] as const;
+
+export const AI_ARBITRAGE_AGENTS: readonly AiArbitrageAgentEntry[] = [
+  {
+    agentId: 'scanner-alpha',
+    agentName: 'Scanner-Alpha (Fee & Spread Crawler)',
+    roleSummary: 'Polls Binance, Bybit, OKX, KuCoin orderbooks & VIP rebate tiers every 12ms',
+    minSpreadTriggerBps: 12.0,
+    maxSlippageGuardBps: 15.0,
+    captured24hUsdc: 642.8,
+    status: 'ARMED_RUNNING',
+  },
+  {
+    agentId: 'hedger-beta',
+    agentName: 'Hedger-Beta (Delta-Neutral Leg Executor)',
+    roleSummary: 'Executes simultaneous maker-rebate long +perp short legs with zero withdraw scope',
+    minSpreadTriggerBps: 15.0,
+    maxSlippageGuardBps: 15.0,
+    captured24hUsdc: 894.5,
+    status: 'ARMED_RUNNING',
+  },
+  {
+    agentId: 'sentinel-gamma',
+    agentName: 'Sentinel-Gamma (Slippage & Drawdown Circuit Breaker)',
+    roleSummary: 'Halts autonomous execution immediately if slippage exceeds 15.0 bps or gas spikes',
+    minSpreadTriggerBps: 10.0,
+    maxSlippageGuardBps: 15.0,
+    captured24hUsdc: 0,
+    status: 'ARMED_RUNNING',
+  },
+  {
+    agentId: 'settler-delta',
+    agentName: 'Settler-Delta (Multi-Chain Rebate Sweeper)',
+    roleSummary: 'Sweeps verified exchange rebates into D1 atomic reservation batches ($50+ threshold)',
+    minSpreadTriggerBps: 8.0,
+    maxSlippageGuardBps: 15.0,
+    captured24hUsdc: 412.2,
+    status: 'ARMED_RUNNING',
   },
 ] as const;
 

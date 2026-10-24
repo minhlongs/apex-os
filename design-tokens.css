@@ -65,3 +65,18 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
+
+/* WCAG 2.1 AA / UI-UX Pro Max §1 reduced-motion guard */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-slide-up,
+  .animate-pulse-glow,
+  .stitch-obsidian-card,
+  .stitch-obsidian-card * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+

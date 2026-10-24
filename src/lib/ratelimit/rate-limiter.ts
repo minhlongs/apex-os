@@ -220,7 +220,7 @@ export class RateLimiter {
   async resetLimit(endpointType: string, identifier: string): Promise<boolean> {
     const key = `${endpointType}|${identifier}`;
     const result = await this.db.prepare('DELETE FROM rate_limits WHERE key = ?').bind(key).run();
-    return result.success && result.changes > 0;
+    return result.success && (result.changes ?? 0) > 0;
   }
 
   /**

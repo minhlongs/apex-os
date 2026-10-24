@@ -120,7 +120,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       return NextResponse.json(
         {
-          success: true,
           data: {
             payoutId: result.payoutId,
             chain: result.chain,
@@ -134,6 +133,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
             timestamp: result.timestamp ?? new Date().toISOString(),
           },
           ...result,
+          // Declared after the spread so the response's success flag is not silently overwritten;
+          // this branch is only reached when result.success is true.
+          success: true,
         },
         { status: 200 }
       );

@@ -36,7 +36,7 @@ export function NotificationPreferencesClient({
   return (
     <NotificationPreferences
       initialSettings={initialSettings as never}
-      onSave={handleSave as (settings: never) => Promise<void>}
+      onSave={handleSave}
     />
   );
 }

@@ -913,12 +913,23 @@ describe('Singleton Pattern', () => {
 
 describe('Helper Functions', () => {
   it('runAlertEngine should create and run engine', async () => {
-    const mockDB = createMockDB();
-    (mockDB.prepare().all as any).mockResolvedValue({ results: [] });
+    // Zeroed metrics make revenue/conversion rules legitimately breach, which
+    // queues notifications that retry with exponential backoff. Fake timers keep
+    // the test asserting behavior instead of waiting on real sleeps.
+    vi.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
 
-    const results = await runAlertEngine(mockDB);
+    try {
+      const mockDB = createMockDB();
+      (mockDB.prepare().all as any).mockResolvedValue({ results: [] });
 
-    expect(Array.isArray(results)).toBe(true);
+      const runPromise = runAlertEngine(mockDB);
+      await vi.runAllTimersAsync();
+      const results = await runPromise;
+
+      expect(Array.isArray(results)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 });

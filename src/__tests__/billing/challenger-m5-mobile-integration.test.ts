@@ -483,8 +483,15 @@ describe('Tier 5 Adversarial Coverage Hardening: Mobile Endpoints & Integration'
       expect(resDel.data.removed).toBe(true);
       expect(mockBillingDB.deviceTokens.has(sampleExpoToken)).toBe(false);
 
-      // Step 3: Repeated DELETE is idempotent (returns 200)
-      const resDel2 = await callRoute(notificationsRoute.DELETE, reqDel);
+      // Step 3: Repeated DELETE is idempotent (returns 200).
+      // A real Request body is single-use, so build a fresh request per call
+      // rather than re-reading the same one.
+      const reqDel2 = createTestRequest('/api/notifications/register', {
+        method: 'DELETE',
+        body: { token: sampleExpoToken },
+        user: DEFAULT_USER,
+      });
+      const resDel2 = await callRoute(notificationsRoute.DELETE, reqDel2);
       expect(resDel2.status).toBe(200);
       expect(resDel2.data.removed).toBe(true);
     });

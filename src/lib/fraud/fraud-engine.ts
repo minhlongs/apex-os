@@ -116,7 +116,8 @@ export async function evaluateClickVelocity(
 
   if (ip || sessionId) {
     // Optimized index seeks on ip_address and session_id separately to utilize composite indexes
-    let prior: { id: string; created_at: string; ip_address: string; session_id: string } | null = null;
+    // D1 first() resolves to undefined when no prior click exists; treated the same as "no prior" below.
+    let prior: { id: string; created_at: string; ip_address: string; session_id: string } | null | undefined = null;
 
     if (ip && sessionId) {
       const [priorByIp, priorBySession] = await Promise.all([

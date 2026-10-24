@@ -1,5 +1,6 @@
 import React from 'react';
 import type { ExchangeRebateItem, ReferralTierNode } from '@/data/stitch-terminal-data';
+import { StitchQuantTelemetryChart } from './StitchQuantTelemetryChart';
 
 export interface StitchCashbackCockpitProps {
   readonly exchanges: readonly ExchangeRebateItem[];
@@ -103,6 +104,9 @@ export function StitchCashbackCockpit({
           </p>
         </article>
       </div>
+
+      {/* UI/UX Pro Max Interactive Multi-Timeframe SVG Telemetry Chart */}
+      <StitchQuantTelemetryChart locale={locale} />
 
       {/* Main Split Grid: Multi-Exchange Rebate Matrix + 3-Tier Referral Tree */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">

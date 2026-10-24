@@ -116,9 +116,8 @@ function validateTimestampOrError(
 }
 
 async function verifyOkxSignatureInternal(
-  payload: string,
-  headers: Record<string, string>,
-  rawBody: string
+  rawBody: string,
+  headers: Record<string, string>
 ): Promise<{ valid: boolean; error?: string }> {
   if (!OKX_WEBHOOK_SECRET) {
     return { valid: false, error: 'OKX webhook secret not configured' };
@@ -317,18 +316,35 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   try {
-    const body = (await request.json()) as Record<string, unknown>;
+    // Read the raw bytes first: a Request body is a single-use stream, so reading
+    // .json() before .text() consumes it and leaves HMAC verification over ''.
+    const rawBody = await request.text();
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
-    const rawBody = await request.text();
 
-    // Verify signature
-    const signatureCheck = await verifyOkxSignatureInternal(rawBody, headers, rawBody);
+    // Verify the signature over the raw bytes BEFORE parsing. Parsing first and
+    // answering malformed JSON with 200 would let an unauthenticated caller
+    // skip the signature check entirely: unsigned non-JSON must be rejected
+    // here with 401, never reach the parser to be answered 200.
+    const signatureCheck = await verifyOkxSignatureInternal(rawBody, headers);
     if (!signatureCheck.valid) {
       logWarn(`[OKX Webhook] Signature verification failed:`, signatureCheck.error);
       return NextResponse.json(
         WebhookErrorResponses.invalidSignature(signatureCheck.error, requestId),
         { status: getHttpStatusCode(WebhookErrorCode.INVALID_SIGNATURE) }
+      );
+    }
+
+    // Parse only now that the bytes are proven authentic. A caller who cannot
+    // sign was rejected with 401 above; one who CAN sign but sent non-JSON
+    // lands here and is answered 400 INVALID_PAYLOAD.
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json(
+        WebhookErrorResponses.invalidPayload('Invalid JSON in request body', requestId),
+        { status: getHttpStatusCode(WebhookErrorCode.INVALID_PAYLOAD) }
       );
     }
 

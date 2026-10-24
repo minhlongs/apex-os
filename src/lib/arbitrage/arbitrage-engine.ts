@@ -384,7 +384,9 @@ export class ArbitrageEngine {
        WHERE LOWER(pair) = LOWER(?) AND market_type = ? AND is_active = 1`
     ).bind(pair, marketType).all<ArbitrageOpportunity>();
 
-    const opps = Array.isArray(oppsRes) ? oppsRes : (oppsRes?.results || []);
+    // Annotated so the defensive Array.isArray branch keeps the row element type instead of
+    // collapsing to any through the any[] intersection.
+    const opps: ArbitrageOpportunity[] = Array.isArray(oppsRes) ? oppsRes : (oppsRes?.results || []);
 
     const matrix: Record<ExchangeId, Record<ExchangeId, ArbitrageMatrixCell | null>> = {
       binance: { binance: null, bybit: null, okx: null, kucoin: null },

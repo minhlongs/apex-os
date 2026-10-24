@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main, master]
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  verify:
+    name: typecheck, lint, test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 26.7.0 is the proven runtime: better-sqlite3 ships a native
+      # binding compiled for Node 26's ABI, and `npm test` refuses to start
+      # Jest on any other runtime rather than emitting hundreds of false
+      # failures. Do not widen this without re-verifying the suite locally.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26.7.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # `npm ci` installs exactly what the lockfile pins, so a transitive
+      # release cannot silently change what CI tests. `@opennextjs/cloudflare`
+      # declares `wrangler` as a mandatory peer dependency and nothing else
+      # declared it, which is why the lockfile now carries wrangler directly.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test

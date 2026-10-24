@@ -126,24 +126,29 @@ export class KVRateLimiter {
 
     // Read current window data
     const raw = await this.kv.get(key);
-    let windowData: { timestamps: number[]; lastCleanup: number } | null = null;
 
+    // Parse the stored bucket; a corrupt or absent entry starts a fresh window.
+    let parsed: { timestamps: number[]; lastCleanup: number } | null = null;
     if (raw) {
       try {
-        windowData = JSON.parse(raw);
-        // Clean up old timestamps if cleanup is due (every 10 minutes)
-        if (now - (windowData.lastCleanup || 0) > 600) {
-          windowData.timestamps = windowData.timestamps.filter(ts => ts > windowStart);
-          windowData.lastCleanup = now;
-        } else {
-          // Just filter for current window
-          windowData.timestamps = windowData.timestamps.filter(ts => ts > windowStart);
-        }
+        parsed = JSON.parse(raw) as { timestamps: number[]; lastCleanup: number };
       } catch {
-        windowData = { timestamps: [], lastCleanup: now };
+        parsed = null;
       }
+    }
+
+    const windowData: { timestamps: number[]; lastCleanup: number } = parsed ?? {
+      timestamps: [],
+      lastCleanup: now,
+    };
+
+    // Clean up old timestamps if cleanup is due (every 10 minutes)
+    if (now - (windowData.lastCleanup || 0) > 600) {
+      windowData.timestamps = windowData.timestamps.filter(ts => ts > windowStart);
+      windowData.lastCleanup = now;
     } else {
-      windowData = { timestamps: [], lastCleanup: now };
+      // Just filter for current window
+      windowData.timestamps = windowData.timestamps.filter(ts => ts > windowStart);
     }
 
     // Count requests in current window

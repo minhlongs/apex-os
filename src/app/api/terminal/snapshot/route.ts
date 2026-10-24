@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import {
+  AI_ARBITRAGE_AGENTS,
   ARBITRAGE_OPPORTUNITIES,
   BYOK_VAULT_KEYS,
   CHAIN_TREASURY_RAILS,
@@ -8,6 +9,8 @@ import {
   EXCHANGE_REBATES,
   KYC_ROLLING_TIERS,
   NOWPAYMENTS_PLAN_TIERS,
+  PRIME_API_GATEWAY_ROUTES,
+  R2_MERKLE_SNAPSHOTS,
   REFERRAL_TIERS,
   SEPAY_VIETQR_RAILS,
   STITCH_PROJECT_METADATA,
@@ -23,7 +26,7 @@ import {
   DEFAULT_ALERT_CONFIGS,
   SLOW_QUERY_THRESHOLD_MS,
 } from '@/lib/monitoring/d1-monitor';
-import { WebhookCrypto } from '@/lib/webhooks/crypto';
+import { WebhookCrypto, sha256Hash } from '@/lib/webhooks/crypto';
 
 export async function GET() {
   // Execute real domain services from src/lib/*
@@ -36,6 +39,9 @@ export async function GET() {
   const sampleHmacDigest = await WebhookCrypto.computeSignature(
     WEBHOOK_SANDBOX_PRESETS[0].samplePayload,
     'apex_os_edge_hmac_secret'
+  );
+  const r2RootProofDigest = await sha256Hash(
+    R2_MERKLE_SNAPSHOTS[0].r2ObjectKey + ':' + R2_MERKLE_SNAPSHOTS[0].merkleRootHash
   );
 
   return NextResponse.json(
@@ -50,6 +56,9 @@ export async function GET() {
         webCryptoHmacSampleDigest: sampleHmacDigest,
         d1SlowQueryThresholdMs: SLOW_QUERY_THRESHOLD_MS,
         d1DefaultAlertConfigCount: DEFAULT_ALERT_CONFIGS.length,
+        r2LatestSnapshotDigest: r2RootProofDigest,
+        aiSwarmArmedCount: AI_ARBITRAGE_AGENTS.length,
+        primeGatewayRouteCount: PRIME_API_GATEWAY_ROUTES.length,
       },
       summary: {
         totalSettledUsdc: 28450.8,
@@ -72,6 +81,9 @@ export async function GET() {
       d1AlertConfigs: DEFAULT_ALERT_CONFIGS,
       sepayBankRails: SEPAY_VIETQR_RAILS,
       nowPaymentsPlans: NOWPAYMENTS_PLAN_TIERS,
+      r2Snapshots: R2_MERKLE_SNAPSHOTS,
+      aiAgents: AI_ARBITRAGE_AGENTS,
+      primeGatewayRoutes: PRIME_API_GATEWAY_ROUTES,
     },
     { status: 200 }
   );

@@ -53,6 +53,56 @@ export interface CalculatorConfig {
 }
 
 /**
+ * Read a field out of a conversion's `conversion_data` JSON payload.
+ *
+ * The conversions table stores exchange-specific fields (exchange name, trade
+ * volume) inside the `conversion_data` JSON column rather than as dedicated
+ * columns, so they must be parsed rather than read off the row.
+ */
+function readConversionDataField(
+  conversion: Conversion,
+  key: string
+): string | number | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(conversion.conversion_data);
+  } catch {
+    return undefined;
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    return undefined;
+  }
+
+  const value = (parsed as Record<string, unknown>)[key];
+  if (typeof value === 'string' || typeof value === 'number') {
+    return value;
+  }
+  return undefined;
+}
+
+function readConversionExchange(conversion: Conversion): string {
+  const exchange = readConversionDataField(conversion, 'exchange');
+  return typeof exchange === 'string' && exchange.length > 0
+    ? exchange
+    : 'Unknown';
+}
+
+function readConversionTradeVolume(conversion: Conversion): number {
+  const tradeVolume = readConversionDataField(conversion, 'trade_volume_usd');
+  if (typeof tradeVolume === 'number' && Number.isFinite(tradeVolume)) {
+    return tradeVolume;
+  }
+  if (typeof tradeVolume === 'string') {
+    const parsed = Number(tradeVolume);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return 0;
+}
+
+/**
  * In-memory batch job registry for tracking progress
  */
 class BatchJobRegistry {
@@ -437,8 +487,8 @@ export class EarningsCalculator {
             baseUrl,
             amount: earning.amount,
             dealName: conversion.deal_id,
-            exchange: conversion.exchange || 'Unknown',
-            tradeVolume: conversion.trade_volume_usd || 0,
+            exchange: readConversionExchange(conversion),
+            tradeVolume: readConversionTradeVolume(conversion),
             tier: earning.level,
             payoutStatus: 'pending',
           });

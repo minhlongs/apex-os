@@ -64,8 +64,9 @@ export default function NotificationsClient() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [testing, setTesting] = useState<Record<string, boolean>>({});
+  // A channel's result is cleared to undefined before each test run, so values are optional.
   const [testResults, setTestResults] = useState<
-    Record<string, { success: boolean; error?: string; details?: unknown }>
+    Record<string, { success: boolean; error?: string; details?: Record<string, unknown> } | undefined>
   >({});
 
   const [dbConfig, setDbConfig] = useState<DbConfig>({});
@@ -500,10 +501,10 @@ interface ChannelCardProps {
   onDelete: () => void;
   saving: boolean;
   testing: boolean;
-  testResult: { success: boolean; error?: string; details?: unknown } | undefined;
+  testResult: { success: boolean; error?: string; details?: Record<string, unknown> } | undefined;
   showSecret: boolean;
   toggleSecret: () => void;
-  t: (key: string, params?: Record<string, unknown>) => string;
+  t: ReturnType<typeof useTranslations>;
 }
 
 function ChannelCard({
@@ -698,7 +699,7 @@ function ChannelCard({
             )}
             {testResult.success && testResult.details && (
               <p className="text-sm text-green-700 mt-1">
-                {t('testDetails') || `Message ID: ${(testResult.details as any).messageId}`}
+                {t('testDetails') || `Message ID: ${testResult.details.messageId}`}
               </p>
             )}
           </div>

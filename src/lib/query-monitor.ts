@@ -251,7 +251,7 @@ function wrapPreparedStatement(
       return wrapPreparedStatement(bound, sql, monitor, context);
     },
 
-    async first<T = unknown>(): Promise<T | null> {
+    async first<T = unknown>(): Promise<T | undefined> {
       const startTime = Date.now();
       try {
         const result = await original.first<T>();

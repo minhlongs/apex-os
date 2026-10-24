@@ -2,14 +2,17 @@
  * Cron Jobs Handler
  *
  * This endpoint handles scheduled jobs triggered by Cloudflare Workers Cron.
- * Configured in wrangler.toml with:
- * - every 5 minutes - Alert evaluation
- * - 0 0 * * 0 - Weekly payouts (Sunday midnight)
- * - every 30 minutes - D1 metrics collection
- * - every 15 minutes - Email queue processing
- * - 0 0 * * 0 - Lifecycle campaign scan
+ * The schedule strings are defined once in worker-cron-schedules.js and
+ * mirrored into the `crons` array of wrangler.jsonc: every 5 minutes for alert
+ * evaluation, every 30 minutes for D1 metrics collection, and Sunday midnight
+ * UTC for weekly payouts.
  *
  * Each cron pattern calls this endpoint with a `job` query parameter.
+ *
+ * Authorization: this route moves money and sends notifications, so it never
+ * runs unauthenticated. When CRON_SECRET is not configured the request is
+ * refused rather than allowed, because a missing secret is a deployment error
+ * and an open trigger is the worse outcome.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -86,7 +89,7 @@ async function handleWeeklyPayouts(
     const pendingResults = await db
       .prepare(pendingEarningsQuery)
       .bind(MIN_PAYOUT_THRESHOLD)
-      .all()();
+      .all();
 
     if (pendingResults.results.length === 0) {
       return {
@@ -97,17 +100,25 @@ async function handleWeeklyPayouts(
       };
     }
 
-    const affiliateIds = pendingResults.results.map((r) => r.affiliate_id);
+    const affiliateIds = pendingResults.results.map((r: { affiliate_id: string }) => r.affiliate_id);
     const placeholders = affiliateIds.map(() => '?').join(',');
     const affiliates = await db
       .prepare(
         `SELECT id, email, full_name, payout_method, payout_method_details FROM profiles WHERE id IN (${placeholders})`
       )
       .bind(...affiliateIds)
-      .all()();
+      .all();
+
+    interface AffiliateProfileRow {
+      id: string;
+      email: string;
+      full_name: string | null;
+      payout_method: string | null;
+      payout_method_details: string | null;
+    }
 
     const affiliateMap = new Map(
-      affiliates.results.map((a) => [a.id, a])
+      affiliates.results.map((a: AffiliateProfileRow) => [a.id, a] as const)
     );
     const payoutsService = createPayoutsService(db);
     const results: Array<{
@@ -343,7 +354,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const cronSecret = process.env.CRON_SECRET;
     const authHeader = request.headers.get('Authorization');
-    if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
@@ -415,6 +426,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
       const campaigns = await handleLifecycleCampaigns();
       results.push({ job: 'campaigns', ...campaigns });
+    }
 
     const allSuccessful = results.every((r) => r.success);
 
@@ -423,7 +435,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       timestamp: new Date().toISOString(),
       results,
     });
-    }
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Unknown error' },

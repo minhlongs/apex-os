@@ -150,7 +150,16 @@ global.Request = class Request {
     return this._url;
   }
 
+  // A real Request body is a single-use stream: once consumed, a second read
+  // returns ''. The mock must enforce that, otherwise a route that reads the
+  // body twice appears to work here while failing in production.
+  private _bodyUsed = false;
+
   async json() {
+    if (this._bodyUsed) {
+      throw new TypeError('Body is unusable: body has already been read');
+    }
+    this._bodyUsed = true;
     if (typeof this._body === 'string') {
       return JSON.parse(this._body);
     }
@@ -158,6 +167,10 @@ global.Request = class Request {
   }
 
   async text() {
+    if (this._bodyUsed) {
+      throw new TypeError('Body is unusable: body has already been read');
+    }
+    this._bodyUsed = true;
     if (typeof this._body === 'string') {
       return this._body;
     }

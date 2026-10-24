@@ -13,7 +13,7 @@
     ],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
@@ -56,8 +56,6 @@
     "**/*.test.tsx",
     "**/*.spec.ts",
     "**/*.spec.tsx",
-    "sentry.*.config.ts",
-    "src/app/api/admin/health",
-    "src/lib/earnings/**"
+    "sentry.*.config.ts"
   ]
 }

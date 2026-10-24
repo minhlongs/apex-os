@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import type {
+  AiArbitrageAgentEntry,
   ArbitrageOpportunityItem,
   ByokVaultKeyEntry,
   ChainTreasuryStatus,
@@ -10,6 +11,7 @@ import type {
   ExchangeRebateItem,
   KycRollingTierItem,
   NowPaymentsPlanTier,
+  R2MerkleSnapshotEntry,
   ReferralTierNode,
   SepayBankRailEntry,
   StitchNavTab,
@@ -18,10 +20,12 @@ import type {
   WebhookSandboxPreset,
 } from '@/data/stitch-terminal-data';
 import {
+  AI_ARBITRAGE_AGENTS,
   BYOK_VAULT_KEYS,
   CRON_WORKER_JOBS,
   D1_IMMUTABLE_AUDIT_LOGS,
   NOWPAYMENTS_PLAN_TIERS,
+  R2_MERKLE_SNAPSHOTS,
   SEPAY_VIETQR_RAILS,
   STITCH_PROJECT_METADATA,
   VIP_WHALE_HEDGING_PAIRS,
@@ -36,6 +40,9 @@ import { StitchByokVault } from './StitchByokVault';
 import { StitchVipWhaleDesk } from './StitchVipWhaleDesk';
 import { StitchCronWorkerObservability } from './StitchCronWorkerObservability';
 import { StitchSepayVietQrBridge } from './StitchSepayVietQrBridge';
+import { StitchR2MerkleArchiver } from './StitchR2MerkleArchiver';
+import { StitchAiAgentArbitrageBot } from './StitchAiAgentArbitrageBot';
+import { StitchPrimeApiGateway } from './StitchPrimeApiGateway';
 
 export interface StitchTerminalShellProps {
   readonly initialLocale: 'en' | 'vi';
@@ -53,6 +60,8 @@ export interface StitchTerminalShellProps {
   readonly cronJobs?: readonly CronJobScheduleEntry[];
   readonly bankRails?: readonly SepayBankRailEntry[];
   readonly planTiers?: readonly NowPaymentsPlanTier[];
+  readonly r2Snapshots?: readonly R2MerkleSnapshotEntry[];
+  readonly aiAgents?: readonly AiArbitrageAgentEntry[];
 }
 
 export function StitchTerminalShell({
@@ -71,14 +80,29 @@ export function StitchTerminalShell({
   cronJobs = CRON_WORKER_JOBS,
   bankRails = SEPAY_VIETQR_RAILS,
   planTiers = NOWPAYMENTS_PLAN_TIERS,
+  r2Snapshots = R2_MERKLE_SNAPSHOTS,
+  aiAgents = AI_ARBITRAGE_AGENTS,
 }: Readonly<StitchTerminalShellProps>) {
   const [activeTab, setActiveTab] = useState<TerminalScreenId>(initialTab);
   const [locale, setLocale] = useState<'en' | 'vi'>(initialLocale);
+  const [screenQuery, setScreenQuery] = useState<string>('');
   const [apiSyncState, setApiSyncState] = useState<'BENCHMARK' | 'SYNCING' | 'LIVE_EDGE_SYNCED'>(
     'BENCHMARK'
   );
 
   const isVi = locale === 'vi';
+  const activeNavTab = navTabs.find((tab) => tab.id === activeTab) ?? navTabs[0];
+
+  const filteredNavTabs = navTabs.filter((tab) => {
+    const q = screenQuery.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      tab.labelEn.toLowerCase().includes(q) ||
+      tab.labelVi.toLowerCase().includes(q) ||
+      tab.badge.toLowerCase().includes(q) ||
+      String(tab.index).includes(q)
+    );
+  });
 
   const handleLiveApiSync = async () => {
     setApiSyncState('SYNCING');
@@ -96,6 +120,14 @@ export function StitchTerminalShell({
 
   return (
     <div className="min-h-screen bg-stitch-canvas text-stitch-primary font-sans flex flex-col lg:flex-row">
+      {/* UI/UX Pro Max WCAG 2.1 AA Skip-to-Content Link */}
+      <a
+        href="#stitch-main-viewport"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-stitch-surface focus:px-4 focus:py-2 focus:font-mono focus:text-xs focus:font-bold focus:text-stitch-cyan focus:ring-2 focus:ring-stitch-cyan"
+      >
+        {isVi ? 'Chuyển đến nội dung chính' : 'Skip to main terminal viewport'}
+      </a>
+
       {/* Left Navigation Sidebar (248px Obsidian Quant Shell) */}
       <aside
         aria-label="ApexOS Stitch Terminal Navigation"
@@ -116,31 +148,85 @@ export function StitchTerminalShell({
             </div>
           </div>
 
-          <nav className="mt-4 space-y-1.5" aria-label="Primary terminal screens">
-            {navTabs.map((tab) => {
-              const isSelected = activeTab === tab.id;
-              return (
+          {/* UI/UX Pro Max Instant Command Screen Filter */}
+          <div className="mt-3 space-y-1.5">
+            <div className="flex items-center justify-between text-[10px] font-mono text-stitch-muted">
+              <span>{isVi ? 'BỘ LỌC LỆNH (ENTER / ESC)' : 'COMMAND FILTER (ENTER / ESC)'}</span>
+              <span
+                aria-live="polite"
+                data-testid="sidebar-screen-count"
+                className="stitch-tabular-nums text-stitch-cyan"
+              >
+                {filteredNavTabs.length}/{navTabs.length}
+              </span>
+            </div>
+            <input
+              type="search"
+              value={screenQuery}
+              onChange={(e) => setScreenQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setScreenQuery('');
+                } else if (e.key === 'Enter' && filteredNavTabs.length > 0) {
+                  e.preventDefault();
+                  setActiveTab(filteredNavTabs[0].id);
+                }
+              }}
+              aria-label="Filter terminal screens"
+              placeholder={isVi ? 'Tìm màn hình (1-16)...' : 'Filter screens (1-16)...'}
+              data-testid="sidebar-screen-filter"
+              className="w-full rounded-lg border border-stitch-divider bg-stitch-well/80 px-3 py-1.5 font-mono text-xs text-stitch-primary placeholder:text-stitch-muted focus:border-stitch-cyan focus:outline-none focus-visible:ring-1 focus-visible:ring-stitch-cyan"
+            />
+          </div>
+
+          <nav className="mt-3 space-y-1.5" aria-label="Primary terminal screens">
+            {filteredNavTabs.length === 0 ? (
+              <div
+                role="status"
+                data-testid="sidebar-screen-empty"
+                className="rounded-lg border border-stitch-divider bg-stitch-canvas p-3 text-center font-mono text-xs text-stitch-muted space-y-2"
+              >
+                <p>
+                  {isVi
+                    ? 'Không tìm thấy màn hình phù hợp.'
+                    : 'No matching terminal screens.'}
+                </p>
                 <button
-                  key={tab.id}
                   type="button"
-                  aria-pressed={isSelected}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-xs transition-all ${
-                    isSelected
-                      ? 'bg-gradient-primary font-semibold text-stitch-primary shadow-md'
-                      : 'text-stitch-muted hover:bg-stitch-well hover:text-stitch-primary'
-                  }`}
+                  onClick={() => setScreenQuery('')}
+                  data-testid="sidebar-screen-reset"
+                  className="rounded border border-stitch-cyan/40 bg-stitch-cyan/10 px-2.5 py-1 text-[11px] font-semibold text-stitch-cyan hover:bg-stitch-cyan/20 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
                 >
-                  <span>
-                    <span className="font-mono opacity-75">{tab.index}. </span>
-                    {isVi ? tab.labelVi : tab.labelEn}
-                  </span>
-                  <span className="rounded bg-stitch-canvas/50 px-1.5 py-0.5 font-mono text-xs text-stitch-cyan">
-                    {tab.badge}
-                  </span>
+                  {isVi ? 'Xóa bộ lọc (ESC)' : 'Reset filter (ESC)'}
                 </button>
-              );
-            })}
+              </div>
+            ) : (
+              filteredNavTabs.map((tab) => {
+                const isSelected = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-xs cursor-pointer transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan ${
+                      isSelected
+                        ? 'bg-gradient-primary font-semibold text-stitch-primary shadow-md'
+                        : 'text-stitch-muted hover:bg-stitch-well hover:text-stitch-primary'
+                    }`}
+                  >
+                    <span>
+                      <span className="font-mono opacity-75">{tab.index}. </span>
+                      {isVi ? tab.labelVi : tab.labelEn}
+                    </span>
+                    <span className="rounded bg-stitch-canvas/50 px-1.5 py-0.5 font-mono text-xs text-stitch-cyan">
+                      {tab.badge}
+                    </span>
+                  </button>
+                );
+              })
+            )}
           </nav>
         </div>
 
@@ -152,6 +238,9 @@ export function StitchTerminalShell({
           </div>
           <div className="mt-1 truncate text-stitch-cyan">
             {STITCH_PROJECT_METADATA.designSystemId}
+          </div>
+          <div className="mt-1.5 text-[10px] text-stitch-emerald">
+            UI/UX PRO MAX · 16/16 SCREENS
           </div>
         </div>
       </aside>
@@ -168,13 +257,20 @@ export function StitchTerminalShell({
             <span className="hidden sm:inline-flex items-center rounded-md bg-gradient-primary px-2.5 py-1 font-mono text-xs font-bold text-stitch-primary">
               MASTER TIER · 30%/10%/5%
             </span>
+            <span
+              aria-live="polite"
+              data-testid="active-screen-breadcrumb"
+              className="hidden md:inline-flex items-center rounded border border-stitch-divider bg-stitch-well/70 px-2 py-0.5 font-mono text-[11px] text-stitch-cyan stitch-tabular-nums"
+            >
+              Screen {activeNavTab.index}/16 · {isVi ? activeNavTab.labelVi : activeNavTab.labelEn}
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={handleLiveApiSync}
-              className="rounded-lg border border-stitch-divider bg-stitch-well px-3 py-1.5 font-mono text-xs font-semibold text-stitch-cyan hover:border-stitch-cyan"
+              className="rounded-lg border border-stitch-divider bg-stitch-well px-3 py-1.5 font-mono text-xs font-semibold text-stitch-cyan hover:border-stitch-cyan cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
             >
               {apiSyncState === 'LIVE_EDGE_SYNCED'
                 ? 'API: LIVE_EDGE_SYNCED'
@@ -186,7 +282,7 @@ export function StitchTerminalShell({
               type="button"
               aria-label="Toggle language between English and Vietnamese"
               onClick={() => setLocale((prev) => (prev === 'en' ? 'vi' : 'en'))}
-              className="rounded-lg border border-stitch-divider bg-stitch-well px-3 py-1.5 font-mono text-xs font-bold text-stitch-primary hover:border-stitch-cyan"
+              className="rounded-lg border border-stitch-divider bg-stitch-well px-3 py-1.5 font-mono text-xs font-bold text-stitch-primary hover:border-stitch-cyan cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
             >
               {locale === 'en' ? 'EN | VI (Switch to VI)' : 'VI | EN (Chuyển sang EN)'}
             </button>
@@ -194,7 +290,11 @@ export function StitchTerminalShell({
         </header>
 
         {/* Active Screen Viewport */}
-        <main className="flex-1 p-6 max-w-7xl w-full mx-auto">
+        <main
+          id="stitch-main-viewport"
+          tabIndex={-1}
+          className="flex-1 p-6 max-w-7xl w-full mx-auto focus:outline-none"
+        >
           {activeTab === 'cockpit' && (
             <StitchCashbackCockpit
               exchanges={exchanges}
@@ -236,6 +336,15 @@ export function StitchTerminalShell({
               planTiers={planTiers}
               locale={locale}
             />
+          )}
+          {activeTab === 'r2' && (
+            <StitchR2MerkleArchiver snapshots={r2Snapshots} locale={locale} />
+          )}
+          {activeTab === 'aibot' && (
+            <StitchAiAgentArbitrageBot agents={aiAgents} locale={locale} />
+          )}
+          {activeTab === 'gateway' && (
+            <StitchPrimeApiGateway locale={locale} />
           )}
         </main>
       </div>
