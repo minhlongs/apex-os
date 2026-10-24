@@ -327,8 +327,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
     // Verify the signature over the raw bytes BEFORE parsing. Parsing first and
-    // answering malformed JSON with 200 would let an unsigned caller skip the
-    // signature check entirely, so malformed bytes must answer 401 below.
+    // answering malformed JSON with 200 would let an unauthenticated caller
+    // skip the signature check entirely: unsigned non-JSON must be rejected
+    // here with 401, never reach the parser to be answered 200.
     const signatureCheck = await verifyKuCoinSignatureInternal(rawBody, headers);
     if (!signatureCheck.valid) {
       logWarn(`[KuCoin Webhook] Signature verification failed:`, signatureCheck.error);
@@ -338,6 +339,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
+    // Parse only now that the bytes are proven authentic. A caller who cannot
+    // sign was rejected with 401 above; one who CAN sign but sent non-JSON
+    // lands here and is answered 400 INVALID_PAYLOAD.
     let body: Record<string, unknown>;
     try {
       body = JSON.parse(rawBody) as Record<string, unknown>;

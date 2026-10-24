@@ -325,7 +325,9 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
 
     // Verify the signature over the raw bytes BEFORE parsing. Parsing first and
     // answering malformed JSON with 200 would let an unsigned caller skip the
-    // signature check entirely, so malformed bytes must answer 401 below.
+    // signature check entirely. An unsigned caller without any recognised
+    // signature header is already rejected above, so what this guards is a
+    // wrong-secret caller, who gets 401 here rather than reaching the parser.
     const verification = await verifyWebhookSignature(exchange, rawBody, headers);
     if (!verification.valid) {
       logWarn(`[Webhook] ${exchange} signature verification failed:`, verification.error);
@@ -333,7 +335,8 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
     }
 
     // Parse only now that the bytes are proven authentic. A caller who cannot
-    // sign gets 401 above, never a 200 that reads "malformed JSON".
+    // sign was rejected with 401 above; one who CAN sign but sent non-JSON
+    // lands here and is answered 400 INVALID_PAYLOAD.
     let body: Record<string, unknown>;
     try {
       body = JSON.parse(rawBody) as Record<string, unknown>;

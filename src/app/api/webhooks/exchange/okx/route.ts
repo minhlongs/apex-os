@@ -322,9 +322,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
 
-    // Verify the signature over the raw bytes BEFORE parsing. Parsing first
-    // and answering malformed JSON with 200 would skip the signature check
-    // entirely, letting an unauthenticated caller past verification.
+    // Verify the signature over the raw bytes BEFORE parsing. Parsing first and
+    // answering malformed JSON with 200 would let an unauthenticated caller
+    // skip the signature check entirely: unsigned non-JSON must be rejected
+    // here with 401, never reach the parser to be answered 200.
     const signatureCheck = await verifyOkxSignatureInternal(rawBody, headers);
     if (!signatureCheck.valid) {
       logWarn(`[OKX Webhook] Signature verification failed:`, signatureCheck.error);
@@ -335,7 +336,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     // Parse only now that the bytes are proven authentic. A caller who cannot
-    // sign gets 401 above, never a 200 that reads "malformed JSON".
+    // sign was rejected with 401 above; one who CAN sign but sent non-JSON
+    // lands here and is answered 400 INVALID_PAYLOAD.
     let body: Record<string, unknown>;
     try {
       body = JSON.parse(rawBody);
