@@ -28,7 +28,7 @@
     "better-auth": "0.8.7-beta.5",
     "lucide-react": "^0.441.0",
     "mixpanel-browser": "^2.80.0",
-    "next": "^16.2.6",
+    "next": "16.4.3",
     "next-intl": "^4.12.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
@@ -40,7 +40,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "latest",
+    "@opennextjs/cloudflare": "1.20.13",
     "@sentry/nextjs": "^10.59.0",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^14.0.0",
