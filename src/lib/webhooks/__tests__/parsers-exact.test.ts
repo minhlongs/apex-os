@@ -28,21 +28,6 @@ const EXPECTED_MINOR = 300_000_000n;
 
 const NO_HEADERS: Record<string, string> = {};
 
-/** Parse with an exchange's callback, for the tables below. */
-function tradeFor(
-  exchange: Exclude<Exchange, 'okx'>,
-  body: Record<string, unknown>
-): StandardizedTrade | null {
-  switch (exchange) {
-    case 'binance':
-      return parseBinanceWebhook(body, NO_HEADERS);
-    case 'bybit':
-      return parseBybitWebhook(body, NO_HEADERS);
-    default:
-      return parseKuCoinWebhook(body, NO_HEADERS);
-  }
-}
-
 /** The same fill as each venue writes it, so one expectation covers all four. */
 const BODIES: Record<
   Exclude<Exchange, 'okx'>,
@@ -106,11 +91,17 @@ function okxBody(quantity: string, price: string): Record<string, unknown> {
   };
 }
 
+/** The raw payload each venue would send for a fill of the given size. */
+function rawBody(
+  exchange: Exchange,
+  quantity: string,
+  price: string
+): Record<string, unknown> {
+  return exchange === 'okx' ? okxBody(quantity, price) : BODIES[exchange](quantity, price);
+}
+
 /** Parse a raw payload with the parser its venue names. */
-function tradeForBody(
-  exchange: 'binance' | 'bybit' | 'okx' | 'kucoin',
-  body: Record<string, unknown>
-): StandardizedTrade | null {
+function parseBody(exchange: Exchange, body: Record<string, unknown>): StandardizedTrade | null {
   switch (exchange) {
     case 'binance':
       return parseBinanceWebhook(body, NO_HEADERS);
@@ -123,25 +114,17 @@ function tradeForBody(
   }
 }
 
-/** The raw payload each venue would send for a fill. */
-function bodyOf(
-  exchange: 'binance' | 'bybit' | 'okx' | 'kucoin',
-  quantity: string,
-  price: string
-): Record<string, unknown> {
-  return exchange === 'okx' ? okxBody(quantity, price) : BODIES[exchange](quantity, price);
+/** Parse the fill a venue would send, without building the payload by hand. */
+function parseFor(exchange: Exchange, quantity: string, price: string): StandardizedTrade | null {
+  return parseBody(exchange, rawBody(exchange, quantity, price));
 }
 
 /**
  * Parse a payload with the fee field removed, the way a venue that charges no
  * commission on the fill sends it.
  */
-function withoutFee(
-  exchange: 'binance' | 'bybit' | 'okx' | 'kucoin',
-  quantity: string,
-  price: string
-): StandardizedTrade | null {
-  const body = bodyOf(exchange, quantity, price);
+function withoutFee(exchange: Exchange, quantity: string, price: string): StandardizedTrade | null {
+  const body = rawBody(exchange, quantity, price);
 
   // Each venue tucks its fee somewhere different: Binance under the order
   // object, KuCoin under the event data, the other two at the top level.
@@ -154,15 +137,14 @@ function withoutFee(
     delete body.fee;
   }
 
-  return tradeForBody(exchange, body);
+  return parseBody(exchange, body);
 }
 
-/** Every parser, addressed by the venue name, for the refusal tables below. */
 describe('the notional every exchange reports', () => {
   it.each(['binance', 'bybit', 'kucoin'] as const)(
     'reads %s as an exact USDC amount and a matching float',
     (exchange) => {
-      const trade = tradeFor(exchange, BODIES[exchange](QUANTITY, PRICE));
+      const trade = parseFor(exchange, QUANTITY, PRICE);
 
       expect(trade).not.toBeNull();
       expect(trade?.totalValueMinor).toBe(EXPECTED_MINOR);
@@ -205,7 +187,7 @@ describe('a quantity the USDC scale cannot hold', () => {
   it.each(['binance', 'bybit', 'kucoin'] as const)(
     'leaves %s without a notional rather than rounding one',
     (exchange) => {
-      const trade = tradeFor(exchange, BODIES[exchange]('0.00000001', '1'));
+      const trade = parseFor(exchange, '0.00000001', '1');
 
       expect(trade).not.toBeNull();
       expect(trade?.totalValueMinor).toBeUndefined();
@@ -282,28 +264,28 @@ describe('a payload missing a required amount', () => {
   it.each(['binance', 'bybit', 'okx', 'kucoin'] as const)(
     'refuses %s on a zero quantity',
     (exchange) => {
-      expect(tradeForBody(exchange, bodyOf(exchange, '0', PRICE))).toBeNull();
+      expect(parseFor(exchange, '0', PRICE)).toBeNull();
     }
   );
 
   it.each(['binance', 'bybit', 'okx', 'kucoin'] as const)(
     'refuses %s on a zero price',
     (exchange) => {
-      expect(tradeForBody(exchange, bodyOf(exchange, QUANTITY, '0'))).toBeNull();
+      expect(parseFor(exchange, QUANTITY, '0')).toBeNull();
     }
   );
 
   it.each(['binance', 'bybit', 'okx', 'kucoin'] as const)(
     'refuses %s on a non-numeric quantity',
     (exchange) => {
-      expect(tradeForBody(exchange, bodyOf(exchange, 'not-a-number', PRICE))).toBeNull();
+      expect(parseFor(exchange, 'not-a-number', PRICE)).toBeNull();
     }
   );
 
   it.each(['binance', 'bybit', 'okx', 'kucoin'] as const)(
     'refuses %s on an empty quantity',
     (exchange) => {
-      expect(tradeForBody(exchange, bodyOf(exchange, '', PRICE))).toBeNull();
+      expect(parseFor(exchange, '', PRICE)).toBeNull();
     }
   );
 });
