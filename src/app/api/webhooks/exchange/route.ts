@@ -68,14 +68,7 @@ import {
 } from '@/lib/webhooks/error-responses';
 import { getDB } from '@/lib/db';
 import type { D1Database } from '@/lib/db';
-import {
-  percentOf,
-  splitCommission,
-  fromMinorUnits,
-  minorUnits,
-  type MinorUnits,
-} from '@/lib/money';
-import { DEFAULT_TIER_RATES } from '@/lib/earnings/types';
+import { commissionOf, createEarnings, toUsdc, type Commission } from '@/lib/webhooks/earnings';
 import { error as logError, info as logInfo, warn as logWarn } from '@/lib/logger';
 
 const EXCHANGE_SECRETS: Record<Exchange, string | undefined> = {
@@ -187,46 +180,6 @@ async function findDeal(
   return result || null;
 }
 
-/**
- * The money figures behind one conversion.
- *
- * `revenue` is the trade's notional and `total` is the commission drawn from it,
- * both exact. `total` is null when the payload carried a value finer than the
- * USDC scale can hold: there is then no exact commission to record, and
- * substituting a rounded one would misstate what every tier is owed.
- */
-interface Commission {
-  revenue: MinorUnits;
-  total: MinorUnits | null;
-}
-
-/** Project an exact amount onto the REAL column it is stored in. */
-function toUsdc(amount: MinorUnits): number {
-  return Number(fromMinorUnits(amount)) / 1e6;
-}
-
-/**
- * Compute one trade's commission exactly.
- *
- * The percentage is applied in percent units -- a 10% cashback deal stores 10,
- * not 0.10 -- so the conversion to a fraction happens once here rather than at
- * each tier. `value * (percent / 100)` divides first and lets the float error
- * be amplified by the multiplication; `percentOf` multiplies first, leaving the
- * single floor as the only inexactness.
- */
-function commissionOf(trade: StandardizedTrade, cashbackPercent: number): Commission {
-  const revenue =
-    trade.totalValueMinor === undefined
-      ? minorUnits(BigInt(0))
-      : minorUnits(trade.totalValueMinor);
-
-  // No exact commission exists when the payload was finer than this scale holds.
-  const total =
-    trade.totalValueMinor === undefined ? null : percentOf(revenue, cashbackPercent);
-
-  return { revenue, total };
-}
-
 async function createConversion(
   db: D1Database,
   trade: StandardizedTrade,
@@ -275,105 +228,6 @@ async function createConversion(
     })
   ).run();
   return conversionId;
-}
-
-async function createEarnings(
-  db: D1Database,
-  conversionId: string,
-  affiliateId: string,
-  dealId: string,
-  commission: Commission
-): Promise<string[]> {
-  const earningsIds: string[] = [];
-  const tree = await db.prepare(
-    `SELECT id, parent_id, level, path
-     FROM referral_tree
-     WHERE affiliate_id = ?
-     LIMIT 1`
-  ).bind(affiliateId).first<{ id: string; parent_id?: string; level: number; path?: string }>();
-  if (!tree) return earningsIds;
-
-  // A commission the payload could not hold exactly has no exact shares, so no
-  // tier is owed anything. Rounding one up would pay money the trade does not
-  // entitle anyone to.
-  if (commission.total === null) {
-    return earningsIds;
-  }
-
-  const shares = splitCommission(commission.total, DEFAULT_TIER_RATES);
-  const earnings1Id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
-  await db.prepare(`
-    INSERT INTO earnings (id, conversion_id, affiliate_id, referral_tree_id, amount, commission_type, commission_rate, level, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-  `).bind(
-    earnings1Id,
-    conversionId,
-    affiliateId,
-    tree.id,
-    toUsdc(shares.tier1),
-    'percentage',
-    DEFAULT_TIER_RATES.tier1_rate,
-    1
-  ).run();
-  earningsIds.push(earnings1Id);
-
-  if (tree.parent_id) {
-    const parent = await db.prepare(
-      `SELECT rt.id, p.id as affiliate_id
-       FROM referral_tree rt
-       JOIN profiles p ON rt.affiliate_id = p.id
-       WHERE rt.id = ? AND p.role IN ("affiliate", "master_trader")
-       LIMIT 1`
-    ).bind(tree.parent_id).first<{ id: string; affiliate_id: string }>();
-    if (parent) {
-      const earnings2Id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
-      await db.prepare(`
-        INSERT INTO earnings (id, conversion_id, affiliate_id, referral_tree_id, amount, commission_type, commission_rate, level, parent_earnings_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-      `).bind(
-        earnings2Id,
-        conversionId,
-        parent.affiliate_id,
-        parent.id,
-        toUsdc(shares.tier2),
-        'percentage',
-        DEFAULT_TIER_RATES.tier2_rate,
-        2,
-        earnings1Id
-      ).run();
-      earningsIds.push(earnings2Id);
-
-      if (tree.level >= 3) {
-        const grandparent = await db.prepare(
-          `SELECT rt.id, p.id as affiliate_id
-           FROM referral_tree rt
-           JOIN profiles p ON rt.affiliate_id = p.id
-           WHERE rt.id = (SELECT parent_id FROM referral_tree WHERE id = ?)
-             AND p.role IN ("affiliate", "master_trader")
-           LIMIT 1`
-        ).bind(tree.parent_id).first<{ id: string; affiliate_id: string }>();
-        if (grandparent) {
-          const earnings3Id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
-          await db.prepare(`
-            INSERT INTO earnings (id, conversion_id, affiliate_id, referral_tree_id, amount, commission_type, commission_rate, level, parent_earnings_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-          `).bind(
-            earnings3Id,
-            conversionId,
-            grandparent.affiliate_id,
-            grandparent.id,
-            toUsdc(shares.tier3),
-            'percentage',
-            DEFAULT_TIER_RATES.tier3_rate,
-            3,
-            earnings2Id
-          ).run();
-          earningsIds.push(earnings3Id);
-        }
-      }
-    }
-  }
-  return earningsIds;
 }
 
 export const POST = withRateLimit(async (request: NextRequest): Promise<Response> => {
@@ -472,7 +326,7 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
 
     const commission = commissionOf(trade, deal.cashback_percent ?? 0);
     const conversionId = await createConversion(db, trade, deal.id, profile.id, click?.affiliate_code, click?.id);
-    const earningsIds = await createEarnings(db, conversionId, profile.id, deal.id, commission);
+    const earningsIds = await createEarnings(db, conversionId, profile.id, commission);
 
     // Sprint 4: Queue commission-earned email for the primary affiliate (non-blocking)
 if (click?.affiliate_id && commission.total !== null) {

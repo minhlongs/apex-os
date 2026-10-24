@@ -61,27 +61,37 @@ function toUsdcFloat(value: MinorUnits): number {
   return Number(value as bigint) / 1e6;
 }
 
+/** Decimal places the asset scale holds. */
+const ASSET_DECIMALS = 8;
+
+/** Decimal places the USDC scale holds. */
+const USDC_DECIMALS = 6;
+
 /**
  * Multiply two exact asset quantities into an exact USDC amount.
  *
  * `quantity * price` in float propagates both operands' binary error into the
- * commission every tier then draws on, so the product is formed in integers
- * instead. Returns null when the product is finer than the USDC scale can
- * hold, so the caller leaves `totalValueMinor` unset rather than round a real
- * amount.
+ * commission every tier then draws on: 0.016667 BTC at 60000 USDT reads as
+ * 1000.0200000000001 rather than 1000.02. Multiplying the exact integers gives
+ * the true product, and the scale it needs is simply the number of decimals the
+ * two operands carry between them -- here six plus two, not sixteen.
+ *
+ * Returns null when that product is finer than the USDC scale can hold, so the
+ * caller leaves `totalValueMinor` unset rather than round a real amount.
  */
 function exactNotional(quantity: MinorUnits, price: MinorUnits): MinorUnits | null {
-  // Each operand carries the asset scale, so the product carries it twice.
-  const assetScale = BigInt('100000000');
-  const divisor = assetScale * assetScale;
+  // Each operand is an integer at the asset scale, so their product is an
+  // integer at twice that scale. Shifting it down to the USDC scale keeps only
+  // the digits the USDC amount actually has.
+  const shift = BigInt(10) ** BigInt(ASSET_DECIMALS * 2 - USDC_DECIMALS);
   const product = (quantity as bigint) * (price as bigint);
 
-  if (product % divisor !== BigInt(0)) {
+  if (product % shift !== BigInt(0)) {
     return null;
   }
 
   try {
-    return toMinorUnits(product / divisor);
+    return toMinorUnits(product / shift);
   } catch {
     return null;
   }
