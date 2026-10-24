@@ -1612,8 +1612,58 @@ export class BatchSettlementService implements IBatchSettlementService {
       };
     }
 
-    // 8. Atomically reconcile outcome in D1
+    // 8. Reconcile only once the chain confirms the transfer landed.
+    //
+    // `execRes.success` means the adapter submitted a transaction, not that
+    // USDC arrived, so it cannot retire the earnings on its own. Confirm
+    // on-chain first and leave them unpaid for the next attempt otherwise.
     if (execRes.success) {
+      const verdict = await confirmOnChain({
+        chain,
+        transactionId: execRes.transactionId,
+        router,
+      });
+
+      if (!isSettled(verdict)) {
+        await db.batch([
+          db.prepare(`
+            UPDATE payouts
+            SET status = 'pending',
+                transaction_id = ?,
+                error_message = ?,
+                updated_at = datetime('now')
+            WHERE id = ?
+          `).bind(execRes.transactionId ?? null, verdict.reason, payoutId),
+          createAuditStatement(db, {
+            batch_id: payout.batch_id ?? null,
+            payout_id: payoutId,
+            action: 'retry',
+            chain,
+            admin_id: options?.adminId ?? null,
+            admin_email: options?.adminEmail ?? null,
+            ip_address: options?.ipAddress ?? null,
+            details: {
+              event: 'submitted_awaiting_confirmation',
+              transactionId: execRes.transactionId ?? null,
+              reason: verdict.reason,
+            },
+          }),
+        ]);
+
+        return {
+          success: false,
+          payoutId,
+          chain,
+          toAddress: recipientAddress,
+          amount: payout.net_amount,
+          token: 'USDC',
+          transactionId: execRes.transactionId ?? null,
+          error: verdict.reason,
+          status: 'submitted',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
       const finalGasUsd = execRes.gasFeeUsd ?? gasFeeUsd;
       const finalGasNative = execRes.gasFeeNative ?? 0;
 

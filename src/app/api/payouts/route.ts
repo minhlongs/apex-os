@@ -154,10 +154,12 @@ export async function POST(request: NextRequest): Promise<Response> {
           notes: `Auto-generated payout for ${pending.earning_ids.split(',').length} earnings`,
         });
 
- // Mark earnings as paid (is_paid = 1)
+ // Reserve the earnings against this payout without marking them paid. This
+ // endpoint schedules the transfer; it does not perform it, so the earnings are
+ // retired only once a broadcast is confirmed on chain by the settlement gate.
  const earningIds = pending.earning_ids.split(',');
  for (const earningId of earningIds) {
-   await DB.prepare('UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?')
+   await DB.prepare('UPDATE earnings SET payout_id = ? WHERE id = ?')
      .bind(payout.id, earningId)
      .run();
  }

@@ -169,9 +169,14 @@ async function handleWeeklyPayouts(
 
         const earningIds = pending.earning_ids.split(',');
         for (const earningId of earningIds) {
+          // Reserve the earnings against this payout but leave them unpaid:
+          // the cron schedules the transfer, it does not perform it. Earnings
+          // are retired only once the broadcast is confirmed on chain, which
+          // the settlement gate decides. Marking them paid here would record
+          // money as delivered that this job never moved.
           await db
             .prepare(
-              'UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?'
+              'UPDATE earnings SET payout_id = ? WHERE id = ?'
             )
             .bind(payout.id, earningId)
             .run();
