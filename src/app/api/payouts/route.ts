@@ -75,14 +75,16 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Get database
     const DB = (globalThis as unknown as { DB: Parameters<typeof createAuth>[0]['DB'] }).DB!;
 
-    // Get pending earnings that haven't been paid
+    // Get pending earnings that haven't been paid and are not already reserved
+    // to a payout. Reserving sets payout_id, so excluding those rows is what
+    // keeps a repeated run from scheduling the same earnings twice.
     const pendingEarningsQuery = `
       SELECT
         e.affiliate_id,
         SUM(e.amount) as total_amount,
         GROUP_CONCAT(e.id) as earning_ids
       FROM earnings e
-      WHERE e.is_paid = 0
+      WHERE e.is_paid = 0 AND e.payout_id IS NULL
       GROUP BY e.affiliate_id
       HAVING total_amount >= 10.00 -- Minimum payout threshold $10
     `;
@@ -154,10 +156,12 @@ export async function POST(request: NextRequest): Promise<Response> {
           notes: `Auto-generated payout for ${pending.earning_ids.split(',').length} earnings`,
         });
 
- // Mark earnings as paid (is_paid = 1)
+ // Reserve the earnings against this payout without marking them paid. This
+ // endpoint schedules the transfer; it does not perform it, so the earnings are
+ // retired only once a broadcast is confirmed on chain by the settlement gate.
  const earningIds = pending.earning_ids.split(',');
  for (const earningId of earningIds) {
-   await DB.prepare('UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?')
+   await DB.prepare('UPDATE earnings SET payout_id = ? WHERE id = ?')
      .bind(payout.id, earningId)
      .run();
  }
