@@ -32,6 +32,7 @@ import type {
 import { SUPPORTED_PAYOUT_CHAINS } from './types';
 import { PayoutRouter, payoutRouter } from './router';
 import { confirmOnChain, isSettled } from './settlement-gate';
+import { queuePayoutReceipts, type SettledPayout } from './receipts';
 import { TreasuryHealthService, treasuryHealthService } from './treasury-health-service';
 import { PayoutAuditService, createAuditStatement } from './audit-service';
 import { keccak256 } from './crypto/keccak';
@@ -326,6 +327,26 @@ export class BatchSettlementService implements IBatchSettlementService {
     }
   }
 
+  /**
+   * Single authority helper for retiring earnings rows once on-chain settlement is confirmed.
+   */
+  private prepareRetireEarningsStatement(
+    db: D1Database,
+    payoutId: string
+  ): D1PreparedStatement {
+    return db
+      .prepare(
+        `
+          UPDATE earnings
+          SET is_paid = 1,
+              paid_at = datetime('now'),
+              updated_at = datetime('now')
+          WHERE payout_id = ?
+        `
+      )
+      .bind(payoutId);
+  }
+
   // ==========================================================================
   // 1. Preview Batch
   // ==========================================================================
@@ -428,8 +449,9 @@ export class BatchSettlementService implements IBatchSettlementService {
       }
 
       const grossAmount = fromCents(agg.totalCents);
-      const fee = 0.0;
-      const netAmount = fromCents(agg.totalCents - toCents(fee));
+      const feeCents = 0;
+      const fee = fromCents(feeCents);
+      const netAmount = fromCents(agg.totalCents - feeCents);
 
       // Estimate network gas fee
       let estimatedGasFeeUsd = 0.0;
@@ -474,6 +496,8 @@ export class BatchSettlementService implements IBatchSettlementService {
 
       payoutsPreview.push({
         affiliateId: agg.affiliateId,
+        affiliateName: agg.affiliateName,
+        affiliateEmail: agg.affiliateEmail,
         recipientAddress: agg.walletAddress,
         chain: resolvedChain,
         earningIds: agg.earningIds,
@@ -849,6 +873,7 @@ export class BatchSettlementService implements IBatchSettlementService {
     let totalGasUsdCents = 0;
     const executionResults: PayoutExecutionResult[] = [];
     const executionErrors: string[] = [];
+    const settledReceipts: SettledPayout[] = [];
 
     const sanctionsService = this.getSanctionsService();
     const complianceAuditService = this.getComplianceAuditService();
@@ -1156,6 +1181,11 @@ export class BatchSettlementService implements IBatchSettlementService {
       }
 
       // Double-entry ledger reconciliation based on transfer outcome.
+      // The adapters report the transfer, not whose earnings it retires. Carry
+      // the affiliate through every result so callers can report per-affiliate
+      // outcomes without re-deriving them from the payout row.
+      execRes.affiliateId = item.affiliateId;
+
       // `execRes.success` only means the adapter *submitted* a transaction; it
       // is not evidence that funds arrived. Confirm on-chain before retiring
       // the payout and flipping earnings to paid.
@@ -1173,10 +1203,11 @@ export class BatchSettlementService implements IBatchSettlementService {
             db.prepare(`
               UPDATE payouts
               SET status = 'pending',
+                  transaction_id = ?,
                   error_message = ?,
                   updated_at = datetime('now')
               WHERE id = ?
-            `).bind(verdict.reason, payoutId),
+            `).bind(execRes.transactionId ?? null, verdict.reason, payoutId),
             createAuditStatement(db, {
               batch_id: batchId,
               payout_id: payoutId,
@@ -1215,13 +1246,7 @@ export class BatchSettlementService implements IBatchSettlementService {
                 updated_at = datetime('now')
             WHERE id = ?
           `).bind(execRes.transactionId ?? null, gasNative, gasUsd, payoutId),
-          db.prepare(`
-            UPDATE earnings
-            SET is_paid = 1,
-                paid_at = datetime('now'),
-                updated_at = datetime('now')
-            WHERE payout_id = ?
-          `).bind(payoutId),
+          this.prepareRetireEarningsStatement(db, payoutId),
           createAuditStatement(db, {
             batch_id: batchId,
             payout_id: payoutId,
@@ -1240,6 +1265,14 @@ export class BatchSettlementService implements IBatchSettlementService {
 
         successfulPayouts++;
         totalGasUsdCents += toCents(gasUsd);
+        settledReceipts.push({
+          affiliateId: item.affiliateId,
+          affiliateEmail: item.affiliateEmail ?? '',
+          affiliateName: item.affiliateName ?? null,
+          amount: item.netAmount,
+          payoutId,
+          transactionId: execRes.transactionId ?? null,
+        });
         executionResults.push(execRes);
       } else {
         const errorMsg = execRes.error || 'On-chain payout transfer failed';
@@ -1292,6 +1325,10 @@ export class BatchSettlementService implements IBatchSettlementService {
           updated_at = datetime('now')
       WHERE id = ?
     `).bind(finalBatchStatus, successfulPayouts, failedPayouts, totalGasFeeUsd, batchId).run();
+
+    // The ledger is committed: receipts assert money that actually arrived.
+    // Queuing is best-effort and never fails the batch.
+    queuePayoutReceipts(settledReceipts);
 
     return {
       batchId,
@@ -1383,7 +1420,8 @@ export class BatchSettlementService implements IBatchSettlementService {
       };
     }
 
-    if (payout.status !== 'failed' && !options?.force) {
+    const isPendingWithTx = payout.status === 'pending' && Boolean(payout.transaction_id);
+    if (payout.status !== 'failed' && !isPendingWithTx && !options?.force) {
       return {
         success: false,
         payoutId,
@@ -1460,13 +1498,7 @@ export class BatchSettlementService implements IBatchSettlementService {
                   updated_at = datetime('now')
               WHERE id = ?
             `).bind(payoutId),
-            db.prepare(`
-              UPDATE earnings
-              SET is_paid = 1,
-                  paid_at = datetime('now'),
-                  updated_at = datetime('now')
-              WHERE payout_id = ?
-            `).bind(payoutId),
+            this.prepareRetireEarningsStatement(db, payoutId),
             createAuditStatement(db, {
               batch_id: payout.batch_id ?? null,
               payout_id: payoutId,
@@ -1566,7 +1598,7 @@ export class BatchSettlementService implements IBatchSettlementService {
              retry_count = retry_count + 1,
              last_retried_at = datetime('now'),
              updated_at = datetime('now')
-         WHERE id = ? AND status = 'failed'`;
+         WHERE id = ? AND status IN ('failed', 'pending')`;
 
     const updateRes = await db.prepare(casQuery).bind(payoutId).run();
     const changes = updateRes?.meta?.changes ?? (updateRes as any)?.changes ?? 0;
@@ -1679,13 +1711,7 @@ export class BatchSettlementService implements IBatchSettlementService {
               updated_at = datetime('now')
           WHERE id = ?
         `).bind(execRes.transactionId ?? null, finalGasNative, finalGasUsd, payoutId),
-        db.prepare(`
-          UPDATE earnings
-          SET is_paid = 1,
-              paid_at = datetime('now'),
-              updated_at = datetime('now')
-          WHERE payout_id = ?
-        `).bind(payoutId),
+        this.prepareRetireEarningsStatement(db, payoutId),
         createAuditStatement(db, {
           batch_id: payout.batch_id ?? null,
           payout_id: payoutId,

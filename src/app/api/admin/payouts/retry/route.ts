@@ -22,8 +22,6 @@ import { payoutAuditService } from '@/lib/payouts/audit-service';
 import type { RetryOptions, PayoutExecutionResult } from '@/lib/payouts/types';
 import { error as logError, info as logInfo } from '@/lib/logger';
 
-export const runtime = 'edge';
-
 export interface RetryPayoutRequestBody {
   payoutId: string;
   refreshFee?: boolean;

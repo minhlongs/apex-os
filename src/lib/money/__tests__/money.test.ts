@@ -83,6 +83,21 @@ describe('beyond the JS safe-integer limit', () => {
     const beyond = 10n ** 25n;
     expect(fromMinorUnits(toMinorUnits(beyond))).toBe(beyond);
   });
+
+  it('distinguishes adjacent odd integers above 2^53 where IEEE-754 collapses them', () => {
+    const a = 9_007_199_254_740_993n; // 2^53 + 1
+    const b = 9_007_199_254_740_995n; // 2^53 + 3
+    // In IEEE-754 Number, 9007199254740993 rounds down to 9007199254740992
+    expect(Number(a)).toBe(9007199254740992);
+    // In BigInt minor units, both values and their sum/percent shares remain exact
+    const muA = toMinorUnits(a);
+    const muB = toMinorUnits(b);
+    expect(fromMinorUnits(muA)).toBe(a);
+    expect(fromMinorUnits(muB)).toBe(b);
+    expect(fromMinorUnits(muB) - fromMinorUnits(muA)).toBe(2n);
+    const feeOnePct = fromMinorUnits(percentOf(muA, 1));
+    expect(feeOnePct).toBe(a / 100n);
+  });
 });
 
 describe('assertNonNegative', () => {

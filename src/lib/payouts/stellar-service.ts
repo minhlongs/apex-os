@@ -973,6 +973,38 @@ export class StellarService {
 }
 
 /**
+ * Resolve Stellar network from an explicit parameter or process.env.STELLAR_NETWORK.
+ * Fails closed in production if STELLAR_NETWORK is unset or invalid.
+ */
+export function resolveStellarNetwork(
+  explicitNetwork?: StellarNetwork | string
+): StellarNetwork {
+  const raw = explicitNetwork ?? process.env.STELLAR_NETWORK;
+  const isProd =
+    process.env.NODE_ENV === 'production' ||
+    process.env.APP_ENV === 'production';
+
+  if (!raw || raw.trim() === '') {
+    if (isProd) {
+      throw new Error(
+        'STELLAR_NETWORK must be explicitly set in production (refusing implicit testnet fallback)'
+      );
+    }
+    return StellarNetwork.TESTNET;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === StellarNetwork.TESTNET) {
+    return StellarNetwork.TESTNET;
+  }
+  if (normalized === StellarNetwork.MAINNET) {
+    return StellarNetwork.MAINNET;
+  }
+
+  throw new Error(`Invalid STELLAR_NETWORK: ${raw}`);
+}
+
+/**
  * Factory function to create a Stellar service from environment variables
  *
  * @returns Configured StellarService instance
@@ -980,7 +1012,7 @@ export class StellarService {
  */
 export function createStellarService(): StellarService {
   const secretKey = process.env.STELLAR_SECRET_KEY;
-  const network = (process.env.STELLAR_NETWORK as StellarNetwork) || StellarNetwork.TESTNET;
+  const network = resolveStellarNetwork();
   const usdcIssuer = process.env.STELLAR_USDC_ISSUER;
   const horizonUrl = process.env.STELLAR_HORIZON_URL;
 

@@ -19,8 +19,6 @@ import { treasuryHealthService } from '@/lib/payouts/treasury-health-service';
 import type { SupportedPayoutChain } from '@/lib/payouts/types';
 import { error as logError } from '@/lib/logger';
 
-export const runtime = 'edge';
-
 const VALID_CHAINS = new Set<string>(['stellar', 'ethereum', 'solana']);
 
 export async function GET(request: NextRequest): Promise<NextResponse> {

@@ -4,7 +4,7 @@ import type { MinorUnits } from '../types';
 /**
  * The tiers must never overdraw the commission pool, and no unit the affiliates
  * are owed may be lost to rounding. A float implementation loses units on totals
- * it cannot divide evenly -- `1 * 0.30` floors to zero, and that minor unit
+ * it cannot divide evenly -- 30% of 1 minor unit floors to zero, and that minor unit
  * disappears from the ledger.
  */
 

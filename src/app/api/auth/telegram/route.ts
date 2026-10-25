@@ -27,8 +27,6 @@ import {
 import { warn as logWarn, error as logError } from '@/lib/logger';
 import type { TelegramAuthResponse } from '@/types/telegram';
 
-export const runtime = 'edge';
-
 /**
  * Resolves Cloudflare D1 database across edge Workers, request env, and test mocks
  */

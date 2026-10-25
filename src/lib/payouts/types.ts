@@ -220,6 +220,8 @@ export interface PayoutExecutionResult {
   success: boolean;
   payoutId: string;
   chain: SupportedPayoutChain;
+  /** The affiliate whose earnings this payout retires. Present whenever the payout was built from an earnings record. */
+  affiliateId?: string | null;
   transactionId?: string | null;
   fromAddress?: string;
   toAddress: string;
@@ -322,6 +324,8 @@ export type BatchExecutionOptions = BatchSettlementOptions;
 
 export interface BatchPreviewItem {
   affiliateId: string;
+  affiliateName?: string | null;
+  affiliateEmail?: string | null;
   recipientAddress: string;
   chain: SupportedPayoutChain;
   earningIds: string[];

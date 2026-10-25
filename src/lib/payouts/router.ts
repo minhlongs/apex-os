@@ -42,10 +42,28 @@ export class PayoutRouter {
     this.adapters = new Map<SupportedPayoutChain, PayoutChainAdapter>();
     this.sanctionsService = sanctionsService ?? sanctionsScreeningService;
 
-    // Register provided adapters or instantiate defaults
-    this.adapters.set('stellar', adapters?.stellar ?? new StellarAdapter());
-    this.adapters.set('ethereum', adapters?.ethereum ?? new EthereumAdapter());
-    this.adapters.set('solana', adapters?.solana ?? new SolanaAdapter());
+    if (adapters?.stellar) {
+      this.adapters.set('stellar', adapters.stellar);
+    }
+    if (adapters?.ethereum) {
+      this.adapters.set('ethereum', adapters.ethereum);
+    }
+    if (adapters?.solana) {
+      this.adapters.set('solana', adapters.solana);
+    }
+  }
+
+  private createDefaultAdapter(chain: SupportedPayoutChain): PayoutChainAdapter | undefined {
+    switch (chain) {
+      case 'stellar':
+        return new StellarAdapter();
+      case 'ethereum':
+        return new EthereumAdapter();
+      case 'solana':
+        return new SolanaAdapter();
+      default:
+        return undefined;
+    }
   }
 
   /**
@@ -66,7 +84,13 @@ export class PayoutRouter {
    * Get registered adapter for a supported chain
    */
   getAdapter(chain: SupportedPayoutChain): PayoutChainAdapter {
-    const adapter = this.adapters.get(chain);
+    let adapter = this.adapters.get(chain);
+    if (!adapter && SUPPORTED_PAYOUT_CHAINS.includes(chain)) {
+      adapter = this.createDefaultAdapter(chain);
+      if (adapter) {
+        this.adapters.set(chain, adapter);
+      }
+    }
     if (!adapter) {
       throw new Error(
         `Unsupported payout chain: '${chain}'. Supported chains: ${SUPPORTED_PAYOUT_CHAINS.join(', ')}`
@@ -155,8 +179,10 @@ export class PayoutRouter {
       };
     }
 
-    const adapter = this.adapters.get(chain);
-    if (!adapter) {
+    let adapter: PayoutChainAdapter;
+    try {
+      adapter = this.getAdapter(chain);
+    } catch {
       return { valid: false, error: `No adapter registered for chain: '${chain}'` };
     }
 

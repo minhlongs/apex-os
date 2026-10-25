@@ -19,8 +19,6 @@ import type { D1PreparedStatement } from '@/lib/db';
 import type { SupportedPayoutChain } from '@/lib/payouts/types';
 import * as logger from '@/lib/logger';
 
-export const runtime = 'edge';
-
 const VALID_ACTIONS = [
   'approve',
   'override',

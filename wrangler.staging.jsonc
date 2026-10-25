@@ -1,0 +1,44 @@
+{
+	// NOTE: D1 database_id is required by Wrangler CLI — not a secret.
+	// Staging Worker: binds DB strictly to apex-os-staging-db (be4ed659-c877-4820-ae6e-9747bc7ee316).
+	// Must NEVER bind or reference the production D1 database.
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"main": "worker-wrapper.js",
+	"name": "apex-os-staging",
+	"compatibility_date": "2026-03-17",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"global_fetch_strictly_public"
+	],
+	"assets": {
+		"directory": ".open-next/assets",
+		"binding": "ASSETS"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "apex-os-staging-db",
+			"database_id": "be4ed659-c877-4820-ae6e-9747bc7ee316"
+		}
+	],
+	"kv_namespaces": [
+		{
+			"binding": "KV",
+			"id": "5628adf57f1548b5af615de4e9021893"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "STORAGE",
+			"bucket_name": "apex-os-uploads"
+		}
+	],
+	"vars": {
+		"APP_ENV": "staging",
+		"STELLAR_NETWORK": "testnet",
+		"AUTO_SETTLE_PAYOUTS": "false"
+	},
+	"triggers": {
+		"crons": ["0 0 * * SUN", "*/30 * * * *", "*/5 * * * *"]
+	}
+}

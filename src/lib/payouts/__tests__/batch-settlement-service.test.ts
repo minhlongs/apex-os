@@ -44,6 +44,17 @@ import { PayoutRouter } from '../router';
 import { TreasuryHealthService, type CanSettleResult } from '../treasury-health-service';
 import { PayoutAuditService } from '../audit-service';
 
+const enqueuedReceipts: Array<Record<string, any>> = [];
+jest.mock('@/lib/emails/executor', () => ({
+  enqueueTransactional: jest.fn((input: Record<string, any>) => {
+    enqueuedReceipts.push(input);
+    return input;
+  }),
+}));
+jest.mock('@/lib/emails/templates', () => ({
+  payoutCompletedTemplate: jest.fn(() => '<html>receipt</html>'),
+}));
+
 // ============================================================================
 // Mock D1 Database Implementation
 // ============================================================================
@@ -966,6 +977,7 @@ describe('BatchSettlementService (Milestone 4)', () => {
   // --------------------------------------------------------------------------
   describe('executeBatch — on-chain confirmation is required before marking paid', () => {
     beforeEach(() => {
+      enqueuedReceipts.length = 0;
       // The adapter reports success, but verification is not yet confirmed.
       stellarAdapter.verifyHandler = async () => ({
         verified: true,
@@ -988,9 +1000,34 @@ describe('BatchSettlementService (Milestone 4)', () => {
       // untouched: the next cycle retries instead of marking users paid for a
       // transfer that has not landed.
       expect(result.successfulPayouts).toBe(0);
+      expect(enqueuedReceipts).toHaveLength(0);
 
       const earnings = sqlite.prepare('SELECT * FROM earnings WHERE affiliate_id = ?').all('aff_unconfirmed') as Array<{ is_paid: number }>;
       expect(earnings[0].is_paid).toBe(0);
+
+      // Verify transaction_id was persisted on the pending payout row so retryPayout can re-verify on-chain without double-broadcasting
+      const payoutRow = sqlite.prepare('SELECT status, transaction_id FROM payouts WHERE affiliate_id = ?').get('aff_unconfirmed') as { status: string; transaction_id: string | null };
+      expect(payoutRow.status).toBe('pending');
+      expect(payoutRow.transaction_id).toBeTruthy();
+
+      // Now simulate confirmation landing on-chain and verify retryPayout reconciles without calling sendPayout again
+      stellarAdapter.verifyHandler = async (txId: string) => ({
+        verified: true,
+        status: 'confirmed',
+        transactionId: txId,
+        timestamp: new Date().toISOString(),
+      }) as never;
+
+      const sendSpy = jest.spyOn(stellarAdapter, 'sendPayout');
+      const payoutFull = sqlite.prepare('SELECT id FROM payouts WHERE affiliate_id = ?').get('aff_unconfirmed') as { id: string };
+      const retryRes = await service.retryPayout(payoutFull.id);
+
+      expect(retryRes.success).toBe(true);
+      expect(retryRes.status).toBe('confirmed');
+      expect(sendSpy).not.toHaveBeenCalled();
+
+      const retiredEarnings = sqlite.prepare('SELECT is_paid FROM earnings WHERE affiliate_id = ?').all('aff_unconfirmed') as Array<{ is_paid: number }>;
+      expect(retiredEarnings[0].is_paid).toBe(1);
     });
 
     it('marks earnings paid once verification confirms the transfer', async () => {
@@ -1012,6 +1049,10 @@ describe('BatchSettlementService (Milestone 4)', () => {
       expect(result.successfulPayouts).toBe(1);
       const earnings = sqlite.prepare('SELECT * FROM earnings WHERE affiliate_id = ?').all('aff_confirmed') as Array<{ is_paid: number }>;
       expect(earnings[0].is_paid).toBe(1);
+      // Money landed, so the affiliate is told so: the receipt asserts a
+      // confirmed transfer, which is the only kind this cycle may report.
+      expect(enqueuedReceipts).toHaveLength(1);
+      expect(enqueuedReceipts[0].email).toBe('conf@example.com');
     });
   });
 });

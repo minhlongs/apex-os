@@ -1,42 +1,54 @@
-name: ci
+name: CI
 
 on:
-  pull_request:
-    branches: [main, master]
   push:
-    branches: [main, master]
-  workflow_dispatch:
+    branches:
+      - main
+      - master
+      - 'feat/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+      - master
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
-    name: typecheck, lint, test
+    name: Typecheck, Lint, Test & Worker Bundle
     runs-on: ubuntu-latest
-
+    env:
+      CI: 'true'
+      NEXT_PUBLIC_COMMIT_SHA: ${{ github.sha }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      # Node 26.7.0 is the proven runtime: better-sqlite3 ships a native
-      # binding compiled for Node 26's ABI, and `npm test` refuses to start
-      # Jest on any other runtime rather than emitting hundreds of false
-      # failures. Do not widen this without re-verifying the suite locally.
-      - uses: actions/setup-node@v4
+      - name: Setup Node.js 26.7.0
+        uses: actions/setup-node@v4
         with:
-          node-version: 26.7.0
-          cache: npm
-          cache-dependency-path: package-lock.json
+          node-version: '26.7.0'
+          cache: 'npm'
 
-      # `npm ci` installs exactly what the lockfile pins, so a transitive
-      # release cannot silently change what CI tests. `@opennextjs/cloudflare`
-      # declares `wrangler` as a mandatory peer dependency and nothing else
-      # declared it, which is why the lockfile now carries wrangler directly.
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck
+      - name: Verify staging D1 isolation
+        run: bash scripts/assert-staging-isolation.sh
+
+      - name: TypeScript typecheck
         run: npm run typecheck
 
-      - name: Lint
+      - name: ESLint check
         run: npm run lint
 
-      - name: Test
-        run: npm test
+      - name: Run unit & integration tests
+        run: CI=true npm test
+
+      - name: Build Next.js + OpenNext Cloudflare Worker bundle
+        run: |
+          export NEXT_PUBLIC_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          npm run build:worker

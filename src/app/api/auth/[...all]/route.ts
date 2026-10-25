@@ -30,6 +30,35 @@ async function extractUserIdentifier(request: NextRequest): Promise<string | nul
 
 async function handleRateLimitedAuth(request: NextRequest): Promise<Response> {
   const pathname = new URL(request.url).pathname;
+
+  if (pathname === '/api/auth/session' || pathname === '/api/auth/get-session') {
+    try {
+      const { getAuthenticatedUser, resolveDatabase } = await import('@/lib/auth/session-helper');
+      const globalDb = (globalThis as unknown as { DB?: ReturnType<typeof resolveDatabase> }).DB;
+      const db = globalDb || resolveDatabase();
+      const user = await getAuthenticatedUser(request, db ?? undefined);
+
+      if (!user) {
+        return NextResponse.json({ user: null, session: null }, { status: 200 });
+      }
+
+      return NextResponse.json(
+        {
+          user: {
+            id: user.id,
+            email: user.email ?? null,
+          },
+          session: {
+            userId: user.id,
+          },
+        },
+        { status: 200 }
+      );
+    } catch {
+      return NextResponse.json({ user: null, session: null }, { status: 200 });
+    }
+  }
+
   const endpoint = getAuthEndpoint(pathname);
 
   if (!endpoint) {

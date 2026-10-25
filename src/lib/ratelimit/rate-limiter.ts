@@ -244,19 +244,23 @@ export class RateLimiter {
       return cached;
     }
 
-    // Fetch from database
-    const config = await this.db.prepare(
-      'SELECT * FROM rate_limit_configs WHERE endpoint_type = ? AND is_active = 1'
-    )
-      .bind(endpointType)
-      .first<RateLimitConfig>();
+    // Fetch from database (gracefully return null if rate_limit_configs table is not yet migrated)
+    try {
+      const config = await this.db.prepare(
+        'SELECT * FROM rate_limit_configs WHERE endpoint_type = ? AND is_active = 1'
+      )
+        .bind(endpointType)
+        .first<RateLimitConfig>();
 
-    if (config) {
-      this.configCache.set(endpointType, config);
-      this.configCacheExpiry.set(endpointType, Date.now() + this.CONFIG_CACHE_TTL);
+      if (config) {
+        this.configCache.set(endpointType, config);
+        this.configCacheExpiry.set(endpointType, Date.now() + this.CONFIG_CACHE_TTL);
+      }
+
+      return config || null;
+    } catch {
+      return null;
     }
-
-    return config || null;
   }
 
   /**

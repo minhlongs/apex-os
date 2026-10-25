@@ -21,8 +21,6 @@ import { releaseHeldPayouts } from '@/lib/compliance/auto-release-service';
 import { complianceAuditService } from '@/lib/compliance/audit-service';
 import * as logger from '@/lib/logger';
 
-export const runtime = 'edge';
-
 function resolveDatabase(request?: Request): D1Database | null {
   try {
     const reqDb = (request as any)?.env?.DB;
