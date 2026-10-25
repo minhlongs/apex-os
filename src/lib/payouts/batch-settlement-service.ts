@@ -32,6 +32,7 @@ import type {
 import { SUPPORTED_PAYOUT_CHAINS } from './types';
 import { PayoutRouter, payoutRouter } from './router';
 import { confirmOnChain, isSettled } from './settlement-gate';
+import { queuePayoutReceipts, type SettledPayout } from './receipts';
 import { TreasuryHealthService, treasuryHealthService } from './treasury-health-service';
 import { PayoutAuditService, createAuditStatement } from './audit-service';
 import { keccak256 } from './crypto/keccak';
@@ -474,6 +475,8 @@ export class BatchSettlementService implements IBatchSettlementService {
 
       payoutsPreview.push({
         affiliateId: agg.affiliateId,
+        affiliateName: agg.affiliateName,
+        affiliateEmail: agg.affiliateEmail,
         recipientAddress: agg.walletAddress,
         chain: resolvedChain,
         earningIds: agg.earningIds,
@@ -849,6 +852,7 @@ export class BatchSettlementService implements IBatchSettlementService {
     let totalGasUsdCents = 0;
     const executionResults: PayoutExecutionResult[] = [];
     const executionErrors: string[] = [];
+    const settledReceipts: SettledPayout[] = [];
 
     const sanctionsService = this.getSanctionsService();
     const complianceAuditService = this.getComplianceAuditService();
@@ -1156,6 +1160,11 @@ export class BatchSettlementService implements IBatchSettlementService {
       }
 
       // Double-entry ledger reconciliation based on transfer outcome.
+      // The adapters report the transfer, not whose earnings it retires. Carry
+      // the affiliate through every result so callers can report per-affiliate
+      // outcomes without re-deriving them from the payout row.
+      execRes.affiliateId = item.affiliateId;
+
       // `execRes.success` only means the adapter *submitted* a transaction; it
       // is not evidence that funds arrived. Confirm on-chain before retiring
       // the payout and flipping earnings to paid.
@@ -1240,6 +1249,14 @@ export class BatchSettlementService implements IBatchSettlementService {
 
         successfulPayouts++;
         totalGasUsdCents += toCents(gasUsd);
+        settledReceipts.push({
+          affiliateId: item.affiliateId,
+          affiliateEmail: item.affiliateEmail ?? '',
+          affiliateName: item.affiliateName ?? null,
+          amount: item.netAmount,
+          payoutId,
+          transactionId: execRes.transactionId ?? null,
+        });
         executionResults.push(execRes);
       } else {
         const errorMsg = execRes.error || 'On-chain payout transfer failed';
@@ -1292,6 +1309,10 @@ export class BatchSettlementService implements IBatchSettlementService {
           updated_at = datetime('now')
       WHERE id = ?
     `).bind(finalBatchStatus, successfulPayouts, failedPayouts, totalGasFeeUsd, batchId).run();
+
+    // The ledger is committed: receipts assert money that actually arrived.
+    // Queuing is best-effort and never fails the batch.
+    queuePayoutReceipts(settledReceipts);
 
     return {
       batchId,

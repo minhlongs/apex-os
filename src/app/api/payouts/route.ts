@@ -5,16 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuth } from '@/lib/auth/auth-factory';
-import { createPayoutsService } from '@/lib/payouts';
+import { BatchSettlementService } from '@/lib/payouts';
 import { invalidateAffiliateCache } from '@/lib/cache/cache-invalidation';
 import { RateLimiter, extractIpAddress, type RateLimitResult } from '@/lib/ratelimit/rate-limiter';
-import { error as logError, warn as logWarn } from '@/lib/logger';
-import { enqueueTransactional } from '@/lib/emails/executor';
-import { payoutCompletedTemplate } from '@/lib/emails/templates';
-
-const PAYOUTS_RATE_LIMITER = new RateLimiter(
-  (globalThis as unknown as { DB: any }).DB
-);
+import { error as logError } from '@/lib/logger';
 
 async function checkPayoutsRateLimit(request: NextRequest): Promise<RateLimitResult | null> {
   const db = (globalThis as unknown as { DB: any }).DB;
@@ -75,141 +69,40 @@ export async function POST(request: NextRequest): Promise<Response> {
     // Get database
     const DB = (globalThis as unknown as { DB: Parameters<typeof createAuth>[0]['DB'] }).DB!;
 
-    // Get pending earnings that haven't been paid and are not already reserved
-    // to a payout. Reserving sets payout_id, so excluding those rows is what
-    // keeps a repeated run from scheduling the same earnings twice.
-    const pendingEarningsQuery = `
-      SELECT
-        e.affiliate_id,
-        SUM(e.amount) as total_amount,
-        GROUP_CONCAT(e.id) as earning_ids
-      FROM earnings e
-      WHERE e.is_paid = 0 AND e.payout_id IS NULL
-      GROUP BY e.affiliate_id
-      HAVING total_amount >= 10.00 -- Minimum payout threshold $10
-    `;
+    // Run the full settlement cycle: select eligible affiliates, reserve their
+    // earnings, perform the transfer, and reconcile from the on-chain verdict.
+    // This endpoint triggers the cycle; it does not move money or retire
+    // earnings itself, so a scheduled-but-unconfirmed transfer leaves the
+    // ledger payable rather than falsely closed.
+    const settlementService = new BatchSettlementService();
+    const result = await settlementService.executeBatch({
+      chain: 'stellar',
+      minThreshold: 10,
+      adminId: userId,
+      adminEmail: (sessionResult.user as { email?: string }).email ?? null,
+      ipAddress: extractIpAddress(request.headers),
+    });
 
-    const pendingResults = await DB.prepare(pendingEarningsQuery)
-      .all<{
-        affiliate_id: string;
-        total_amount: number;
-        earning_ids: string;
-      }>();
+    // Report every payout the cycle attempted, attributed where the executor
+    // could attribute one. Cache invalidation needs a concrete affiliate id, so
+    // it covers only the attributed rows rather than the whole result set.
+    const results = result.payouts.map((p) => ({
+      affiliate_id: p.affiliateId ?? null,
+      amount: p.amount,
+      payout_id: p.payoutId,
+    }));
+    const totalPayoutAmount = result.totalAmount;
 
-    if (pendingResults.results.length === 0) {
-      return NextResponse.json({
-        success: true,
-        message: 'No pending payouts to process',
-        processed: 0,
-        totalAmount: 0,
-      });
+    if (result.failedPayouts > 0) {
+      logError(`[Payouts] ${result.failedPayouts} payout(s) failed of ${result.totalPayouts} attempted`);
     }
 
-    // Get affiliate payout methods
-    const affiliateIds = pendingResults.results.map(r => r.affiliate_id);
-    const placeholders = affiliateIds.map(() => '?').join(',');
-    const affiliates = await DB.prepare(`
-      SELECT id, email, full_name, payout_method, payout_method_details
-      FROM profiles
-      WHERE id IN (${placeholders})
-    `)
-      .bind(...affiliateIds)
-      .all<{
-        id: string;
-        email: string;
-        full_name: string | null;
-        payout_method: string | null;
-        payout_method_details: string | null;
-      }>();
-
-    const affiliateMap = new Map(affiliates.results.map(a => [a.id, a]));
-
-    // Create payouts
-    const payoutsService = createPayoutsService(DB);
-    const results = [];
-    let totalPayoutAmount = 0;
-
-    for (const pending of pendingResults.results) {
-      const affiliate = affiliateMap.get(pending.affiliate_id);
-      if (!affiliate) {
-        logWarn(`Affiliate not found: ${pending.affiliate_id}`);
-        continue;
-      }
-
-      const payoutMethod = affiliate.payout_method || 'crypto';
-      const payoutDetails = affiliate.payout_method_details
-        ? JSON.parse(affiliate.payout_method_details)
-        : {};
-
-      try {
-        const netAmount = pending.total_amount - (pending.total_amount * 0.01); // 1% fee
-        const payout = await payoutsService.createPayout({
-          affiliate_id: pending.affiliate_id,
-          payout_method: payoutMethod as 'crypto' | 'sepay' | 'bank_transfer',
-          payout_method_details: payoutDetails,
-          amount: pending.total_amount,
-          net_amount: netAmount,
-          currency: 'USDC',
-          fee: pending.total_amount * 0.01, // 1% fee
-          scheduled_at: new Date().toISOString(),
-          status: 'processing',
-          notes: `Auto-generated payout for ${pending.earning_ids.split(',').length} earnings`,
-        });
-
- // Reserve the earnings against this payout without marking them paid. This
- // endpoint schedules the transfer; it does not perform it, so the earnings are
- // retired only once a broadcast is confirmed on chain by the settlement gate.
- const earningIds = pending.earning_ids.split(',');
- for (const earningId of earningIds) {
-   await DB.prepare('UPDATE earnings SET payout_id = ? WHERE id = ?')
-     .bind(payout.id, earningId)
-     .run();
- }
-
- // Queue payout-sent email (non-blocking)
- try {
-   const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://apex-os.com';
-   const explorerUrl = payout.transaction_id
-    ? `https://stellar.expert/explorer/testnet/tx/${payout.transaction_id}`
-    : `${baseUrl}/dashboard/payouts`;
-   const html = payoutCompletedTemplate({
-     userName: affiliate.full_name || affiliate.email,
-     userEmail: affiliate.email,
-     locale: 'en',
-     baseUrl,
-     amount: pending.total_amount,
-     transactionHash: payout.transaction_id || payout.id,
-     walletAddress: payoutDetails.address || '',
-     network: 'testnet',
-     payoutDate: new Date().toLocaleDateString(),
-     explorerUrl,
-   });
-   enqueueTransactional({
-     userId: pending.affiliate_id,
-     email: affiliate.email,
-     type: 'payout-completed',
-     subject: `Payout Sent: $${pending.total_amount.toFixed(2)} USDC to your wallet`,
-     html,
-     priority: 1,
-   });
- } catch (enqueueError) {
-   logError(`[Payouts] enqueue failed for ${pending.affiliate_id}:`, enqueueError);
- }
-
- results.push({
-   affiliate_id: pending.affiliate_id,
-   affiliate_email: affiliate.email,
-   amount: pending.total_amount,
-   payout_id: payout.id,
- });
- totalPayoutAmount += pending.total_amount;
-      } catch (error) {
-        logError(`Failed to create payout for ${pending.affiliate_id}:`, error);
-      }
-    }
-
-    // Invalidate cache for all affected affiliates (async)
-    const affiliateIdsToInvalidate = results.map(r => r.affiliate_id);
+    // Invalidate cache for the affiliates this cycle touched. Results without an
+    // attributed affiliate cannot name a dashboard cache key, so they are skipped
+    // rather than invalidated under a null id.
+    const affiliateIdsToInvalidate = results
+      .map(r => r.affiliate_id)
+      .filter((id): id is string => typeof id === 'string');
     for (const affiliateId of affiliateIdsToInvalidate) {
       void invalidateAffiliateCache(affiliateId, ['affiliate-dashboard', 'affiliate-payouts']).catch(err =>
         logError('[Payouts] Cache invalidation error:', err)
@@ -217,9 +110,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     return NextResponse.json({
-      success: true,
-      message: `Processed ${results.length} payouts`,
-      processed: results.length,
+      success: result.failedPayouts === 0,
+      message: result.totalPayouts === 0
+        ? 'No pending payouts to process'
+        : `Processed ${result.successfulPayouts} payouts`,
+      processed: result.successfulPayouts,
+      failed: result.failedPayouts,
       totalAmount: totalPayoutAmount,
       payouts: results,
     });

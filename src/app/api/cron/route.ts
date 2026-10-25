@@ -21,8 +21,8 @@ import { evaluateBusinessAlerts } from '@/lib/notifications/business-alert-engin
 import { refreshAnalyticsViews } from '@/lib/analytics/refresh';
 import { processEmailQueue, retryFailedEmails } from '@/lib/emails/email-scheduler';
 import { runLifecycleCampaigns } from '@/lib/emails/email-campaigns';
-import { createPayoutsService } from '@/lib/payouts';
-import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
+import { BatchSettlementService } from '@/lib/payouts';
+import { error as logError } from '@/lib/logger';
 
 // ============================================================================
 // Cron Job Handlers
@@ -75,23 +75,26 @@ async function handleWeeklyPayouts(
       };
     }
 
-    const MIN_PAYOUT_THRESHOLD = 10.0;
-    const FEE_RATE = 0.01;
+    // The batch settlement service owns the whole cycle: it selects the
+    // eligible affiliates, reserves their earnings atomically, performs the
+    // transfer, then reconciles the ledger from the on-chain verdict. Earnings
+    // become paid only on a confirmed broadcast, so the cron schedules money
+    // without ever asserting that money moved.
+    const result = await new BatchSettlementService({ db }).executeBatch({
+      chain: 'stellar',
+      minThreshold: 10,
+    });
 
-    const pendingEarningsQuery = `
-      SELECT e.affiliate_id, SUM(e.amount) as total_amount, GROUP_CONCAT(e.id) as earning_ids
-      FROM earnings e
-      WHERE e.is_paid = 0 AND e.payout_id IS NULL
-      GROUP BY e.affiliate_id
-      HAVING total_amount >= ?
-    `;
+    const totalAmount = result.totalAmount;
+    const failed = result.failedPayouts;
 
-    const pendingResults = await db
-      .prepare(pendingEarningsQuery)
-      .bind(MIN_PAYOUT_THRESHOLD)
-      .all();
+    if (failed > 0) {
+      logError(
+        `[Payouts:Cron] ${failed} payout(s) failed of ${result.totalPayouts} attempted`
+      );
+    }
 
-    if (pendingResults.results.length === 0) {
+    if (result.totalPayouts === 0) {
       return {
         success: true,
         processed: 0,
@@ -100,158 +103,11 @@ async function handleWeeklyPayouts(
       };
     }
 
-    const affiliateIds = pendingResults.results.map((r: { affiliate_id: string }) => r.affiliate_id);
-    const placeholders = affiliateIds.map(() => '?').join(',');
-    const affiliates = await db
-      .prepare(
-        `SELECT id, email, full_name, payout_method, payout_method_details FROM profiles WHERE id IN (${placeholders})`
-      )
-      .bind(...affiliateIds)
-      .all();
-
-    interface AffiliateProfileRow {
-      id: string;
-      email: string;
-      full_name: string | null;
-      payout_method: string | null;
-      payout_method_details: string | null;
-    }
-
-    const affiliateMap = new Map(
-      affiliates.results.map((a: AffiliateProfileRow) => [a.id, a] as const)
-    );
-    const payoutsService = createPayoutsService(db);
-    const results: Array<{
-      affiliate_id: string;
-      affiliate_email: string;
-      amount: number;
-      payout_id: string;
-    }> = [];
-    let totalPayoutAmount = 0;
-
-    for (const pending of pendingResults.results) {
-      const affiliate = affiliateMap.get(pending.affiliate_id) as {
-        id: string;
-        email: string;
-        full_name: string | null;
-        payout_method: string | null;
-        payout_method_details: string | null;
-      } | undefined;
-      if (!affiliate) {
-        logWarn(
-          `[Payouts:Cron] Affiliate not found: ${pending.affiliate_id}`
-        );
-        continue;
-      }
-
-      const payoutMethod = affiliate.payout_method || 'crypto';
-      const payoutDetails = affiliate.payout_method_details
-        ? JSON.parse(affiliate.payout_method_details)
-        : {};
-
-      try {
-        const netAmount = pending.total_amount * (1 - FEE_RATE);
-        const payout = await payoutsService.createPayout({
-          affiliate_id: pending.affiliate_id,
-          payout_method: payoutMethod as
-            | 'crypto'
-            | 'sepay'
-            | 'bank_transfer',
-          payout_method_details: payoutDetails,
-          amount: pending.total_amount,
-          net_amount: netAmount,
-          currency: 'USDC',
-          fee: pending.total_amount * FEE_RATE,
-          scheduled_at: new Date().toISOString(),
-          status: 'processing',
-          notes: `Auto-generated payout for ${pending.earning_ids.split(',').length} earnings`,
-        });
-
-        const earningIds = pending.earning_ids.split(',');
-        for (const earningId of earningIds) {
-          // Reserve the earnings against this payout but leave them unpaid:
-          // the cron schedules the transfer, it does not perform it. Earnings
-          // are retired only once the broadcast is confirmed on chain, which
-          // the settlement gate decides. Marking them paid here would record
-          // money as delivered that this job never moved.
-          await db
-            .prepare(
-              'UPDATE earnings SET payout_id = ? WHERE id = ?'
-            )
-            .bind(payout.id, earningId)
-            .run();
-        }
-
-        results.push({
-          affiliate_id: pending.affiliate_id,
-          affiliate_email: affiliate.email,
-          amount: pending.total_amount,
-          payout_id: payout.id,
-        });
-        totalPayoutAmount += pending.total_amount;
-      } catch (error) {
-        logError(
-          `[Payouts:Cron] Failed to create payout for ${pending.affiliate_id}:`,
-          error
-        );
-      }
-    }
-
-    logInfo(
-      `[Payouts:Cron] Processed ${results.length} payouts, total ${totalPayoutAmount} USDC`
-    );
-
-    // Sprint 4: Queue payout-sent emails (non-blocking)
-    for (const result of results) {
-      void (async () => {
-        try {
-          const affiliate = affiliateMap.get(
-            result.affiliate_id
-          ) as { email?: string; full_name?: string } | undefined;
-          if (!affiliate?.email) return;
-          const { payoutCompletedTemplate } = await import(
-            '@/lib/emails/templates'
-          );
-          const { getEmailQueueService } = await import(
-            '@/lib/emails/email-queue'
-          );
-          const html = payoutCompletedTemplate({
-            userName: affiliate.full_name || 'Affiliate',
-            userEmail: affiliate.email,
-            locale: 'en',
-            baseUrl:
-              process.env.NEXT_PUBLIC_BASE_URL || 'https://apex-os.com',
-            amount: Number(result.amount ?? 0),
-            transactionHash: result.payout_id,
-            walletAddress: '',
-            network: 'testnet',
-            payoutDate: new Date().toISOString(),
-            explorerUrl: '',
-          });
-          void getEmailQueueService().enqueue({
-            userId: result.affiliate_id,
-            email: affiliate.email,
-            type: 'payout-sent',
-            subject: `Payout processed: ${Number(result.amount ?? 0).toFixed(2)} USDC`,
-            html,
-            text: '',
-            priority: 1,
-            metadata: {
-              payoutId: result.payout_id,
-              amount: Number(result.amount ?? 0),
-            },
-          });
-        } catch {
-          // non-blocking
-        }
-      })();
-    }
-
     return {
-      success: true,
-      processed: results.length,
-      totalAmount: totalPayoutAmount,
-      details: `Processed ${results.length} payouts totaling ${totalPayoutAmount.toFixed(2)} USDC`,
+      success: failed === 0,
+      processed: result.successfulPayouts,
+      totalAmount,
+      details: `Processed ${result.successfulPayouts} payouts totaling ${totalAmount.toFixed(2)} USDC${failed > 0 ? `, ${failed} failed` : ''}`,
     };
   } catch (error) {
     return {
