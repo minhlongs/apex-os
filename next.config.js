@@ -6,17 +6,9 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
-};
-
-const path = require('path');
-
-// Exclude mobile app from Next.js build
-nextConfig.experimental = {
-  ...nextConfig.experimental,
-  turbopack: {
-    resolveAlias: {
-      '^expo-router$': path.resolve(__dirname, 'mobile/node_modules/expo-router'),
-    },
+  env: {
+    NEXT_PUBLIC_COMMIT_SHA: process.env.NEXT_PUBLIC_COMMIT_SHA || 'unknown',
+    NEXT_PUBLIC_BUILD_TIME: process.env.NEXT_PUBLIC_BUILD_TIME || '',
   },
 };
 

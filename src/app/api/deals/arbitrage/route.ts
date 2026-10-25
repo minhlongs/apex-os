@@ -8,8 +8,6 @@
  * pagination, and cache headers. Edge runtime compatible.
  */
 
-export const runtime = 'edge';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB, type D1Database } from '@/lib/db';
 import { ArbitrageEngine } from '@/lib/arbitrage/arbitrage-engine';

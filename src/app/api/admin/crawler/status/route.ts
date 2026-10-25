@@ -8,8 +8,6 @@
  * exchange health breakdown (Binance, Bybit, OKX, KuCoin), error rates, and recent sync runs.
  */
 
-export const runtime = 'edge';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB, type D1Database } from '@/lib/db';
 import { ExchangeCrawlerService } from '@/lib/crawler/service';

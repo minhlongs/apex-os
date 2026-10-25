@@ -20,8 +20,6 @@ import { batchSettlementService } from '@/lib/payouts/batch-settlement-service';
 import type { SupportedPayoutChain, BatchSettlementOptions } from '@/lib/payouts/types';
 import { error as logError } from '@/lib/logger';
 
-export const runtime = 'edge';
-
 const VALID_CHAINS = new Set<string>(['stellar', 'ethereum', 'solana', 'all']);
 
 export interface AdminBatchRequestBody {

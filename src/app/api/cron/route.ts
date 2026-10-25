@@ -75,6 +75,18 @@ async function handleWeeklyPayouts(
       };
     }
 
+    const autoSettle = process.env.AUTO_SETTLE_PAYOUTS?.trim().toLowerCase();
+    const isProd =
+      process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
+    if (autoSettle === 'false' || (isProd && autoSettle !== 'true')) {
+      return {
+        success: true,
+        processed: 0,
+        totalAmount: 0,
+        details: 'Manual-first rollout: set AUTO_SETTLE_PAYOUTS=true to enable automatic cron payouts',
+      };
+    }
+
     // The batch settlement service owns the whole cycle: it selects the
     // eligible affiliates, reserves their earnings atomically, performs the
     // transfer, then reconciles the ledger from the on-chain verdict. Earnings

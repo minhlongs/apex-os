@@ -7,6 +7,7 @@
  */
 
 import { queuePayoutReceipts } from '../receipts';
+import { payoutCompletedTemplate } from '@/lib/emails/templates';
 
 const enqueued: Array<Record<string, any>> = [];
 let enqueueThrows = false;
@@ -69,5 +70,39 @@ describe('queuePayoutReceipts', () => {
     queuePayoutReceipts([]);
 
     expect(enqueued).toHaveLength(0);
+  });
+
+  it('uses public explorer URL and mainnet network when STELLAR_NETWORK=mainnet', () => {
+    const prevNetwork = process.env.STELLAR_NETWORK;
+    process.env.STELLAR_NETWORK = 'mainnet';
+    try {
+      queuePayoutReceipts([settled({ transactionId: 'tx_mainnet_999' })]);
+      expect(payoutCompletedTemplate).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          network: 'mainnet',
+          explorerUrl: 'https://stellar.expert/explorer/public/tx/tx_mainnet_999',
+        })
+      );
+    } finally {
+      if (prevNetwork === undefined) delete process.env.STELLAR_NETWORK;
+      else process.env.STELLAR_NETWORK = prevNetwork;
+    }
+  });
+
+  it('uses testnet explorer URL when STELLAR_NETWORK=testnet', () => {
+    const prevNetwork = process.env.STELLAR_NETWORK;
+    process.env.STELLAR_NETWORK = 'testnet';
+    try {
+      queuePayoutReceipts([settled({ transactionId: 'tx_testnet_999' })]);
+      expect(payoutCompletedTemplate).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          network: 'testnet',
+          explorerUrl: 'https://stellar.expert/explorer/testnet/tx/tx_testnet_999',
+        })
+      );
+    } finally {
+      if (prevNetwork === undefined) delete process.env.STELLAR_NETWORK;
+      else process.env.STELLAR_NETWORK = prevNetwork;
+    }
   });
 });

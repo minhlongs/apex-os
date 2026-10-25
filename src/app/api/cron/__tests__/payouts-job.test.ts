@@ -133,4 +133,22 @@ describe('weekly payouts job', () => {
     expect(body.results[0].success).toBe(false);
     expect(body.results[0].details).toContain('treasury health unavailable');
   });
+
+  it('skips automatic batch settlement when AUTO_SETTLE_PAYOUTS=false (manual-first rollout)', async () => {
+    const prev = process.env.AUTO_SETTLE_PAYOUTS;
+    process.env.AUTO_SETTLE_PAYOUTS = 'false';
+    try {
+      const response = await GET(buildRequest('payouts') as never);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.results[0].success).toBe(true);
+      expect(body.results[0].processed).toBe(0);
+      expect(body.results[0].details).toContain('Manual-first rollout');
+      expect(batchCall.options).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.AUTO_SETTLE_PAYOUTS;
+      else process.env.AUTO_SETTLE_PAYOUTS = prev;
+    }
+  });
 });

@@ -24,8 +24,6 @@ import type {
   LeaderboardResponse,
 } from '@/types/telegram';
 
-export const runtime = 'edge';
-
 const CACHE_HEADERS = {
   'Content-Type': 'application/json',
   'Cache-Control': 'public, max-age=30, s-maxage=60, stale-while-revalidate=120',

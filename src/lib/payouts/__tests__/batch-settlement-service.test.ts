@@ -1004,6 +1004,30 @@ describe('BatchSettlementService (Milestone 4)', () => {
 
       const earnings = sqlite.prepare('SELECT * FROM earnings WHERE affiliate_id = ?').all('aff_unconfirmed') as Array<{ is_paid: number }>;
       expect(earnings[0].is_paid).toBe(0);
+
+      // Verify transaction_id was persisted on the pending payout row so retryPayout can re-verify on-chain without double-broadcasting
+      const payoutRow = sqlite.prepare('SELECT status, transaction_id FROM payouts WHERE affiliate_id = ?').get('aff_unconfirmed') as { status: string; transaction_id: string | null };
+      expect(payoutRow.status).toBe('pending');
+      expect(payoutRow.transaction_id).toBeTruthy();
+
+      // Now simulate confirmation landing on-chain and verify retryPayout reconciles without calling sendPayout again
+      stellarAdapter.verifyHandler = async (txId: string) => ({
+        verified: true,
+        status: 'confirmed',
+        transactionId: txId,
+        timestamp: new Date().toISOString(),
+      }) as never;
+
+      const sendSpy = jest.spyOn(stellarAdapter, 'sendPayout');
+      const payoutFull = sqlite.prepare('SELECT id FROM payouts WHERE affiliate_id = ?').get('aff_unconfirmed') as { id: string };
+      const retryRes = await service.retryPayout(payoutFull.id);
+
+      expect(retryRes.success).toBe(true);
+      expect(retryRes.status).toBe('confirmed');
+      expect(sendSpy).not.toHaveBeenCalled();
+
+      const retiredEarnings = sqlite.prepare('SELECT is_paid FROM earnings WHERE affiliate_id = ?').all('aff_unconfirmed') as Array<{ is_paid: number }>;
+      expect(retiredEarnings[0].is_paid).toBe(1);
     });
 
     it('marks earnings paid once verification confirms the transfer', async () => {

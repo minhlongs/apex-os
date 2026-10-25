@@ -10,6 +10,7 @@ import {
   createStellarService,
   isValidStellarAccountId,
   StellarNetwork,
+  resolveStellarNetwork,
 } from '../stellar-service';
 import type {
   FeeEstimateParams,
@@ -38,9 +39,7 @@ export class StellarAdapter extends BasePayoutChainAdapter {
 
   constructor(options?: StellarAdapterOptions) {
     super();
-    this.network =
-      options?.network ??
-      ((process.env.STELLAR_NETWORK as StellarNetwork) || StellarNetwork.TESTNET);
+    this.network = resolveStellarNetwork(options?.network);
     this.xlmPriceUsd = options?.xlmPriceUsd ?? 0.12; // Configurable XLM/USD estimate
     if (options?.stellarService) {
       this.stellarService = options.stellarService;
@@ -52,12 +51,19 @@ export class StellarAdapter extends BasePayoutChainAdapter {
    */
   private getService(): StellarService {
     if (!this.stellarService) {
+      const resolvedNetwork = resolveStellarNetwork(this.network);
       try {
         this.stellarService = createStellarService();
-      } catch {
+      } catch (err) {
+        if (
+          err instanceof Error &&
+          /STELLAR_NETWORK/i.test(err.message)
+        ) {
+          throw err;
+        }
         // Fallback to valid official USDC issuer if unconfigured in environment
         this.stellarService = new StellarService({
-          network: this.network,
+          network: resolvedNetwork,
           usdcIssuer: process.env.STELLAR_USDC_ISSUER || STELLAR_OFFICIAL_USDC_ISSUER,
         });
       }

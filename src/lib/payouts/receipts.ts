@@ -31,8 +31,11 @@ export function queuePayoutReceipts(payouts: SettledPayout[]): void {
       if (!payout.affiliateEmail) continue;
 
       const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://apex-os.com';
+      const rawNet = process.env.STELLAR_NETWORK?.trim().toLowerCase();
+      const network: 'mainnet' | 'testnet' = rawNet === 'mainnet' ? 'mainnet' : 'testnet';
+      const explorerSegment = network === 'mainnet' ? 'public' : 'testnet';
       const explorerUrl = payout.transactionId
-        ? `https://stellar.expert/explorer/testnet/tx/${payout.transactionId}`
+        ? `https://stellar.expert/explorer/${explorerSegment}/tx/${payout.transactionId}`
         : `${baseUrl}/dashboard/payouts`;
 
       const html = payoutCompletedTemplate({
@@ -43,7 +46,7 @@ export function queuePayoutReceipts(payouts: SettledPayout[]): void {
         amount: payout.amount,
         transactionHash: payout.transactionId || payout.payoutId,
         walletAddress: '',
-        network: 'testnet',
+        network,
         payoutDate: new Date().toISOString(),
         explorerUrl,
       });

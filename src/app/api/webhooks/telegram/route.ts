@@ -11,8 +11,6 @@
  * - Returns HTTP 200 { ok: true } on valid update processing
  */
 
-export const runtime = 'edge';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyWebhookSecretToken, handleTelegramUpdate } from '@/lib/telegram/bot-service';
 import { getDB, type D1Database } from '@/lib/db';

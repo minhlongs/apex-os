@@ -25,8 +25,6 @@
  * Runtime: Edge (for faster response globally)
  */
 
-export const runtime = 'edge';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { error as logError } from '@/lib/logger';
 import { createAuth } from '@/lib/auth/auth-factory';

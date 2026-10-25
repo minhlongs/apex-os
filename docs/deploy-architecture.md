@@ -63,6 +63,15 @@ dispatcher drift apart.
 > sent, and the dispatcher's own literal `'0 0 * * 0'` matched neither. The
 > three-letter `SUN` is used because it cannot be misread as an off-by-one week.
 
+## Staging vs Production Database Isolation
+
+| Environment | Worker Name | Config File | Database Name | Database ID | Tables | Row Count Baseline |
+|---|---|---|---|---|---|---|
+| **Production** | `apex-os` | `wrangler.jsonc` | `apex-os-db` | `3436aa7d-3065-4103-96e1-ddbd8b372246` | 12 tables | users: 5, profiles: 5, deals: 10, deal_clicks: 5, conversions: 3, earnings: 3, payouts: 1 |
+| **Staging** | `apex-os-staging` | `wrangler.staging.jsonc` | `apex-os-staging-db` | `be4ed659-c877-4820-ae6e-9747bc7ee316` | 13 tables | users: 5, profiles: 5, deals: 10, deal_clicks: 5, conversions: 3, earnings: 3, payouts: 1 |
+
+`scripts/assert-staging-isolation.sh` strictly enforces that `wrangler.staging.jsonc` binds `DB` to `apex-os-staging-db` and fails closed if the production database ID (`3436aa7d-3065-4103-96e1-ddbd8b372246`) is referenced anywhere in the staging configuration.
+
 ## Deploy graph
 
 ```
@@ -71,8 +80,11 @@ opennextjs-cloudflare build      #             → .open-next/
 opennextjs-cloudflare deploy     #             → Cloudflare Worker
 ```
 
-`@opennextjs/cloudflare` resolves `opennextjs-cloudflare`; `wrangler` is
-available through it but is not currently declared in `package.json`.
+Deployment npm scripts configured in `package.json`:
+- `npm run build:worker` — compiles Next.js and OpenNext Cloudflare bundle.
+- `npm run deploy:staging` — verifies staging D1 isolation, builds worker, and deploys to `apex-os-staging` via `wrangler.staging.jsonc`.
+- `npm run deploy:production` — builds worker and deploys to `apex-os` via `wrangler.jsonc`.
+- `npm run verify:deploy` — verifies deployed `/api/version` commit SHA and executes route smoke tests.
 
 ## Before every deploy
 

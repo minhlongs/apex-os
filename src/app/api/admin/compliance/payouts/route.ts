@@ -14,8 +14,6 @@ import { verifyAdminPayoutAccess } from '@/lib/payouts/admin-auth';
 import { complianceAuditService } from '@/lib/compliance/audit-service';
 import * as logger from '@/lib/logger';
 
-export const runtime = 'edge';
-
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const authResult = await verifyAdminPayoutAccess(request);
   if (!authResult.authorized) {

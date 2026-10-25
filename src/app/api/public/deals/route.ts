@@ -7,8 +7,6 @@
  * Runtime: Edge (for faster cold starts globally)
  */
 
-export const runtime = 'edge';
-
 import { NextRequest, NextResponse } from 'next/server';
 import type { PublicDeal, DealListQuery, PaginatedResponse } from '@/types/deal';
 import { error as logError } from '@/lib/logger';

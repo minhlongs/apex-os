@@ -11,8 +11,6 @@
  * and checks & dispatches real-time alerts via ArbitrageAlertService.
  */
 
-export const runtime = 'edge';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB, type D1Database } from '@/lib/db';
 import { ExchangeCrawlerService } from '@/lib/crawler/service';

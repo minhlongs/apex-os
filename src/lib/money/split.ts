@@ -5,7 +5,7 @@
  * pool (30% / 10% / 5%), so the shares deliberately do NOT sum to the pool --
  * the remainder is the platform's retained margin and must never be handed to
  * an affiliate. Float multiplication cannot promise even the shares it does
- * compute: `total * 0.30` on a total of 1 minor unit is 0.3, which floors to 0,
+ * compute: multiplying 1 minor unit by 30% yields 0.3, which floors to 0,
  * and that unit silently disappears from the ledger.
  *
  * This module multiplies in `BigInt` and divides with an explicit floor, then

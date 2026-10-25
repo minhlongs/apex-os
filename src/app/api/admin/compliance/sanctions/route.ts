@@ -17,8 +17,6 @@ import { sanctionsScreeningService } from '@/lib/compliance/sanctions-service';
 import type { SupportedPayoutChain } from '@/lib/payouts/types';
 import * as logger from '@/lib/logger';
 
-export const runtime = 'edge';
-
 const VALID_CHAINS = ['ethereum', 'solana', 'stellar'] as const;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
