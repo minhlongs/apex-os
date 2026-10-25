@@ -191,6 +191,10 @@ async function createConversion(
   const conversionId = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
   const deal = await findDeal(db, trade.exchange, trade.symbol);
   const commission = commissionOf(trade, deal?.cashback_percent ?? 0);
+  // A payload finer than the USDC scale holds has no exact notional, so the
+  // conversion is recorded without a commission. Mark it, or the row is
+  // indistinguishable from a trade whose shopper had no referral tree.
+  const exactNotional = commission.total !== null;
   await db.prepare(`
     INSERT INTO conversions (
       id, deal_id, deal_click_id, affiliate_code, affiliate_id,
@@ -225,6 +229,8 @@ async function createConversion(
       feeCurrency: trade.feeCurrency,
       userId: trade.userId,
       executedAt: trade.executedAt.toISOString(),
+      // Present and false only when the notional could not be held exactly.
+      exact_notional: exactNotional,
     })
   ).run();
   return conversionId;
@@ -325,6 +331,15 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
     ).bind(deal.id, profile.id).first<{ id: string; affiliate_code?: string; affiliate_id: string }>();
 
     const commission = commissionOf(trade, deal.cashback_percent ?? 0);
+    if (commission.total === null) {
+      // Money was not silently dropped, but it also cannot be stated exactly:
+      // the payload's quantity-times-price is finer than the USDC scale holds.
+      // Logged so it is distinguishable from a trade with no referral tree.
+      logWarn(
+        `[Webhook] ${exchange} trade ${trade.orderId} for ${trade.symbol} has no exact notional ` +
+        `at the USDC scale; recording the conversion without a commission`
+      );
+    }
     const conversionId = await createConversion(db, trade, deal.id, profile.id, click?.affiliate_code, click?.id);
     const earningsIds = await createEarnings(db, conversionId, profile.id, commission);
 
@@ -369,6 +384,9 @@ if (click?.affiliate_id && commission.total !== null) {
       symbol: trade.symbol,
       volume: toUsdc(commission.revenue),
       commission: commission.total === null ? 0 : toUsdc(commission.total),
+      // Distinguishes "no exact commission was possible" from earnings_count: 0
+      // with no exact-notional problem, which is a shopper with no referral tree.
+      exact_notional: commission.total !== null,
       currency: trade.currency,
       affiliate_code: click?.affiliate_code,
       click_id: click?.id,
