@@ -8,7 +8,12 @@
  */
 
 import { JsonRpcClient } from '../rpc/json-rpc-client';
-import { isValidSolanaAddress } from '../crypto/base58';
+import { decodeBase58, encodeBase58, isValidSolanaAddress } from '../crypto/base58';
+import {
+  createEd25519Signer,
+  serializeSolanaMessage,
+  serializeSolanaTransaction,
+} from '../crypto/ed25519-signer';
 import type {
   FeeEstimateParams,
   ChainFeeEstimate,
@@ -24,6 +29,7 @@ export interface SolanaAdapterConfig {
   jsonRpcClient?: JsonRpcClient;
   hotWalletAddress?: string;
   hotWalletTokenAccount?: string;
+  privateKey?: string;
   usdcMintAddress?: string;
   solPriceUsd?: number;
   computeUnitLimit?: number;
@@ -106,6 +112,7 @@ export class SolanaAdapter extends BasePayoutChainAdapter {
   private rpc: JsonRpcClient;
   private hotWalletAddress: string;
   private hotWalletTokenAccount?: string;
+  private privateKey?: string;
   private usdcMintAddress: string;
   private solPriceUsd: number;
   private computeUnitLimit: number;
@@ -126,6 +133,7 @@ export class SolanaAdapter extends BasePayoutChainAdapter {
       SOLANA_DEFAULTS.HOT_WALLET;
     this.hotWalletTokenAccount =
       config?.hotWalletTokenAccount ?? process.env.SOLANA_HOT_WALLET_USDC_ACCOUNT;
+    this.privateKey = config?.privateKey ?? process.env.SOLANA_PRIVATE_KEY;
     this.cluster =
       config?.cluster ??
       ((process.env.SOLANA_CLUSTER as 'mainnet-beta' | 'devnet') || 'mainnet-beta');
@@ -188,19 +196,95 @@ export class SolanaAdapter extends BasePayoutChainAdapter {
       );
     }
 
-    // Solana signing is not implemented: this adapter holds no Ed25519 key and
-    // no serialization library is available, so it cannot build, sign, or submit
-    // a real transaction. Returning success here with a transaction id derived
-    // from payout metadata would mark a user as paid for a transfer that never
-    // happened, so the adapter refuses instead of fabricating an identity.
-    return this.createFailedResult(
-      params,
-      'Solana payouts are not enabled: no Ed25519 signing key is configured, ' +
-        'so this chain cannot broadcast a transfer.',
-      0,
-      0,
-      'SOL'
-    );
+    if (!this.privateKey) {
+      return this.createFailedResult(
+        params,
+        'Solana payouts are not enabled: no Ed25519 signing key is configured, ' +
+          'so this chain cannot broadcast a transfer.',
+        0,
+        0,
+        'SOL'
+      );
+    }
+
+    try {
+      const signer = await createEd25519Signer(this.privateKey);
+      const payerPubkeyBytes = signer.publicKeyBytes;
+
+      // 1. Fetch recent blockhash
+      const blockhashRes = await this.rpc.call<{
+        value: { blockhash: string };
+      }>('getLatestBlockhash', [{ commitment: 'finalized' }]);
+
+      if (!blockhashRes?.value?.blockhash) {
+        return this.createFailedResult(params, 'Failed to retrieve recent blockhash from Solana RPC');
+      }
+
+      const recentBlockhashBytes = decodeBase58(blockhashRes.value.blockhash);
+      const recipientBytes = decodeBase58(params.recipientAddress);
+      const tokenProgramBytes = decodeBase58(SOLANA_DEFAULTS.TOKEN_PROGRAM_ID);
+
+      const amountUnits = BigInt(Math.round(params.amount * 10 ** SOLANA_DEFAULTS.USDC_DECIMALS));
+      const transferIxData = buildSPLTransferData(amountUnits);
+
+      // Account keys: [payer/sourceTokenAccount, recipient, tokenProgram]
+      const accountKeys = [payerPubkeyBytes, recipientBytes, tokenProgramBytes];
+
+      const serializedMsg = serializeSolanaMessage({
+        numRequiredSignatures: 1,
+        numReadonlySignedAccounts: 0,
+        numReadonlyUnsignedAccounts: 1,
+        accountKeys,
+        recentBlockhash: recentBlockhashBytes,
+        instructions: [
+          {
+            programIdIndex: 2,
+            accountIndices: [0, 1],
+            data: transferIxData,
+          },
+        ],
+      });
+
+      const signatureBytes = await signer.sign(serializedMsg);
+      const rawWireTx = serializeSolanaTransaction([signatureBytes], serializedMsg);
+      const wireBase64 = Buffer.from(rawWireTx).toString('base64');
+
+      const broadcastSignature = await this.rpc.call<string>('sendTransaction', [
+        wireBase64,
+        { encoding: 'base64', preflightCommitment: 'confirmed' },
+      ]);
+
+      if (!broadcastSignature || typeof broadcastSignature !== 'string') {
+        return this.createFailedResult(params, 'Solana broadcast returned no signature');
+      }
+
+      const feeEst = await this.estimateFee({
+        chain: 'solana',
+        recipientAddress: params.recipientAddress,
+        amount: params.amount,
+        token: params.token,
+      });
+
+      return {
+        success: true,
+        payoutId: params.payoutId,
+        chain: 'solana',
+        transactionId: broadcastSignature,
+        fromAddress: signer.publicKeyBase58,
+        toAddress: params.recipientAddress,
+        amount: params.amount,
+        token: params.token ?? 'USDC',
+        gasFeeNative: feeEst.nativeFeeAmount,
+        gasFeeUsd: feeEst.feeUsd,
+        nativeFeeSymbol: 'SOL',
+        status: 'submitted',
+        explorerUrl: this.getExplorerUrl(broadcastSignature),
+        timestamp: new Date().toISOString(),
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return this.createFailedResult(params, `Solana transaction failed: ${msg}`);
+    }
   }
 
   /**
