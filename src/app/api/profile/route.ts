@@ -1,7 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { DEFAULT_NOTIFICATION_SETTINGS, type NotificationSettings, type UpdateProfileInput } from '@/types/profile';
+import {
+  DEFAULT_NOTIFICATION_SETTINGS,
+  type NotificationSettings,
+  type ProfileExternalIds,
+  type UpdateProfileInput,
+} from '@/types/profile';
 import { error as logError } from '@/lib/logger';
+import { parseExternalIds } from './exchange-keys/route';
+
+interface ProfileRow {
+  id: string;
+  email: string;
+  full_name: string | null;
+  role: string;
+  plan: string;
+  referral_code: string | null;
+  referred_by: string | null;
+  notification_settings: string | null;
+  external_ids?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface GlobalD1 {
+  DB?: {
+    prepare: (sql: string) => {
+      bind: (...args: unknown[]) => {
+        first: <T = ProfileRow>() => Promise<T | null>;
+        run: () => Promise<{ success: boolean }>;
+      };
+    };
+  };
+}
 
 /**
  * Validation schema for notification settings update
@@ -13,7 +44,7 @@ const NotificationSettingsSchema = z.object({
     z.string(),
     z.object({
       enabled: z.boolean(),
-      config: z.record(z.string(), z.any()).optional(),
+      config: z.record(z.string(), z.unknown()).optional(),
     })
   ),
   quiet_hours: z.object({
@@ -51,8 +82,7 @@ export async function GET(request: NextRequest) {
 
     const userId = sessionData.user.id;
 
-    // @ts-ignore - D1 binding
-    const db = typeof DB !== 'undefined' ? DB : null;
+    const db = (globalThis as unknown as GlobalD1).DB ?? null;
     if (!db) {
       return NextResponse.json({ success: false, error: 'Database not configured' }, { status: 503 });
     }
@@ -65,7 +95,7 @@ export async function GET(request: NextRequest) {
         WHERE id = ?
       `)
       .bind(userId)
-      .first();
+      .first<ProfileRow>();
 
     if (!profile) {
       return NextResponse.json({ success: false, error: 'Profile not found' }, { status: 404 });
@@ -83,6 +113,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const externalIds: ProfileExternalIds = parseExternalIds(profile.external_ids);
+
     return NextResponse.json({
       success: true,
       profile: {
@@ -94,6 +126,7 @@ export async function GET(request: NextRequest) {
         referralCode: profile.referral_code,
         referredBy: profile.referred_by,
         notificationSettings,
+        externalIds,
         createdAt: profile.created_at,
         updatedAt: profile.updated_at,
       },
@@ -132,8 +165,7 @@ export async function PATCH(request: NextRequest) {
 
     const userId = sessionData.user.id;
 
-    // @ts-ignore - D1 binding
-    const db = typeof DB !== 'undefined' ? DB : null;
+    const db = (globalThis as unknown as GlobalD1).DB ?? null;
     if (!db) {
       return NextResponse.json({ success: false, error: 'Database not configured' }, { status: 503 });
     }
@@ -145,7 +177,7 @@ export async function PATCH(request: NextRequest) {
 
     // Build dynamic update query
     const updates: string[] = [];
-    const bindValues: any[] = [];
+    const bindValues: unknown[] = [];
 
     if (profileUpdates.full_name !== undefined) {
       updates.push('full_name = ?');
@@ -202,7 +234,11 @@ export async function PATCH(request: NextRequest) {
         WHERE id = ?
       `)
       .bind(userId)
-      .first();
+      .first<ProfileRow>();
+
+    if (!updatedProfile) {
+      return NextResponse.json({ success: false, error: 'Profile not found' }, { status: 404 });
+    }
 
     // Parse notification settings
     let notificationSettings = DEFAULT_NOTIFICATION_SETTINGS;
@@ -215,6 +251,8 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
+    const externalIds: ProfileExternalIds = parseExternalIds(updatedProfile.external_ids);
+
     return NextResponse.json({
       success: true,
       profile: {
@@ -226,6 +264,7 @@ export async function PATCH(request: NextRequest) {
         referralCode: updatedProfile.referral_code,
         referredBy: updatedProfile.referred_by,
         notificationSettings,
+        externalIds,
         createdAt: updatedProfile.created_at,
         updatedAt: updatedProfile.updated_at,
       },

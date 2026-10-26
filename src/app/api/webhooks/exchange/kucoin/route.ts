@@ -91,7 +91,9 @@ import type { D1Database } from '@/lib/db';
 import { error as logError, info as logInfo, warn as logWarn } from '@/lib/logger';
 import { commissionOf, createEarnings, toUsdc } from '@/lib/webhooks/earnings';
 
-const KUCOIN_WEBHOOK_SECRET = process.env.KUCOIN_WEBHOOK_SECRET;
+function getKuCoinWebhookSecret(): string | undefined {
+  return process.env.KUCOIN_WEBHOOK_SECRET;
+}
 
 function validateTimestampOrError(
   headers: Record<string, string>,
@@ -125,7 +127,8 @@ async function verifyKuCoinSignatureInternal(
   rawBody: string,
   headers: Record<string, string>
 ): Promise<{ valid: boolean; error?: string }> {
-  if (!KUCOIN_WEBHOOK_SECRET) {
+  const secret = getKuCoinWebhookSecret();
+  if (!secret) {
     return { valid: false, error: 'KuCoin webhook secret not configured' };
   }
 
@@ -140,7 +143,7 @@ async function verifyKuCoinSignatureInternal(
     const isValid = await verifyKuCoinSignature(
       rawBody,
       signatureHeader,
-      KUCOIN_WEBHOOK_SECRET,
+      secret,
       timestamp,
       'POST',
       '/api/webhooks/exchange/kucoin'
@@ -194,13 +197,13 @@ async function createConversion(
   db: D1Database,
   trade: StandardizedTrade,
   dealId: string,
+  cashbackPercent: number,
   affiliateId: string,
   affiliateCode?: string,
   dealClickId?: string
 ): Promise<string> {
   const conversionId = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
-  const deal = await findDeal(db, trade.exchange, trade.symbol);
-  const commission = commissionOf(trade, deal?.cashback_percent ?? 0);
+  const commission = commissionOf(trade, cashbackPercent);
   await db.prepare(`
     INSERT INTO conversions (
       id, deal_id, deal_click_id, affiliate_code, affiliate_id,
@@ -331,7 +334,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     // Match user by KuCoin API key from header
-    const apiKey = headers['kc-api-key'];
+    const apiKey = headers['kc-api-key'] || headers['x-kc-api-key'];
     const profile = await findProfileByKuCoinApiKey(db, apiKey);
     if (!profile) {
       logInfo(`[KuCoin Webhook] No matching user found for API key: ${apiKey?.slice(0, 8)}...`);
@@ -350,10 +353,19 @@ export async function POST(request: NextRequest): Promise<Response> {
     ).bind(deal.id, profile.id).first<{ id: string; affiliate_code?: string; affiliate_id: string }>();
 
     // Create conversion
-    const conversionId = await createConversion(db, trade, deal.id, profile.id, click?.affiliate_code, click?.id);
+    const cashbackPercent = deal.cashback_percent ?? 0;
+    const conversionId = await createConversion(
+      db,
+      trade,
+      deal.id,
+      cashbackPercent,
+      profile.id,
+      click?.affiliate_code,
+      click?.id
+    );
 
     // Calculate commission and create earnings
-    const commission = commissionOf(trade, deal.cashback_percent ?? 0);
+    const commission = commissionOf(trade, cashbackPercent);
     const earningsIds = await createEarnings(db, conversionId, profile.id, commission);
 
     // Track analytics
@@ -396,7 +408,7 @@ export async function GET(): Promise<Response> {
     status: 'ok',
     exchange: 'kucoin',
     timestamp: new Date().toISOString(),
-    configured: !!KUCOIN_WEBHOOK_SECRET,
+    configured: !!getKuCoinWebhookSecret(),
     security: {
       signatureVerification: true,
       timestampValidation: { enabled: true, windowSeconds: DEFAULT_TIMESTAMP_WINDOW_MS / 1000 },
