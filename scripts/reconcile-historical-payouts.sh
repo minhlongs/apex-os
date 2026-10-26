@@ -43,8 +43,8 @@ echo " ApexOS Phase 07 Historical Payout Reconciliation (Read-Only)"
 echo " Config: ${CONFIG_FILE} | Database: ${DB_NAME} | Mode: ${REMOTE_FLAG:-local}"
 echo "============================================================"
 
-# 1. Completed payouts missing transaction_id or containing MOCK_SIGNED_TX_PAYLOAD or non-Stellar chain
-ANOMALOUS_PAYOUTS_SQL="SELECT id, affiliate_id, amount, net_amount, status, chain, transaction_id, created_at FROM payouts WHERE (status = 'completed' AND (transaction_id IS NULL OR trim(transaction_id) = '' OR lower(coalesce(chain, 'stellar')) IN ('solana', 'ethereum'))) OR transaction_id LIKE '%MOCK_SIGNED%' ORDER BY created_at DESC;"
+# 1. Completed payouts missing transaction_id or containing MOCK_SIGNED_TX_PAYLOAD or non-Stellar chain or malformed Stellar hex (Parity with TypeScript classifyHistoricalPayoutRow)
+ANOMALOUS_PAYOUTS_SQL="SELECT id, affiliate_id, amount, net_amount, status, chain, transaction_id, created_at FROM payouts WHERE (status = 'completed' AND (transaction_id IS NULL OR trim(transaction_id) = '' OR lower(coalesce(chain, 'stellar')) IN ('solana', 'ethereum') OR (lower(coalesce(chain, 'stellar')) = 'stellar' AND (length(trim(transaction_id)) != 64 OR trim(transaction_id) GLOB '*[^0-9a-fA-F]*')))) OR transaction_id LIKE '%MOCK_SIGNED%' ORDER BY created_at DESC;"
 
 # 2. Earnings marked is_paid = 1 without a completed payout
 ORPHANED_EARNINGS_SQL="SELECT e.id, e.affiliate_id, e.amount, e.is_paid, e.payout_id, p.status AS payout_status FROM earnings e LEFT JOIN payouts p ON e.payout_id = p.id WHERE e.is_paid = 1 AND (e.payout_id IS NULL OR p.id IS NULL OR p.status != 'completed') ORDER BY e.id ASC;"
