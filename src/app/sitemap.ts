@@ -1,59 +1,56 @@
 import { MetadataRoute } from 'next';
-
-// Danh sách các trang cần thêm vào sitemap
-const staticPages = [
-  { path: '/', priority: 1.0, changefreq: 'daily' },
-  { path: '/landing', priority: 1.0, changefreq: 'daily' },
-  { path: '/login', priority: 0.8, changefreq: 'weekly' },
-  { path: '/signup', priority: 0.9, changefreq: 'weekly' },
-  { path: '/deals', priority: 0.8, changefreq: 'daily' },
-  { path: '/dashboard', priority: 0.7, changefreq: 'daily', authRequired: true },
-  { path: '/dashboard/affiliates', priority: 0.6, changefreq: 'weekly', authRequired: true },
-  { path: '/dashboard/conversions', priority: 0.6, changefreq: 'weekly', authRequired: true },
-  { path: '/dashboard/payouts', priority: 0.6, changefreq: 'weekly', authRequired: true },
-  { path: '/dashboard/settings', priority: 0.5, changefreq: 'monthly', authRequired: true },
-];
-
-// Admin pages
-const adminPages = [
-  { path: '/admin/metrics', priority: 0.7, changefreq: 'daily', adminOnly: true },
-  { path: '/admin/alerts', priority: 0.7, changefreq: 'daily', adminOnly: true },
-  { path: '/admin/analytics', priority: 0.6, changefreq: 'daily', adminOnly: true },
-  { path: '/admin/deals', priority: 0.6, changefreq: 'daily', adminOnly: true },
-  { path: '/admin/health', priority: 0.5, changefreq: 'hourly', adminOnly: true },
-  { path: '/admin/affiliates', priority: 0.6, changefreq: 'daily', adminOnly: true },
-];
+import { QUANT_INSIGHT_ARTICLES } from '@/data/quant-insights';
 
 const locales = ['vi', 'en'] as const;
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://apex-os.com';
 
-function getUrl(path: string, locale: string): string {
-  const normalizedPath = path === '/' ? '' : path;
-  return `${baseUrl}/${locale}${normalizedPath}`;
-}
+const publicPages = [
+  { path: '', priority: 1.0, changefreq: 'daily' as const },
+  { path: '/landing', priority: 1.0, changefreq: 'daily' as const },
+  { path: '/deals', priority: 0.9, changefreq: 'daily' as const },
+  { path: '/terminal', priority: 0.9, changefreq: 'daily' as const },
+  { path: '/insights', priority: 0.9, changefreq: 'weekly' as const },
+  { path: '/login', priority: 0.5, changefreq: 'monthly' as const },
+  { path: '/signup', priority: 0.7, changefreq: 'monthly' as const },
+];
 
-function generateStaticPages(): string[] {
-  const urls: string[] = [];
+export default function sitemap(): MetadataRoute.Sitemap {
+  const entries: MetadataRoute.Sitemap = [];
+  const now = new Date();
 
-  for (const locale of locales) {
-    for (const page of staticPages) {
-      urls.push(getUrl(page.path, locale));
-    }
-    for (const page of adminPages) {
-      urls.push(getUrl(page.path, locale));
+  for (const page of publicPages) {
+    for (const locale of locales) {
+      entries.push({
+        url: `${baseUrl}/${locale}${page.path}`,
+        lastModified: now,
+        changeFrequency: page.changefreq,
+        priority: page.priority,
+        alternates: {
+          languages: {
+            vi: `${baseUrl}/vi${page.path}`,
+            en: `${baseUrl}/en${page.path}`,
+          },
+        },
+      });
     }
   }
 
-  return urls;
-}
+  for (const article of QUANT_INSIGHT_ARTICLES) {
+    for (const locale of locales) {
+      entries.push({
+        url: `${baseUrl}/${locale}/insights/${article.slug}`,
+        lastModified: new Date(article.publishedAt),
+        changeFrequency: 'weekly',
+        priority: 0.85,
+        alternates: {
+          languages: {
+            vi: `${baseUrl}/vi/insights/${article.slug}`,
+            en: `${baseUrl}/en/insights/${article.slug}`,
+          },
+        },
+      });
+    }
+  }
 
-export default function sitemap(): MetadataRoute.Sitemap {
-  const urls = generateStaticPages();
-
-  return urls.map((url) => ({
-    url,
-    lastModified: new Date(),
-    changeFrequency: 'weekly',
-    priority: 0.8,
-  }));
+  return entries;
 }
