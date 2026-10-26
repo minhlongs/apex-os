@@ -5,6 +5,17 @@
 
 import type { BusinessMetricsResponse, BusinessMetricsQueryParams } from '@/types/metrics';
 
+/**
+ * Parameters produced by parseQueryParams: the date bounds are always materialized,
+ * unlike the partially-optional request shape they are derived from.
+ */
+type ResolvedMetricsQueryParams = BusinessMetricsQueryParams & {
+  start_date: string;
+  end_date: string;
+  startDateObj: Date;
+  endDateObj: Date;
+};
+
 // ============================================================================
 // Query Parameter Parsing
 // ============================================================================
@@ -12,7 +23,7 @@ import type { BusinessMetricsResponse, BusinessMetricsQueryParams } from '@/type
 /**
  * Parse and validate query parameters from NextRequest
  */
-export function parseQueryParams(request: any): BusinessMetricsQueryParams & { startDateObj: Date; endDateObj: Date } {
+export function parseQueryParams(request: any): ResolvedMetricsQueryParams {
   const url = new URL(request.url);
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -57,10 +68,17 @@ export function parseQueryParams(request: any): BusinessMetricsQueryParams & { s
  */
 export function buildSummary(
   params: BusinessMetricsQueryParams & { startDateObj: Date; endDateObj: Date },
-  dailyRevenue: BusinessMetricsResponse['daily_revenue'],
+  dailyRevenueInput: BusinessMetricsResponse['daily_revenue'],
   activeAffiliates: BusinessMetricsResponse['active_affiliates'],
   topDeals: BusinessMetricsResponse['top_deals']
 ): BusinessMetricsResponse['summary'] {
+  // start_date/end_date are optional on the request shape but always populated by
+  // parseQueryParams; fall back to the resolved Date bounds to keep them non-empty.
+  const periodStart = params.start_date ?? formatDateForQuery(params.startDateObj);
+  const periodEnd = params.end_date ?? formatDateForQuery(params.endDateObj);
+
+  const dailyRevenue = dailyRevenueInput ?? [];
+
   const totalRevenue = dailyRevenue.reduce((sum, d) => sum + d.revenue, 0);
   const totalConversions = dailyRevenue.reduce((sum, d) => sum + d.conversions, 0);
   const totalCommission = dailyRevenue.reduce((sum, d) => sum + d.commission_paid, 0);
@@ -81,8 +99,8 @@ export function buildSummary(
   const topAffiliate = activeAffiliates?.top_performers[0];
 
   return {
-    period_start: params.start_date,
-    period_end: params.end_date,
+    period_start: periodStart,
+    period_end: periodEnd,
     total_revenue: Math.round(totalRevenue * 100) / 100,
     total_conversions: totalConversions,
     overall_conversion_rate: Math.round(overallConversionRate * 100) / 100,

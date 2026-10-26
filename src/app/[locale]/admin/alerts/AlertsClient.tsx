@@ -867,7 +867,7 @@ export default function AlertsClient({
             </div>
 
             <p className="text-sm text-gray-600 mb-4">
-              {t('bulk.confirmMessage', { count: selectedAlerts.size, action: bulkAction })}
+              {t('bulk.confirmMessage', { count: selectedAlerts.size, action: bulkAction ?? '' })}
             </p>
 
             <div className="flex justify-end gap-3">

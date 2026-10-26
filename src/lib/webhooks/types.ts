@@ -188,9 +188,32 @@ export interface StandardizedTrade {
   orderId: string;
   symbol: string;
   side: 'BUY' | 'SELL';
+  /**
+   * Trade quantity and price as the exchange sent them.
+   *
+   * Kept for display and for `conversion_data`, which is stored as JSON and
+   * would throw on a bigint. These are not the figures money is computed from:
+   * `totalValueMinor` is. Multiplying the two in float is what put drift into
+   * the commission, so the exact figures ride alongside rather than replacing
+   * these.
+   */
   quantity: number;
   price: number;
+  /**
+   * Notional value in whole units, for the float consumers that remain.
+   *
+   * Derived once from the exact product so it cannot disagree with
+   * `totalValueMinor` by more than its own rendering.
+   */
   totalValue: number;
+  /**
+   * Notional value in exact integer minor units: the figure the commission is
+   * computed from.
+   *
+   * Absent only when the payload carried a value too fine for the USDC scale to
+   * hold, since substituting a rounded amount would misstate the commission.
+   */
+  totalValueMinor?: bigint;
   currency: string;
   fee: number;
   feeCurrency: string;

@@ -1,0 +1,3 @@
+[submodule "apex-os-mobile"]
+	path = apex-os-mobile
+	url = https://github.com/minhlongs/apex-os-mobile.git

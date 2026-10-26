@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS - Cloudflare R2 Cold-Storage Audit Snapshot Archiver &amp; Zero-Egress Proof Export Console</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN with forms and container queries -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            neutral: {
+              850: '#172033',
+              900: '#0F172A',
+              950: '#020617'
+            },
+            primary: {
+              DEFAULT: '#6366F1',
+              variant: '#8B5CF6',
+              foreground: '#FFFFFF'
+            },
+            surface: {
+              DEFAULT: '#0F172A',
+              variant: '#1E293B',
+              elevated: '#172033'
+            },
+            'on-surface': '#F8FAFC',
+            'on-surface-variant': '#94A3B8',
+            'outline-variant': '#1E293B',
+            'outline-rim': '#334155',
+            cyan: {
+              cyber: '#06B6D4'
+            },
+            emerald: {
+              usdc: '#10B981'
+            },
+            amber: {
+              warn: '#F59E0B'
+            },
+            crimson: {
+              fraud: '#EF4444'
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "0.75rem",
+            "xl": "1rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .specular-rim {
+      border: 1px solid #1E293B;
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+    }
+    .glass-effect {
+      background: rgba(15, 23, 42, 0.88);
+      backdrop-filter: blur(12px);
+    }
+    /* Custom Scrollbar for dense Quant Terminal */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+  </style>
+</head>
+<body class="bg-[#020617] text-[#F8FAFC] font-body selection:bg-indigo-500 selection:text-white min-h-screen flex flex-col antialiased">
+<!-- ========================================================================= -->
+<!-- SHARED COMPONENT 1: SideNavBar (Fixed Left 256px / w-64) -->
+<!-- ========================================================================= -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-surface dark:bg-surface border-r border-outline-variant dark:border-outline-variant shadow-sm dark:shadow-none flex flex-col justify-between p-4">
+<div class="flex flex-col gap-6">
+<!-- ApexOS Terminal Header / Identity -->
+<div class="flex items-center gap-3 px-1 pt-1">
+<div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 p-[1px] flex items-center justify-center shadow-lg shadow-indigo-500/20">
+<div class="w-full h-full bg-[#0F172A] rounded-[7px] flex items-center justify-center">
+<span class="material-symbols-outlined text-indigo-400 text-xl" style="font-variation-settings: 'FILL' 1;">terminal</span>
+</div>
+</div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="font-headline text-base font-bold tracking-wider text-on-surface dark:text-on-surface">ApexOS Terminal</span>
+<span class="w-2 h-2 rounded-full bg-emerald-usdc animate-pulse"></span>
+</div>
+<span class="font-label tracking-wide uppercase text-[10px] text-on-surface-variant dark:text-on-surface-variant font-medium">Arbitrage &amp; Settlement Hub</span>
+</div>
+</div>
+<!-- Quick Node Connect CTA -->
+<div class="p-2.5 rounded-lg bg-[#1E293B]/70 border border-[#334155]/60 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+<span class="font-mono text-xs text-slate-300">node-edge-fra-04</span>
+</div>
+<span class="font-label uppercase text-[9px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-semibold border border-indigo-500/30">Connect Node</span>
+</div>
+<!-- Main Navigation Tabs -->
+<nav class="flex flex-col gap-1">
+<!-- 1: Cashback Cockpit -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors" href="#cockpit">
+<span class="material-symbols-outlined text-lg" data-icon="dashboard">dashboard</span>
+<span class="font-body text-xs font-medium">Cashback Cockpit</span>
+</a>
+<!-- 2: Arbitrage & Deal Crawler -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors" href="#arbitrage">
+<span class="material-symbols-outlined text-lg" data-icon="query_stats">query_stats</span>
+<span class="font-body text-xs font-medium">Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- 3: Multi-Chain Payouts -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors" href="#payouts">
+<span class="material-symbols-outlined text-lg" data-icon="currency_exchange">currency_exchange</span>
+<span class="font-body text-xs font-medium">Multi-Chain Payouts</span>
+</a>
+<!-- 4: KYC & Fraud Command -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors" href="#fraud">
+<span class="material-symbols-outlined text-lg" data-icon="shield">shield</span>
+<span class="font-body text-xs font-medium">KYC &amp; Fraud Command</span>
+</a>
+<!-- 5: D1 & R2 Audit Explorer (ACTIVE TARGET FOR THIS SCREEN) -->
+<a class="flex items-center justify-between px-3 py-2.5 rounded text-primary dark:text-primary bg-primary/10 font-medium border border-indigo-500/20 shadow-sm transition-all duration-150 ease-in-out" href="#r2-archiver">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-lg text-indigo-400" data-icon="data_object" style="font-variation-settings: 'FILL' 1;">data_object</span>
+<span class="font-body text-xs font-semibold text-white">D1 &amp; R2 Audit Explorer</span>
+</div>
+<span class="font-mono text-[9px] uppercase tracking-wider bg-cyan-cyber/20 text-cyan-cyber px-1.5 py-0.5 rounded font-bold border border-cyan-cyber/30">R2 COLD</span>
+</a>
+<!-- 6: Telegram Mini App -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors" href="#telegram">
+<span class="material-symbols-outlined text-lg" data-icon="send">send</span>
+<span class="font-body text-xs font-medium">Telegram Mini App</span>
+</a>
+<!-- 7: Style Guide -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant dark:text-on-surface-variant font-normal hover:bg-surface-variant dark:hover:bg-surface-variant hover:text-on-surface dark:hover:text-on-surface transition-colors" href="#styleguide">
+<span class="material-symbols-outlined text-lg" data-icon="palette">palette</span>
+<span class="font-body text-xs font-medium">Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Sidebar Footer -->
+<div class="border-t border-outline-variant pt-3 flex flex-col gap-2">
+<div class="flex items-center justify-between px-1">
+<a class="flex items-center gap-2 text-xs text-on-surface-variant hover:text-on-surface transition-colors" href="#settings">
+<span class="material-symbols-outlined text-sm" data-icon="settings">settings</span>
+<span class="font-body">Settings</span>
+</a>
+<a class="flex items-center gap-2 text-xs text-on-surface-variant hover:text-on-surface transition-colors" href="#docs">
+<span class="material-symbols-outlined text-sm" data-icon="menu_book">menu_book</span>
+<span class="font-body">Documentation</span>
+</a>
+</div>
+<div class="px-2 py-1.5 rounded bg-neutral-950/60 border border-outline-variant flex items-center justify-between text-[11px] font-mono text-slate-400">
+<span class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-usdc"></span>
+          WORM v4.9 ACTIVE
+        </span>
+<span class="text-slate-500">TLS 1.3</span>
+</div>
+</div>
+</aside>
+<!-- ========================================================================= -->
+<!-- SHARED COMPONENT 2: TopNavBar (Fixed Top, Left 256px / left-64) -->
+<!-- ========================================================================= -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-surface dark:bg-surface border-b border-outline-variant dark:border-outline-variant flex justify-between items-center px-6 glass-effect">
+<!-- Left: Search Box -->
+<div class="flex items-center gap-3 flex-1 max-w-md">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-slate-400 text-lg">search</span>
+<input class="w-full bg-[#1E293B] border border-[#334155] rounded-lg pl-9 pr-8 py-1.5 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 font-mono transition-colors" placeholder="Search R2 object key, Merkle root, Epoch..." type="text"/>
+<span class="absolute right-2.5 top-2 text-[10px] bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700 font-mono">⌘K</span>
+</div>
+</div>
+<!-- Center/Right Cluster Navigation Links & State Indicators -->
+<div class="flex items-center gap-4">
+<!-- 3/3 Chains Healthy Pill -->
+<div class="flex items-center gap-2 px-3 py-1 rounded-full bg-[#1E293B] border border-emerald-500/30">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-usdc"></span>
+</span>
+<span class="font-label text-[11px] font-semibold text-emerald-400 tracking-wider">3/3 Chains HEALTHY</span>
+</div>
+<!-- Tier Badge -->
+<div class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 font-label text-[11px] font-semibold tracking-wider">
+<span class="material-symbols-outlined text-sm text-indigo-400">verified</span>
+<span>MASTER TIER</span>
+</div>
+<!-- Bilingual Toggle (EN / VI) -->
+<button class="flex items-center gap-1 px-2.5 py-1 rounded bg-[#1E293B] border border-[#334155] hover:border-slate-500 text-slate-300 font-label text-xs tracking-wider transition-colors">
+<span class="material-symbols-outlined text-sm text-cyan-cyber">translate</span>
+<span class="font-bold text-white">EN</span>
+<span class="text-slate-500">/</span>
+<span class="text-slate-400 hover:text-white">VI</span>
+</button>
+<!-- Terminal Quick Shell & Notification Icons -->
+<div class="flex items-center gap-1.5 text-slate-400">
+<button class="p-2 rounded-lg hover:bg-surface-variant hover:text-on-surface transition-colors relative" title="System Logs">
+<span class="material-symbols-outlined text-lg" data-icon="terminal">terminal</span>
+</button>
+<button class="p-2 rounded-lg hover:bg-surface-variant hover:text-on-surface transition-colors relative" title="Notifications">
+<span class="material-symbols-outlined text-lg" data-icon="notifications">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-500"></span>
+</button>
+</div>
+<!-- Wallet / Node Operator Pill -->
+<div class="flex items-center gap-2 pl-2 border-l border-outline-variant">
+<div class="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-indigo-600 p-[1px]">
+<div class="w-full h-full bg-[#0F172A] rounded-[7px] flex items-center justify-center font-mono font-bold text-xs text-cyan-300">
+            0x
+          </div>
+</div>
+<div class="flex flex-col text-right">
+<span class="font-mono text-xs font-semibold text-slate-200">0x8F94...c4B2</span>
+<span class="font-label text-[9px] uppercase tracking-wider text-emerald-400 font-medium">DUAL-SYNC MASTER</span>
+</div>
+</div>
+</div>
+</header>
+<!-- ========================================================================= -->
+<!-- MAIN WORKSPACE CANVAS (Offset for Sidebar w-64 and TopNavBar h-16) -->
+<!-- ========================================================================= -->
+<main class="ml-64 mt-16 p-6 sm:p-8 flex-1 flex flex-col gap-6 max-w-[1720px]">
+<!-- PAGE HEADER BAR -->
+<div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4 pb-4 border-b border-outline-variant">
+<div>
+<!-- Breadcrumb & Micro Labels -->
+<div class="flex items-center gap-2 text-[11px] font-mono uppercase tracking-widest text-slate-400 mb-1.5">
+<span class="text-cyan-cyber font-semibold">CLOUDFLARE R2 OBJECT STORAGE v4.9</span>
+<span class="text-slate-600">/</span>
+<span class="text-indigo-400 font-semibold">WORM COLD RETENTION</span>
+<span class="text-slate-600">/</span>
+<span class="px-1.5 py-0.5 rounded bg-emerald-usdc/10 text-emerald-400 border border-emerald-500/20 text-[10px]">ZERO-EGRESS S3-COMPATIBLE</span>
+</div>
+<h1 class="text-2xl sm:text-3xl font-headline font-bold text-white tracking-tight flex items-center gap-3">
+<span>Cloudflare R2 Cold-Storage Audit Snapshot Archiver &amp; Zero-Egress Proof Export Console</span>
+</h1>
+<!-- Bilingual Subtitle -->
+<div class="mt-1 flex flex-col gap-0.5 max-w-5xl">
+<p class="text-xs sm:text-sm text-slate-300 font-body">
+            Automated daily immutable snapshots of SQLite D1 ledger commits, encrypted ZK-Merkle batch trees, and zero-egress auditor proof verification.
+          </p>
+<p class="text-xs text-slate-400 font-body italic">
+            [VI] Bảng điều khiển lưu trữ lạnh Cloudflare R2, lưu vết vĩnh viễn 7 năm chuẩn WORM và xác thực Merkle root cho kiểm toán viên tổ chức.
+          </p>
+</div>
+</div>
+<!-- Top Action Bar -->
+<div class="flex flex-wrap items-center gap-2.5">
+<!-- Secondary Button: Simulate Rollup -->
+<button class="px-3 py-2 rounded-lg bg-surface-variant hover:bg-[#334155] border border-outline-rim text-xs font-label uppercase tracking-wider text-slate-200 hover:text-white font-semibold flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-base text-cyan-cyber">play_circle</span>
+<span>Simulate Daily R2 Rollup</span>
+</button>
+<!-- Secondary Button: Export S3 SigV4 -->
+<button class="px-3 py-2 rounded-lg bg-surface-variant hover:bg-[#334155] border border-outline-rim text-xs font-label uppercase tracking-wider text-slate-200 hover:text-white font-semibold flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-base text-indigo-400">receipt_long</span>
+<span>Export S3SigV4 Manifest (JSON)</span>
+</button>
+<!-- Primary Specular Gradient CTA -->
+<button class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-xs font-label uppercase tracking-wider text-white font-bold flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all border border-indigo-400/40">
+<span class="material-symbols-outlined text-base">verified_user</span>
+<span>Generate Zero-Egress Auditor Bundle</span>
+</button>
+</div>
+</div>
+<!-- ========================================================================= -->
+<!-- SECTION 1: R2 COLD-STORAGE BENTO KPIS (4 Grid Cards) -->
+<!-- ========================================================================= -->
+<section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+<!-- Card 1: Archived Audit Snapshots -->
+<div class="bg-surface rounded-xl p-5 specular-rim relative overflow-hidden flex flex-col justify-between">
+<div class="absolute -top-12 -right-12 w-28 h-28 bg-indigo-500/10 rounded-full blur-2xl pointer-events-none"></div>
+<div>
+<div class="flex items-center justify-between">
+<span class="font-label text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Archived Audit Snapshots</span>
+<span class="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+<span class="material-symbols-outlined text-base">inventory_2</span>
+</span>
+</div>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="font-headline text-2xl font-bold text-white tracking-tight">1,095</span>
+<span class="font-label text-xs text-slate-400">Daily Bundles</span>
+</div>
+<div class="text-xs text-indigo-300 font-medium mt-1">7-Year WORM Retention (Strict Immutability)</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant flex flex-col gap-2">
+<div class="flex items-center justify-between text-[11px]">
+<span class="font-mono text-cyan-cyber text-[10px] bg-cyan-cyber/10 px-1.5 py-0.5 rounded border border-cyan-cyber/20">apex-os-audit-worm</span>
+<span class="text-emerald-usdc font-mono font-medium">100% Tamper-Evident</span>
+</div>
+<div class="w-full bg-[#1E293B] h-1.5 rounded-full overflow-hidden">
+<div class="bg-gradient-to-r from-cyan-400 to-indigo-500 h-full rounded-full" style="width: 100%"></div>
+</div>
+</div>
+</div>
+<!-- Card 2: Zero-Egress Savings -->
+<div class="bg-surface rounded-xl p-5 specular-rim relative overflow-hidden flex flex-col justify-between">
+<div class="absolute -top-12 -right-12 w-28 h-28 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none"></div>
+<div>
+<div class="flex items-center justify-between">
+<span class="font-label text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Cloudflare R2 Egress Cost</span>
+<span class="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+<span class="material-symbols-outlined text-base">price_check</span>
+</span>
+</div>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="font-headline text-2xl font-bold text-emerald-400 tracking-tight">$0.00</span>
+<span class="font-mono text-xs text-slate-400">Zero Egress</span>
+</div>
+<div class="text-xs text-slate-300 font-medium mt-1">
+            vs <span class="line-through text-slate-500 font-mono">$4,374.00</span> AWS S3 egress on 48.6 GB
+          </div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant flex items-center justify-between text-[11px] font-mono text-slate-400">
+<span class="truncate">48.6 GB Parquet/Zstd</span>
+<span class="text-cyan-cyber flex items-center gap-1 font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-cyan-cyber"></span>
+            18.4ms Ping
+          </span>
+</div>
+</div>
+<!-- Card 3: Latest Daily Merkle Root -->
+<div class="bg-surface rounded-xl p-5 specular-rim relative overflow-hidden flex flex-col justify-between">
+<div class="absolute -top-12 -right-12 w-28 h-28 bg-violet-500/10 rounded-full blur-2xl pointer-events-none"></div>
+<div>
+<div class="flex items-center justify-between">
+<span class="font-label text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Latest Daily Merkle Root</span>
+<span class="p-1.5 rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/20">
+<span class="material-symbols-outlined text-base">hub</span>
+</span>
+</div>
+<div class="mt-3 flex items-center justify-between bg-neutral-950/70 p-2 rounded border border-outline-variant">
+<span class="font-mono text-xs font-semibold text-cyan-300 truncate">0x9f8e7d6c...4b3a2190</span>
+<button class="text-slate-400 hover:text-white transition-colors" title="Copy Root Hash">
+<span class="material-symbols-outlined text-sm">content_copy</span>
+</button>
+</div>
+<div class="text-xs text-slate-300 font-mono mt-1.5 flex items-center gap-2">
+<span>Epoch #418</span>
+<span class="text-slate-600">•</span>
+<span>Batch #1,095</span>
+</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant flex items-center justify-between text-[11px]">
+<span class="text-slate-400 font-mono">148,920 Payouts Anchored</span>
+<span class="text-indigo-400 font-label uppercase text-[10px] font-bold">SOL + XLM DUAL</span>
+</div>
+</div>
+<!-- Card 4: External Auditor Proof Verification -->
+<div class="bg-surface rounded-xl p-5 specular-rim relative overflow-hidden flex flex-col justify-between">
+<div class="absolute -top-12 -right-12 w-28 h-28 bg-cyan-500/10 rounded-full blur-2xl pointer-events-none"></div>
+<div>
+<div class="flex items-center justify-between">
+<span class="font-label text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Auditor Proof Verification</span>
+<span class="p-1.5 rounded-lg bg-cyan-cyber/10 text-cyan-cyber border border-cyan-cyber/20">
+<span class="material-symbols-outlined text-base">fact_check</span>
+</span>
+</div>
+<div class="mt-3 flex items-baseline gap-2">
+<span class="font-headline text-2xl font-bold text-white tracking-tight">100%</span>
+<span class="font-label text-xs text-emerald-400 font-medium">Cryptographic Match</span>
+</div>
+<div class="text-xs text-slate-300 font-medium mt-1">PwC / Big-4 Auditor ZK-Hash Tree Validation</div>
+</div>
+<div class="mt-4 pt-3 border-t border-outline-variant flex items-center justify-between text-[11px]">
+<span class="font-mono text-emerald-usdc flex items-center gap-1 font-semibold">
+<span class="material-symbols-outlined text-sm">check_circle</span>
+            BLAKE3 + SHA-256 SOUND
+          </span>
+<span class="text-slate-400 font-mono text-[10px]">0.38ms</span>
+</div>
+</div>
+</section>
+<!-- ========================================================================= -->
+<!-- SECTION 2: R2 BUCKET SNAPSHOT CATALOG (Table Ledger) -->
+<!-- ========================================================================= -->
+<section class="bg-surface rounded-xl specular-rim flex flex-col overflow-hidden">
+<!-- Catalog Header & Filter Tabs -->
+<div class="p-4 sm:p-5 border-b border-outline-variant flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-slate-900/40">
+<div class="flex flex-col sm:flex-row sm:items-center gap-3">
+<div class="flex items-center gap-2 font-mono text-xs text-slate-300 bg-neutral-950 px-3 py-1.5 rounded-lg border border-outline-rim">
+<span class="material-symbols-outlined text-sm text-cyan-cyber">cloud_done</span>
+<span class="text-slate-400">r2://</span>
+<span class="text-white font-semibold">apex-os-audit-worm</span>
+<span class="text-slate-400">/daily-ledger/</span>
+</div>
+<!-- Filter Pills -->
+<div class="flex items-center gap-1 bg-[#1E293B] p-1 rounded-lg border border-outline-rim">
+<button class="px-2.5 py-1 rounded text-[11px] font-label uppercase tracking-wider font-semibold bg-indigo-600 text-white shadow-sm">All Snapshots (1,095)</button>
+<button class="px-2.5 py-1 rounded text-[11px] font-label uppercase tracking-wider text-slate-400 hover:text-white transition-colors">2025 (142)</button>
+<button class="px-2.5 py-1 rounded text-[11px] font-label uppercase tracking-wider text-slate-400 hover:text-white transition-colors">2024 (366)</button>
+<button class="px-2.5 py-1 rounded text-[11px] font-label uppercase tracking-wider text-emerald-400 font-semibold hover:bg-slate-800 transition-colors">WORM Locked (100%)</button>
+<button class="px-2.5 py-1 rounded text-[11px] font-label uppercase tracking-wider text-cyan-cyber hover:bg-slate-800 transition-colors">Audit Verified</button>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<!-- Table Search Input -->
+<div class="relative w-56">
+<span class="material-symbols-outlined absolute left-2.5 top-2 text-slate-400 text-base">filter_alt</span>
+<input class="w-full bg-[#1E293B] border border-[#334155] rounded-md pl-8 pr-3 py-1.5 text-xs text-slate-200 placeholder:text-slate-400 focus:outline-none focus:border-indigo-500 font-mono" placeholder="Filter snapshots..." type="text"/>
+</div>
+<!-- Auto-Sync Indicator Button -->
+<button class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#1E293B] border border-[#334155] text-slate-300 font-mono text-xs hover:border-slate-500 transition-colors">
+<span class="material-symbols-outlined text-sm text-emerald-400 animate-spin" style="animation-duration: 4s;">sync</span>
+<span>Auto-Sync R2 (10s)</span>
+</button>
+</div>
+</div>
+<!-- High-Density Audit Ledger Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse font-body text-xs">
+<thead>
+<tr class="bg-[#1E293B]/80 border-b border-outline-variant font-label uppercase text-[11px] font-semibold text-slate-400 tracking-wider">
+<th class="py-3 px-4">OBJECT KEY &amp; CREATED UTC</th>
+<th class="py-3 px-4">ROW COUNT / SETTLEMENT</th>
+<th class="py-3 px-4">COMPRESSION &amp; SIZE</th>
+<th class="py-3 px-4">SHA-256 MERKLE ROOT</th>
+<th class="py-3 px-4">WORM RETENTION EXPIRY</th>
+<th class="py-3 px-4">CLUSTER SYNC</th>
+<th class="py-3 px-4 text-right">AUDIT ACTIONS</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant/60 font-mono">
+<!-- Row 1 (Latest) -->
+<tr class="hover:bg-slate-850/60 transition-colors group">
+<td class="py-3.5 px-4 font-body">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-cyan-cyber text-lg">folder_zip</span>
+<div class="flex flex-col">
+<span class="font-mono text-xs font-semibold text-white group-hover:text-cyan-300 transition-colors">daily-ledger-2025-05-18.parquet.zst</span>
+<span class="text-[10px] text-slate-400 font-mono">2025-05-18 23:59:59.982 UTC</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-100 font-semibold font-mono">148,920 records</span>
+<span class="text-[10px] text-emerald-400 font-mono">$18,420.50 USDC SETTLED</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-semibold">42.4 MB</span>
+<span class="text-[10px] text-indigo-300">Zstd lvl 19 (-84%)</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5">
+<span class="text-xs text-cyan-300 bg-neutral-950 px-2 py-0.5 rounded border border-outline-variant">0x9f8e7d...2190</span>
+<button class="text-slate-500 hover:text-slate-300 transition-colors" title="Copy Root"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5 text-xs text-amber-warn font-semibold">
+<span class="material-symbols-outlined text-sm">lock</span>
+<span>2032-05-18</span>
+<span class="text-[10px] text-slate-400 font-normal">(7 Yrs WORM)</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1 text-[11px] text-slate-300">
+<span class="w-2 h-2 rounded-full bg-emerald-usdc"></span>
+<span>3/3 (SGP · DFW · FRA)</span>
+</div>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="flex items-center justify-end gap-1.5 font-body">
+<button class="px-2.5 py-1 rounded bg-cyan-cyber/10 hover:bg-cyan-cyber/20 text-cyan-cyber border border-cyan-cyber/30 text-xs font-semibold flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-xs">verified</span>
+<span>Verify Proof</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-slate-400 hover:text-white transition-colors" title="Download Zero-Egress via CF CDN">
+<span class="material-symbols-outlined text-sm">download</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-slate-400 hover:text-white transition-colors" title="Inspect S3 Manifest">
+<span class="material-symbols-outlined text-sm">info</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-slate-850/60 transition-colors group">
+<td class="py-3.5 px-4 font-body">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-slate-400 text-lg">folder_zip</span>
+<div class="flex flex-col">
+<span class="font-mono text-xs font-semibold text-white group-hover:text-cyan-300 transition-colors">daily-ledger-2025-05-17.parquet.zst</span>
+<span class="text-[10px] text-slate-400 font-mono">2025-05-17 23:59:59.710 UTC</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-100 font-semibold font-mono">142,105 records</span>
+<span class="text-[10px] text-emerald-400 font-mono">$16,840.00 USDC SETTLED</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-semibold">39.8 MB</span>
+<span class="text-[10px] text-indigo-300">Zstd lvl 19 (-85%)</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5">
+<span class="text-xs text-slate-300 bg-neutral-950 px-2 py-0.5 rounded border border-outline-variant">0x8a1b2c...7a6b</span>
+<button class="text-slate-500 hover:text-slate-300 transition-colors" title="Copy Root"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5 text-xs text-slate-300">
+<span class="material-symbols-outlined text-sm text-slate-400">lock</span>
+<span>2032-05-17</span>
+<span class="text-[10px] text-slate-400 font-normal">(7 Yrs WORM)</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1 text-[11px] text-slate-300">
+<span class="w-2 h-2 rounded-full bg-emerald-usdc"></span>
+<span>3/3 (SGP · DFW · FRA)</span>
+</div>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="flex items-center justify-end gap-1.5 font-body">
+<button class="px-2.5 py-1 rounded bg-[#1E293B] hover:bg-slate-700 text-slate-300 hover:text-white border border-outline-rim text-xs font-semibold flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-xs">verified</span>
+<span>Verify Proof</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-slate-400 hover:text-white transition-colors" title="Download Zero-Egress">
+<span class="material-symbols-outlined text-sm">download</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-slate-400 hover:text-white transition-colors" title="Inspect S3 Manifest">
+<span class="material-symbols-outlined text-sm">info</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-slate-850/60 transition-colors group">
+<td class="py-3.5 px-4 font-body">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-slate-400 text-lg">folder_zip</span>
+<div class="flex flex-col">
+<span class="font-mono text-xs font-semibold text-white group-hover:text-cyan-300 transition-colors">daily-ledger-2025-05-16.parquet.zst</span>
+<span class="text-[10px] text-slate-400 font-mono">2025-05-16 23:59:59.884 UTC</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-100 font-semibold font-mono">151,340 records</span>
+<span class="text-[10px] text-emerald-400 font-mono">$21,120.00 USDC SETTLED</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-semibold">44.1 MB</span>
+<span class="text-[10px] text-indigo-300">Zstd lvl 19 (-84%)</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5">
+<span class="text-xs text-slate-300 bg-neutral-950 px-2 py-0.5 rounded border border-outline-variant">0x7f6e5d...1098</span>
+<button class="text-slate-500 hover:text-slate-300 transition-colors" title="Copy Root"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5 text-xs text-slate-300">
+<span class="material-symbols-outlined text-sm text-slate-400">lock</span>
+<span>2032-05-16</span>
+<span class="text-[10px] text-slate-400 font-normal">(7 Yrs WORM)</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1 text-[11px] text-slate-300">
+<span class="w-2 h-2 rounded-full bg-emerald-usdc"></span>
+<span>3/3 (SGP · DFW · FRA)</span>
+</div>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="flex items-center justify-end gap-1.5 font-body">
+<button class="px-2.5 py-1 rounded bg-[#1E293B] hover:bg-slate-700 text-slate-300 hover:text-white border border-outline-rim text-xs font-semibold flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-xs">verified</span>
+<span>Verify Proof</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-slate-400 hover:text-white transition-colors" title="Download Zero-Egress">
+<span class="material-symbols-outlined text-sm">download</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-slate-400 hover:text-white transition-colors" title="Inspect S3 Manifest">
+<span class="material-symbols-outlined text-sm">info</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-slate-850/60 transition-colors group">
+<td class="py-3.5 px-4 font-body">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-slate-400 text-lg">folder_zip</span>
+<div class="flex flex-col">
+<span class="font-mono text-xs font-semibold text-white group-hover:text-cyan-300 transition-colors">daily-ledger-2025-05-15.parquet.zst</span>
+<span class="text-[10px] text-slate-400 font-mono">2025-05-15 23:59:59.605 UTC</span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-100 font-semibold font-mono">138,490 records</span>
+<span class="text-[10px] text-emerald-400 font-mono">$15,900.00 USDC SETTLED</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-semibold">38.6 MB</span>
+<span class="text-[10px] text-indigo-300">Zstd lvl 19 (-86%)</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5">
+<span class="text-xs text-slate-300 bg-neutral-950 px-2 py-0.5 rounded border border-outline-variant">0x6e5d4c...987f</span>
+<button class="text-slate-500 hover:text-slate-300 transition-colors" title="Copy Root"><span class="material-symbols-outlined text-sm">content_copy</span></button>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1.5 text-xs text-slate-300">
+<span class="material-symbols-outlined text-sm text-slate-400">lock</span>
+<span>2032-05-15</span>
+<span class="text-[10px] text-slate-400 font-normal">(7 Yrs WORM)</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-1 text-[11px] text-slate-300">
+<span class="w-2 h-2 rounded-full bg-emerald-usdc"></span>
+<span>3/3 (SGP · DFW · FRA)</span>
+</div>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="flex items-center justify-end gap-1.5 font-body">
+<button class="px-2.5 py-1 rounded bg-[#1E293B] hover:bg-slate-700 text-slate-300 hover:text-white border border-outline-rim text-xs font-semibold flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-xs">verified</span>
+<span>Verify Proof</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-slate-400 hover:text-white transition-colors" title="Download Zero-Egress">
+<span class="material-symbols-outlined text-sm">download</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-variant text-slate-400 hover:text-white transition-colors" title="Inspect S3 Manifest">
+<span class="material-symbols-outlined text-sm">info</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Table Footer / Compliance Status -->
+<div class="p-3.5 px-5 border-t border-outline-variant bg-[#1E293B]/40 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+<div class="flex items-center gap-2 text-slate-400 font-mono">
+<span class="material-symbols-outlined text-sm text-indigo-400">gavel</span>
+<span>Cloudflare R2 Object Lock: <strong class="text-white">COMPLIANCE MODE</strong> (Bypass Governance Denied)</span>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-slate-400 font-mono text-[11px]">Showing 1-4 of 1,095 snapshots</span>
+<div class="flex items-center gap-1">
+<button class="px-2 py-1 rounded bg-[#1E293B] border border-outline-rim text-slate-400 hover:text-white disabled:opacity-40" disabled="">
+<span class="material-symbols-outlined text-sm">chevron_left</span>
+</button>
+<button class="px-2.5 py-1 rounded bg-indigo-600 text-white font-mono text-xs font-bold">1</button>
+<button class="px-2.5 py-1 rounded bg-[#1E293B] border border-outline-rim text-slate-400 hover:text-white font-mono text-xs">2</button>
+<button class="px-2.5 py-1 rounded bg-[#1E293B] border border-outline-rim text-slate-400 hover:text-white font-mono text-xs">...</button>
+<button class="px-2.5 py-1 rounded bg-[#1E293B] border border-outline-rim text-slate-400 hover:text-white font-mono text-xs">274</button>
+<button class="px-2 py-1 rounded bg-[#1E293B] border border-outline-rim text-slate-400 hover:text-white">
+<span class="material-symbols-outlined text-sm">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- ========================================================================= -->
+<!-- SECTION 3: INTERACTIVE ZERO-EGRESS COMPLIANCE BUNDLE & REPL WORKBENCH -->
+<!-- ========================================================================= -->
+<section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Left Column: Institutional Audit Query & Verification Config (5 Cols) -->
+<div class="lg:col-span-5 bg-surface rounded-xl p-5 specular-rim flex flex-col justify-between">
+<div>
+<!-- Header -->
+<div class="flex items-center justify-between pb-3 border-b border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-cyan-cyber text-xl">query_stats</span>
+<span class="font-headline font-bold text-base text-white">Institutional Audit Query &amp; Verification</span>
+</div>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 uppercase">REPL v2.4</span>
+</div>
+<!-- Configuration Form -->
+<div class="mt-4 flex flex-col gap-4">
+<!-- Snapshot Selector -->
+<div>
+<label class="block font-label uppercase text-[11px] font-semibold text-slate-400 tracking-wider mb-1.5">
+                Target Cold-Storage Daily Snapshot:
+              </label>
+<div class="relative">
+<select class="w-full bg-[#1E293B] border border-[#334155] rounded-lg px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-cyan-cyber appearance-none">
+<option selected="">2025-05-18 - Batch #1,095 (148,920 records / $18.4k)</option>
+<option>2025-05-17 - Batch #1,094 (142,105 records / $16.8k)</option>
+<option>2025-05-16 - Batch #1,093 (151,340 records / $21.1k)</option>
+<option>2025-05-15 - Batch #1,092 (138,490 records / $15.9k)</option>
+</select>
+<span class="material-symbols-outlined absolute right-3 top-2.5 text-slate-400 text-sm pointer-events-none">expand_more</span>
+</div>
+</div>
+<!-- Payout Audit Identifier -->
+<div>
+<label class="block font-label uppercase text-[11px] font-semibold text-slate-400 tracking-wider mb-1.5">
+                Affiliate Payout Audit ID / Transaction Hash:
+              </label>
+<div class="relative">
+<input class="w-full bg-[#1E293B] border border-[#334155] rounded-lg pl-3 pr-9 py-2 text-xs text-cyan-300 font-mono focus:outline-none focus:border-indigo-500" type="text" value="0x7f83b1657ff1fc53b92dc18148a1d65dfc2d4b1fa3d677284addd200126d9069"/>
+<span class="material-symbols-outlined absolute right-2.5 top-2.5 text-slate-400 text-base">tag</span>
+</div>
+<span class="text-[10px] text-slate-500 font-mono mt-1 block">Maps to leaf index #248 in Merkle tree depth 11</span>
+</div>
+<!-- Pre-configured Cryptographic Checkboxes -->
+<div class="mt-1 flex flex-col gap-2.5 bg-[#1E293B]/50 p-3 rounded-lg border border-outline-rim">
+<span class="font-label uppercase text-[10px] tracking-wider text-slate-400 font-bold">Cryptographic Invariance Checks</span>
+<label class="flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer">
+<input checked="" class="rounded bg-[#0F172A] border-slate-600 text-indigo-600 focus:ring-0" type="checkbox"/>
+<span class="font-body">Verify SQLite D1 WAL State Transition (RESERVED ➔ SETTLED)</span>
+</label>
+<label class="flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer">
+<input checked="" class="rounded bg-[#0F172A] border-slate-600 text-indigo-600 focus:ring-0" type="checkbox"/>
+<span class="font-body">Validate R2 Canonical JSONL Hash with Blake3 &amp; SHA-256</span>
+</label>
+<label class="flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer">
+<input checked="" class="rounded bg-[#0F172A] border-slate-600 text-indigo-600 focus:ring-0" type="checkbox"/>
+<span class="font-body">Evaluate Merkle Inclusion Proof Path (Depth 11, Big-4 Compatible)</span>
+</label>
+<label class="flex items-center gap-2.5 text-xs text-slate-200 cursor-pointer">
+<input checked="" class="rounded bg-[#0F172A] border-slate-600 text-indigo-600 focus:ring-0" type="checkbox"/>
+<span class="font-body">Cloudflare S3 SigV4 Pre-signed Zero-Egress URL Generation</span>
+</label>
+</div>
+</div>
+</div>
+<!-- Action CTAs -->
+<div class="mt-6 pt-4 border-t border-outline-variant flex flex-col sm:flex-row items-center gap-2.5">
+<button class="w-full sm:flex-1 py-2.5 rounded-lg bg-cyan-cyber/20 hover:bg-cyan-cyber/30 border border-cyan-cyber/40 text-cyan-cyber hover:text-white font-label text-xs uppercase tracking-wider font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-cyan-cyber/10">
+<span class="material-symbols-outlined text-base">verified</span>
+<span>Execute Cryptographic Invariance Check</span>
+</button>
+<button class="w-full sm:w-auto px-4 py-2.5 rounded-lg bg-[#1E293B] hover:bg-slate-700 border border-outline-rim text-slate-300 font-label text-xs uppercase tracking-wider font-semibold flex items-center justify-center gap-2 transition-colors">
+<span class="material-symbols-outlined text-base text-indigo-400">picture_as_pdf</span>
+<span>Export PDF/Zst</span>
+</button>
+</div>
+</div>
+<!-- Right Column: Real-Time Merkle Verification Tree & Proof Path Inspector (7 Cols) -->
+<div class="lg:col-span-7 bg-surface rounded-xl p-5 specular-rim flex flex-col justify-between">
+<div>
+<!-- Header -->
+<div class="flex items-center justify-between pb-3 border-b border-outline-variant">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-emerald-usdc text-xl">account_tree</span>
+<span class="font-headline font-bold text-base text-white">Merkle Tree Proof Inspector &amp; Edge Evaluator</span>
+</div>
+<span class="font-mono text-xs text-emerald-usdc flex items-center gap-1 font-semibold">
+<span class="w-2 h-2 rounded-full bg-emerald-usdc animate-ping"></span>
+              STATUS: 200 AUDIT_PROOF_VERIFIED (0.24ms Edge)
+            </span>
+</div>
+<!-- Visual Mini Merkle Branch Diagram -->
+<div class="mt-4 p-3 bg-neutral-950/80 rounded-lg border border-outline-variant flex flex-col gap-2">
+<span class="font-label text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Merkle Inclusion Graph Topology:</span>
+<div class="flex items-center justify-between gap-1 text-[11px] font-mono overflow-x-auto py-2">
+<!-- Leaf Node -->
+<div class="flex flex-col items-center bg-[#1E293B] px-3 py-1.5 rounded border border-emerald-500/40">
+<span class="text-[9px] uppercase text-slate-400">Target Leaf (Index 248)</span>
+<span class="text-emerald-400 font-semibold text-xs">0x4e7f...8821</span>
+<span class="text-[9px] text-slate-500 font-sans">Payout $48.20 USDC</span>
+</div>
+<span class="material-symbols-outlined text-slate-500 text-sm">arrow_forward</span>
+<!-- Sibling Level 1 -->
+<div class="flex flex-col items-center bg-[#1E293B]/70 px-2 py-1.5 rounded border border-slate-700">
+<span class="text-[9px] uppercase text-slate-400">Sibling #1</span>
+<span class="text-cyan-300 text-xs">0x1a2b...</span>
+<span class="text-[9px] text-slate-500 font-sans">Hash Valid</span>
+</div>
+<span class="material-symbols-outlined text-slate-500 text-sm">arrow_forward</span>
+<!-- Parent Node -->
+<div class="flex flex-col items-center bg-[#1E293B]/70 px-2 py-1.5 rounded border border-slate-700">
+<span class="text-[9px] uppercase text-slate-400">Node L11</span>
+<span class="text-violet-300 text-xs">0x5c8d...</span>
+<span class="text-[9px] text-slate-500 font-sans">Depth 11 OK</span>
+</div>
+<span class="material-symbols-outlined text-slate-500 text-sm">arrow_forward</span>
+<!-- Root Node -->
+<div class="flex flex-col items-center bg-indigo-950/40 px-3 py-1.5 rounded border border-indigo-500/50">
+<span class="text-[9px] uppercase text-indigo-300 font-bold">Merkle Root</span>
+<span class="text-white font-bold text-xs">0x9f8e...2190</span>
+<span class="text-[9px] text-emerald-400 font-semibold flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[10px]">check</span> MATCH
+                </span>
+</div>
+</div>
+</div>
+<!-- Syntax Highlighted JSON Proof Payload Container -->
+<div class="mt-3">
+<div class="flex items-center justify-between text-[11px] font-mono text-slate-400 bg-[#1E293B] px-3 py-1.5 rounded-t-lg border-t border-x border-outline-rim">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-sm text-cyan-cyber">code</span>
+                canonical-proof-bundle.json
+              </span>
+<button class="hover:text-white transition-colors" title="Copy JSON Payload">
+<span class="material-symbols-outlined text-sm">content_copy</span>
+</button>
+</div>
+<pre class="bg-[#020617] p-3.5 rounded-b-lg border border-outline-variant font-mono text-xs overflow-x-auto text-slate-300 leading-relaxed max-h-56"><span class="text-slate-500">{</span>
+  <span class="text-indigo-400">"r2_bucket"</span>: <span class="text-emerald-400">"apex-os-audit-worm"</span>,
+  <span class="text-indigo-400">"r2_object_key"</span>: <span class="text-emerald-400">"snapshots/2025-05-18/merkle-tree-root.json"</span>,
+  <span class="text-indigo-400">"payout_leaf_index"</span>: <span class="text-amber-300">248</span>,
+  <span class="text-indigo-400">"leaf_hash"</span>: <span class="text-cyan-300">"0x4e7f9a1b8c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d8821"</span>,
+  <span class="text-indigo-400">"merkle_root"</span>: <span class="text-cyan-300">"0x9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c4b3a2190"</span>,
+  <span class="text-indigo-400">"proof_siblings"</span>: [
+    <span class="text-slate-400">"0x1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b"</span>,
+    <span class="text-slate-400">"0x3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d"</span>,
+    <span class="text-slate-400">"0x5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f"</span>
+  ],
+  <span class="text-indigo-400">"zero_egress_status"</span>: <span class="text-emerald-400">"CF_EDGE_DIRECT_PASSTHROUGH"</span>,
+  <span class="text-indigo-400">"verification"</span>: <span class="text-emerald-usdc">"VALID_INCLUDED_IN_ROOT"</span>,
+  <span class="text-indigo-400">"auditor_signature"</span>: <span class="text-slate-400">"secp256k1:0x33f4a9b...c188e"</span>
+<span class="text-slate-500">}</span></pre>
+</div>
+</div>
+<!-- Zero-Egress Direct S3 Pre-signed URL Preview -->
+<div class="mt-4 pt-3 border-t border-outline-variant flex items-center justify-between text-xs font-mono">
+<div class="flex items-center gap-2 text-slate-400 truncate max-w-lg">
+<span class="material-symbols-outlined text-sm text-cyan-cyber">link</span>
+<span class="truncate">https://apex-os-audit-worm.r2.cloudflarestorage.com/snapshots/2025-05-18/merkle-tree-root.json?X-Amz-Signature=...</span>
+</div>
+<span class="text-emerald-400 font-semibold uppercase text-[10px] tracking-wider whitespace-nowrap bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+            0.00 USD EGRESS PASS
+          </span>
+</div>
+</div>
+</section>
+<!-- ========================================================================= -->
+<!-- FOOTER TELEMETRY STRIP -->
+<!-- ========================================================================= -->
+<footer class="mt-2 py-3 px-4 rounded-xl bg-surface specular-rim flex flex-col md:flex-row items-center justify-between gap-3 text-xs font-mono text-slate-400">
+<div class="flex flex-wrap items-center gap-4 text-[11px]">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-emerald-usdc"></span>
+<span>Cloudflare R2 Region: <strong class="text-slate-200">Global Anycast</strong></span>
+</div>
+<span class="text-slate-600">•</span>
+<div>Worker Engine: <strong class="text-slate-200">v4.9-edge</strong></div>
+<span class="text-slate-600">•</span>
+<div>S3 API: <strong class="text-slate-200">v4 Sig Compliant</strong></div>
+<span class="text-slate-600">•</span>
+<div>Zero-Egress Bandwidth: <strong class="text-emerald-400 font-semibold">$0.00 Saved ($4,374.00 total)</strong></div>
+</div>
+<div class="flex items-center gap-3 text-[10px] text-slate-500">
+<span>ISO/IEC 27001 &amp; SOC2 Type II Certified Archival Target</span>
+<span>•</span>
+<span class="font-sans">ApexOS Enterprise v3.2.1</span>
+</div>
+</footer>
+</main>
+</body></html>

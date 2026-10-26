@@ -459,7 +459,7 @@ export class EvaluationStateStorage {
   async upsertCircuitBreaker(
     name: string,
     updates: UpdateCircuitBreakerInput
-  ): Promise<CircuitBreakerEntry> {
+  ): Promise<CircuitBreakerEntry | null> {
     const existing = await this.getCircuitBreaker(name);
 
     if (existing) {
@@ -504,7 +504,7 @@ export class EvaluationStateStorage {
         .run();
     }
 
-    return this.getCircuitBreaker(name)!;
+    return this.getCircuitBreaker(name);
   }
 
   async recordCircuitBreakerSuccess(name: string): Promise<void> {

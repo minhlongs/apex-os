@@ -424,11 +424,11 @@ export default function BusinessMetricsPage({ locale }: { locale: string }) {
               />
               <YAxis stroke="#6B7280" fontSize={12} tickFormatter={(value) => formatCompact(value)} />
               <Tooltip
-                formatter={(value: number, name: string) => {
+                formatter={(value, name) => {
                   if (name === 'Revenue' || name === 'Commission') {
-                    return [formatCurrency(value), name];
+                    return [formatCurrency(value as number), name];
                   }
-                  return [value.toLocaleString(), name];
+                  return [(value as number).toLocaleString(), name];
                 }}
                 contentStyle={{
                   backgroundColor: '#fff',
@@ -538,19 +538,19 @@ export default function BusinessMetricsPage({ locale }: { locale: string }) {
                 tick={{ fontSize: 12 }}
               />
               <Tooltip
-                formatter={(value: number, name: string) => {
+                formatter={(value, name) => {
                   if (name === 'revenue') {
-                    return [formatCurrency(value), t('charts.totalRevenue')];
+                    return [formatCurrency(value as number), t('charts.totalRevenue')];
                   }
                   if (name === 'conversions') {
-                    return [value.toLocaleString(), t('charts.conversions')];
+                    return [(value as number).toLocaleString(), t('charts.conversions')];
                   }
                   if (name === 'conversion_rate') {
-                    return [`${value.toFixed(1)}%`, t('charts.conversionRate')];
+                    return [`${(value as number).toFixed(1)}%`, t('charts.conversionRate')];
                   }
                   return [value, name];
                 }}
-                labelFormatter={(label: string) => {
+                labelFormatter={(label) => {
                   const item = topDealsChartData.find((d: any) => d.name === label);
                   return item ? item.fullName : label;
                 }}

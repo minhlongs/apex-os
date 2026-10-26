@@ -15,6 +15,7 @@ class MockDB implements Database {
   private click: DealClick | null;
   private referralTree: ReferralTree | null;
   private profiles: Profile[];
+  public executedQueries: string[] = [];
 
   constructor(overrides: {
     user?: Profile | null;
@@ -31,6 +32,7 @@ class MockDB implements Database {
   }
 
   prepare(sql: string) {
+    this.executedQueries.push(sql);
     return {
       bind: (...params: any[]) => ({
         first: async <T = any>(): Promise<T | undefined> => {
@@ -40,9 +42,27 @@ class MockDB implements Database {
           const result = this.executeFirst(sql, params);
           return (result?.results || result || []) as T[];
         },
-        run: async (): Promise<{ success: boolean }> => ({ success: true }),
+        run: async (): Promise<{ success: boolean }> => {
+          this.executeRun(sql, params);
+          return { success: true };
+        },
       }),
     };
+  }
+
+  private executeRun(sql: string, params: any[]): void {
+    const trimmed = sql.trim().replace(/\s+/g, ' ');
+    if (trimmed.includes('UPDATE deal_clicks') && trimmed.includes('is_suspicious = 0')) {
+      if (this.click) {
+        (this.click as any).is_suspicious = 0;
+        (this.click as any).anomaly_score = 0;
+      }
+    }
+  }
+
+  execute(sql: string, params?: any[]): Promise<{ success: boolean }> {
+    this.executeRun(sql, params || []);
+    return Promise.resolve({ success: true });
   }
 
   private executeFirst(sql: string, params: any[]): any {
@@ -79,9 +99,17 @@ class MockDB implements Database {
     }
 
     // Resolve click (optimized - two queries):
-    // 1) SELECT * FROM deal_clicks WHERE deal_id = ? AND created_at >= ? AND affiliate_id = ? AND affiliate_code IS NOT NULL AND affiliate_code != '' ORDER BY created_at DESC LIMIT 1
-    // 2) SELECT * FROM deal_clicks WHERE deal_id = ? AND created_at >= ? AND affiliate_code IS NOT NULL AND affiliate_code != '' ORDER BY created_at DESC LIMIT 1
+    // 1) SELECT * FROM deal_clicks WHERE deal_id = ? AND created_at >= ? AND affiliate_id = ? AND affiliate_code IS NOT NULL AND affiliate_code != '' AND (is_suspicious = 0 OR is_suspicious IS NULL) ORDER BY created_at DESC LIMIT 1
+    // 2) SELECT * FROM deal_clicks WHERE deal_id = ? AND created_at >= ? AND affiliate_code IS NOT NULL AND affiliate_code != '' AND (is_suspicious = 0 OR is_suspicious IS NULL) ORDER BY created_at DESC LIMIT 1
     if (trimmed.includes('FROM deal_clicks WHERE deal_id') && trimmed.includes('affiliate_code')) {
+      // Evaluate fraud safeguard: ignore clicks marked with is_suspicious = 1
+      if (trimmed.includes('is_suspicious = 0 OR is_suspicious IS NULL') || trimmed.includes('(is_suspicious = 0 OR is_suspicious IS NULL)')) {
+        const suspicious = (this.click as any)?.is_suspicious;
+        if (suspicious === 1) {
+          return null;
+        }
+      }
+
       if (params[0] === 'deal-123' && (params[2] === 'profile-123' || params.length === 2)) {
         return this.click;
       }
@@ -111,10 +139,6 @@ class MockDB implements Database {
     }
 
     return null;
-  }
-
-  execute(sql: string, params?: any[]): Promise<{ success: boolean }> {
-    return Promise.resolve({ success: true });
   }
 }
 
@@ -449,6 +473,125 @@ describe('Matcher', () => {
       expect(isValidUserIdentifier(solanaAddr)).toBe(true);
       expect(isValidUserIdentifier('short')).toBe(false);
       expect(isValidUserIdentifier('invalidCharacters!@#$%')).toBe(false);
+    });
+  });
+
+  // ============================================================================
+  // Fraud Detection & Attribution Compatibility Safeguard Tests (Feature F6)
+  // ============================================================================
+  describe('Fraud Safeguards in Click Attribution', () => {
+    test('should NEVER attribute a click flagged as suspicious (is_suspicious = 1)', async () => {
+      const mockDB = new MockDB({
+        click: {
+          ...mockDealClick(),
+          is_suspicious: 1,
+        } as any,
+      });
+      const customMatcher = createMatcher(mockDB as unknown as Database);
+
+      const result = await customMatcher.match({
+        dealId: 'deal-123',
+        userIdentifier: 'user@example.com',
+        tradeVolumeUsd: 1000,
+      });
+
+      // Suspicious click must NOT be attributed
+      expect(result.click).toBeNull();
+      expect(result.totalCommission).toBe(0);
+      expect(result.commissions).toHaveLength(0);
+      expect(result.metadata.clickFound).toBe(false);
+      expect(result.metadata.method).toBe('wallet'); // Falls back to wallet-only, no commission
+    });
+
+    test('should attribute a legitimate clean click (is_suspicious = 0)', async () => {
+      const mockDB = new MockDB({
+        click: {
+          ...mockDealClick(),
+          is_suspicious: 0,
+        } as any,
+      });
+      const customMatcher = createMatcher(mockDB as unknown as Database);
+
+      const result = await customMatcher.match({
+        dealId: 'deal-123',
+        userIdentifier: 'user@example.com',
+        tradeVolumeUsd: 1000,
+      });
+
+      expect(result.click).not.toBeNull();
+      expect(result.click?.id).toBe('click-123');
+      expect(result.totalCommission).toBeGreaterThan(0);
+      expect(result.metadata.clickFound).toBe(true);
+      expect(result.metadata.method).toBe('cookie');
+    });
+
+    test('should attribute legacy clicks where is_suspicious IS NULL', async () => {
+      const mockDB = new MockDB({
+        click: {
+          ...mockDealClick(),
+          is_suspicious: null,
+        } as any,
+      });
+      const customMatcher = createMatcher(mockDB as unknown as Database);
+
+      const result = await customMatcher.match({
+        dealId: 'deal-123',
+        userIdentifier: 'user@example.com',
+        tradeVolumeUsd: 1000,
+      });
+
+      expect(result.click).not.toBeNull();
+      expect(result.click?.id).toBe('click-123');
+      expect(result.totalCommission).toBeGreaterThan(0);
+    });
+
+    test('should immediately attribute previously suspicious click once approved by admin', async () => {
+      const mockDB = new MockDB({
+        click: {
+          ...mockDealClick(),
+          is_suspicious: 1,
+        } as any,
+      });
+      const customMatcher = createMatcher(mockDB as unknown as Database);
+
+      // 1. Initial attempt: suspicious click is rejected
+      const initialResult = await customMatcher.match({
+        dealId: 'deal-123',
+        userIdentifier: 'user@example.com',
+        tradeVolumeUsd: 1000,
+      });
+      expect(initialResult.click).toBeNull();
+      expect(initialResult.totalCommission).toBe(0);
+
+      // 2. Admin approval action updates click record
+      await mockDB.execute('UPDATE deal_clicks SET is_suspicious = 0 WHERE id = ?', ['click-123']);
+
+      // 3. Second attempt: click is now eligible and attributes immediately
+      const approvedResult = await customMatcher.match({
+        dealId: 'deal-123',
+        userIdentifier: 'user@example.com',
+        tradeVolumeUsd: 1000,
+      });
+      expect(approvedResult.click).not.toBeNull();
+      expect(approvedResult.click?.id).toBe('click-123');
+      expect(approvedResult.totalCommission).toBe(45);
+    });
+
+    test('should verify both Priority 1 and Priority 2 queries contain the safeguard clause', async () => {
+      const mockDB = new MockDB();
+      const customMatcher = createMatcher(mockDB as unknown as Database);
+
+      await customMatcher.match({
+        dealId: 'deal-123',
+        userIdentifier: 'user@example.com',
+        tradeVolumeUsd: 1000,
+      });
+
+      const clickQueries = mockDB.executedQueries.filter(q => q.includes('FROM deal_clicks'));
+      expect(clickQueries.length).toBeGreaterThan(0);
+      for (const query of clickQueries) {
+        expect(query).toContain('(is_suspicious = 0 OR is_suspicious IS NULL)');
+      }
     });
   });
 });

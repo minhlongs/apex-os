@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - 'feat/**'
+      - 'fix/**'
+  pull_request:
+    branches:
+      - main
+      - master
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, Lint, Test & Worker Bundle
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+      NEXT_PUBLIC_COMMIT_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 26.7.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26.7.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify staging D1 isolation
+        run: bash scripts/assert-staging-isolation.sh
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: ESLint check
+        run: npm run lint
+
+      - name: Run unit & integration tests
+        run: CI=true npm test
+
+      - name: Build Next.js + OpenNext Cloudflare Worker bundle
+        run: |
+          export NEXT_PUBLIC_BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          npm run build:worker

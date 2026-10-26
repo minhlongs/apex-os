@@ -57,7 +57,8 @@ export interface AuthResult {
 }
 
 export function createD1Adapter({ db }: D1AdapterOptions) {
-  return {
+  const adapterMethods = {
+    id: 'd1',
     async createUser({
       userId,
       email,
@@ -195,7 +196,68 @@ export function createD1Adapter({ db }: D1AdapterOptions) {
     async deleteVerification(id: string): Promise<void> {
       await db.prepare('DELETE FROM verifications WHERE id = ?').bind(id).run()
     },
+
+    async findOne<T = Record<string, unknown>>(params: {
+      model: string
+      where: Array<{ field: string; value: unknown }>
+    }): Promise<T | null> {
+      const model = params.model.toLowerCase()
+      const clause = params.where?.[0]
+      if (!clause) return null
+      if (model === 'session' || model === 'sessions') {
+        const col = clause.field === 'userId' ? 'user_id' : clause.field
+        if (col !== 'token' && col !== 'id' && col !== 'user_id') return null
+        const row = await db.prepare(`SELECT * FROM sessions WHERE ${col} = ? LIMIT 1`).bind(clause.value).first<Record<string, unknown>>()
+        if (!row) return null
+        return {
+          ...row,
+          userId: row.user_id ?? row.userId,
+          expiresAt: row.expires_at ? new Date(String(row.expires_at)) : row.expiresAt,
+        } as unknown as T
+      }
+      if (model === 'user' || model === 'users' || model === 'profile' || model === 'profiles') {
+        if (clause.field !== 'id' && clause.field !== 'email') return null
+        const row = await db.prepare(`SELECT * FROM profiles WHERE ${clause.field} = ? LIMIT 1`).bind(clause.value).first<Record<string, unknown>>()
+        if (!row) return null
+        return {
+          ...row,
+          name: row.full_name ?? row.name,
+          emailVerified: Boolean(row.email_verified ?? row.emailVerified),
+        } as unknown as T
+      }
+      return null
+    },
+
+    async findMany<T = Record<string, unknown>>(): Promise<T[]> {
+      return []
+    },
+
+    async create<T = Record<string, unknown>>(params: {
+      model: string
+      data: Record<string, unknown>
+    }): Promise<T> {
+      return params.data as unknown as T
+    },
+
+    async update<T = Record<string, unknown>>(params: {
+      model: string
+      where: Array<{ field: string; value: unknown }>
+      update: Record<string, unknown>
+    }): Promise<T | null> {
+      return (params.update as unknown as T) ?? null
+    },
+
+    async delete(): Promise<void> {
+      // No-op fallback for generic adapter surface
+    },
+
+    async deleteMany(): Promise<number> {
+      return 0
+    },
   }
+
+  const callableFactory = (_options?: unknown) => adapterMethods
+  return Object.assign(callableFactory, adapterMethods)
 }
 
 /**
@@ -205,7 +267,8 @@ export function createD1Adapter({ db }: D1AdapterOptions) {
 export async function withAuth(request: NextRequest): Promise<AuthResult> {
   try {
     // Get DB from global scope (Cloudflare Workers binding)
-    const db = (typeof globalThis.DB !== 'undefined' ? globalThis.DB : null) as D1Database | null
+    const globalDb = (globalThis as unknown as { DB?: D1Database }).DB
+    const db = (typeof globalDb !== 'undefined' ? globalDb : null) as D1Database | null
     if (!db) {
       return { success: false }
     }

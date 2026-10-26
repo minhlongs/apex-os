@@ -14,20 +14,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuth } from '@/lib/auth/auth-factory';
+import type { D1Database } from '@/lib/auth/adapters/d1-adapter';
 import { withRateLimit, extractIpAddress } from '@/lib/ratelimit/middleware';
 import { getUserIdCacheKey, getCached, setCache, isKVAvailable } from '@/lib/cache/kv-cache';
 import { error as logError } from '@/lib/logger';
-
-// Minimal Database interface for D1
-interface Database {
-  prepare(sql: string): {
-    bind(...params: unknown[]): {
-      first<T = unknown>(): Promise<T | null>;
-      all<T = unknown>(): Promise<{ results: T[] }>;
-      run(): Promise<{ success: boolean }>;
-    };
-  };
-}
 
 interface ReferralChild {
   affiliate_id: string;
@@ -57,7 +47,7 @@ function generateReferralCode(userId: string): string {
  * Returns a hierarchical tree of downline referrals up to 3 levels
  */
 async function buildReferralTree(
-  DB: Database,
+  DB: D1Database,
   rootAffiliateId: string,
   rootProfile: { email: string; full_name: string | null }
 ): Promise<{

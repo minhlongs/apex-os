@@ -12,6 +12,7 @@
 
 1. [Overview](#overview)
 2. [Endpoints](#endpoints)
+   - [Version & Build Metadata](#version--build-metadata)
    - [Business Metrics](#business-metrics)
    - [Time Series Metrics](#time-series-metrics)
 3. [Data Models](#data-models)
@@ -47,6 +48,24 @@ The metrics API relies on the following database views:
 ---
 
 ## Endpoints
+
+### Version & Build Metadata
+
+#### `GET /api/version`
+
+Returns the deployed build metadata (`sha`, `builtAt`, `environment`) for release verification and rollback checks. Public endpoint; strictly whitelists only these three fields and never exposes D1 database IDs, bindings, or secrets.
+
+**Response:** `200 OK`
+
+```json
+{
+  "sha": "abc1234def5678",
+  "builtAt": "2026-10-25T12:00:00.000Z",
+  "environment": "staging"
+}
+```
+
+---
 
 ### Business Metrics
 

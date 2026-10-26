@@ -46,7 +46,7 @@ function getGlobalSecret(provider: ByokProvider): string {
  * Valid: non-empty string
  * Invalid: null, undefined, empty string ''
  */
-function isValidUserId(userId: string | null | undefined): boolean {
+function isValidUserId(userId: string | null | undefined): userId is string {
   return typeof userId === 'string' && userId.length > 0;
 }
 

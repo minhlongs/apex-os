@@ -18,10 +18,12 @@ export const debug = (...args: unknown[]): void => {
 
 export const success = (...args: unknown[]): void => console.log(...prefix(...args));
 
-export default {
+const logger = {
   info,
   warn,
   error,
   debug,
   success,
 };
+
+export default logger;

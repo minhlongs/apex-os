@@ -27,7 +27,7 @@ export async function generateMetadata({
   const { locale, slug } = await params
 
   // Skip DB access during build if no D1 binding available
-  if (typeof globalThis.DB === 'undefined') {
+  if (typeof (globalThis as unknown as { DB?: D1Database }).DB === 'undefined') {
     return {
       title: 'Deal - ApexOS',
       description: 'View exclusive cashback deals on ApexOS',
@@ -78,7 +78,7 @@ export async function generateMetadata({
 
 export async function generateStaticParams() {
   // Skip DB access during build if no D1 binding available
-  if (typeof globalThis.DB === 'undefined') {
+  if (typeof (globalThis as unknown as { DB?: D1Database }).DB === 'undefined') {
     return []
   }
 

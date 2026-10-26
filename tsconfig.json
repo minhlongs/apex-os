@@ -13,7 +13,7 @@
     ],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
@@ -44,11 +44,18 @@
   ],
   "exclude": [
     "node_modules",
+    "apex-os-mobile",
+    "apex-os-mobile/**",
     "scripts",
     "jest.setup.ts",
+    "__tests__",
+    "__tests__/**",
+    "src/__tests__",
+    "src/__tests__/**",
     "**/*.test.ts",
     "**/*.test.tsx",
-    "sentry.*.config.ts",
-    "src/app/api/admin/health"
+    "**/*.spec.ts",
+    "**/*.spec.tsx",
+    "sentry.*.config.ts"
   ]
 }

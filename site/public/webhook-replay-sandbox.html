@@ -1,0 +1,990 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS — Interactive Multi-Exchange Webhook Replay &amp; HMAC Verification Sandbox</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Theme Configuration -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            // Obsidian Quant Design Tokens
+            canvas: "#020617",
+            card: "#0F172A",
+            border: "#1E293B",
+            well: "#1E293B",
+            surface: "#0F172A",
+            "surface-variant": "#1E293B",
+            "outline-variant": "#1E293B",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8",
+            primary: "#6366F1",
+            "primary-container": "rgba(99, 102, 241, 0.15)",
+            "on-primary": "#FFFFFF",
+            "on-primary-container": "#C7D2FE",
+            accent: {
+              violet: "#8B5CF6",
+              cyan: "#06B6D4",
+              emerald: "#10B981",
+              amber: "#F59E0B",
+              crimson: "#EF4444"
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    /* Custom Scrollbar for terminal density */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      font-size: 1.25rem;
+    }
+  </style>
+</head>
+<body class="bg-[#020617] text-[#F8FAFC] font-body antialiased selection:bg-primary selection:text-white min-h-screen flex flex-col">
+<!-- ========================================================================= -->
+<!-- SIDE NAVIGATION BAR (Shared Components JSON Anchor)                       -->
+<!-- ========================================================================= -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-[#0F172A] border-r border-[#1E293B] shadow-none flex flex-col justify-between p-4">
+<div class="flex flex-col gap-6">
+<!-- Header / Logo -->
+<div class="flex items-center gap-3 px-2 py-1">
+<div class="w-9 h-9 rounded bg-primary/20 border border-primary/40 flex items-center justify-center text-primary font-headline font-bold">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+</div>
+<div>
+<div class="font-headline text-base font-bold tracking-wider text-[#F8FAFC]">ApexOS Terminal</div>
+<div class="font-body text-xs text-[#94A3B8]">Arbitrage &amp; Settlement Hub</div>
+</div>
+</div>
+<!-- Main Navigation Menu -->
+<nav aria-label="Terminal Navigation" class="flex flex-col gap-1.5">
+<!-- 1. Cashback Cockpit -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-[#94A3B8] font-normal hover:bg-[#1E293B] hover:text-[#F8FAFC] transition-colors" href="#cockpit">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body text-sm">Cashback Cockpit</span>
+</a>
+<!-- 2. Arbitrage & Deal Crawler -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-[#94A3B8] font-normal hover:bg-[#1E293B] hover:text-[#F8FAFC] transition-colors" href="#crawler">
+<span class="material-symbols-outlined" data-icon="query_stats">query_stats</span>
+<span class="font-body text-sm">Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- 3. Multi-Chain Payouts -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-[#94A3B8] font-normal hover:bg-[#1E293B] hover:text-[#F8FAFC] transition-colors" href="#payouts">
+<span class="material-symbols-outlined" data-icon="currency_exchange">currency_exchange</span>
+<span class="font-body text-sm">Multi-Chain Payouts</span>
+</a>
+<!-- 4. KYC & Fraud Command (ACTIVE STATE: Maps to Sandbox & Verification) -->
+<a aria-current="page" class="flex items-center gap-3 px-3 py-2.5 rounded text-primary bg-primary/10 font-medium transition-all duration-150 ease-in-out" href="#sandbox">
+<span class="material-symbols-outlined" data-icon="shield" style="font-variation-settings: 'FILL' 1;">shield</span>
+<div class="flex flex-col">
+<span class="font-body text-sm text-primary">KYC &amp; Fraud Command</span>
+<span class="text-[10px] text-primary/70 font-mono tracking-tight">HMAC Sandbox Active</span>
+</div>
+</a>
+<!-- 5. Telegram Mini App -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-[#94A3B8] font-normal hover:bg-[#1E293B] hover:text-[#F8FAFC] transition-colors" href="#telegram">
+<span class="material-symbols-outlined" data-icon="send">send</span>
+<span class="font-body text-sm">Telegram Mini App</span>
+</a>
+<!-- 6. Style Guide -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-[#94A3B8] font-normal hover:bg-[#1E293B] hover:text-[#F8FAFC] transition-colors" href="#style-guide">
+<span class="material-symbols-outlined" data-icon="palette">palette</span>
+<span class="font-body text-sm">Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Footer Controls & Terminal Node CTA -->
+<div class="flex flex-col gap-3 pt-4 border-t border-[#1E293B]">
+<button class="w-full flex items-center justify-center gap-2 py-2 px-3 bg-primary text-white font-label text-xs uppercase tracking-wider rounded font-semibold hover:bg-primary/90 transition-all shadow-sm">
+<span class="material-symbols-outlined text-sm" data-icon="settings_ethernet">settings_ethernet</span>
+<span>Connect Node</span>
+</button>
+<div class="flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-[#94A3B8] font-normal hover:bg-[#1E293B] hover:text-[#F8FAFC] transition-colors text-xs" href="#settings">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-[#94A3B8] font-normal hover:bg-[#1E293B] hover:text-[#F8FAFC] transition-colors text-xs" href="#docs">
+<span class="material-symbols-outlined" data-icon="menu_book">menu_book</span>
+<span>Documentation</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- ========================================================================= -->
+<!-- TOP COMMAND BAR (Shared Components JSON Anchor)                          -->
+<!-- ========================================================================= -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-[#0F172A] border-b border-[#1E293B] flex justify-between items-center px-6">
+<!-- Left: Search & Network Health Indicators -->
+<div class="flex items-center gap-5">
+<div class="relative w-72">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-[#94A3B8] text-sm" data-icon="search">search</span>
+<input class="w-full bg-[#020617] text-xs font-mono rounded pl-9 pr-3 py-2 border border-[#1E293B] text-[#F8FAFC] focus:outline-none focus:border-primary transition-colors placeholder:text-[#94A3B8]/60" placeholder="Search payloads, txids, hashes..." type="text"/>
+</div>
+<!-- Navigation Links from JSON -->
+<div class="hidden lg:flex items-center gap-3 text-xs font-label uppercase tracking-wider">
+<span class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-accent-emerald/10 border border-accent-emerald/30 text-accent-emerald font-semibold">
+<span class="w-2 h-2 rounded-full bg-accent-emerald animate-pulse"></span>
+          3/3 Chains HEALTHY
+        </span>
+<span class="px-2.5 py-1 rounded bg-accent-violet/15 border border-accent-violet/40 text-accent-violet font-semibold">
+          MASTER TIER
+        </span>
+</div>
+</div>
+<!-- Right: Language Toggle, Quick Icons, Wallet Action -->
+<div class="flex items-center gap-3.5">
+<!-- Language Switch EN / VI -->
+<div class="flex items-center bg-[#020617] border border-[#1E293B] rounded p-0.5 text-xs font-mono">
+<button class="px-2 py-1 rounded bg-[#1E293B] text-primary font-bold">EN</button>
+<span class="text-[#94A3B8] px-0.5">/</span>
+<button class="px-2 py-1 text-[#94A3B8] hover:text-[#F8FAFC] transition-colors">VI</button>
+</div>
+<!-- Trailing Icon Actions -->
+<button class="p-2 text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-[#1E293B] rounded relative transition-colors" title="System Notifications">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 bg-accent-cyan rounded-full"></span>
+</button>
+<button class="p-2 text-[#94A3B8] hover:text-[#F8FAFC] hover:bg-[#1E293B] rounded transition-colors" title="Developer Console">
+<span class="material-symbols-outlined" data-icon="terminal">terminal</span>
+</button>
+<!-- Connect Wallet Primary Action -->
+<button class="flex items-center gap-2 px-3.5 py-1.5 bg-primary/20 border border-primary/50 text-on-primary-container hover:bg-primary/30 rounded font-label text-xs uppercase tracking-wider font-semibold transition-all">
+<span class="w-2 h-2 rounded-full bg-accent-emerald"></span>
+<span>Connect Wallet</span>
+</button>
+<!-- User Operator Avatar -->
+<div class="flex items-center gap-2 pl-2 border-l border-[#1E293B]">
+<div class="w-8 h-8 rounded-full bg-[#1E293B] border border-primary/30 flex items-center justify-center text-primary font-mono font-bold text-xs">
+          OP
+        </div>
+</div>
+</div>
+</header>
+<!-- ========================================================================= -->
+<!-- MAIN WORKBENCH CANVAS                                                     -->
+<!-- ========================================================================= -->
+<main class="ml-64 mt-16 p-6 flex-1 flex flex-col gap-6">
+<!-- 1. Header & Quick Controls -->
+<section class="flex flex-col gap-4">
+<div class="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+<div>
+<div class="flex items-center gap-3">
+<h1 class="font-headline text-2xl font-bold tracking-tight text-[#F8FAFC]">
+              Multi-Exchange Webhook Replay &amp; HMAC Verification Sandbox
+            </h1>
+<span class="px-2 py-0.5 rounded text-[11px] font-mono uppercase bg-primary/10 border border-primary/30 text-primary">v2.4-SEC</span>
+</div>
+<p class="text-xs text-[#94A3B8] mt-1 max-w-4xl">
+            Simulate, sign, tamper, and audit deterministic exchange webhook payloads with WebCrypto SubtleCrypto verification and Cloudflare KV 24h replay attack prevention.
+            <span class="text-primary/70 block mt-0.5 italic">Xác minh chữ ký số WebCrypto thời gian thực &amp; bảo vệ chống tấn công phát lại 24 giờ.</span>
+</p>
+</div>
+<!-- Action Control Buttons -->
+<div class="flex flex-wrap items-center gap-2">
+<button class="flex items-center gap-1.5 px-3 py-2 bg-primary hover:bg-primary/90 text-white rounded text-xs font-semibold shadow-sm transition-colors" id="btn-simulate" onclick="simulateIngestion()">
+<span class="material-symbols-outlined text-sm" data-icon="play_arrow">play_arrow</span>
+<span>Simulate Webhook Ingestion</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-2 bg-accent-crimson/15 border border-accent-crimson/40 hover:bg-accent-crimson/25 text-accent-crimson rounded text-xs font-semibold transition-colors" id="btn-tamper" onclick="tamperPayload()">
+<span class="material-symbols-outlined text-sm" data-icon="bug_report">bug_report</span>
+<span>Tamper Payload (Test 401)</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-2 bg-accent-amber/15 border border-accent-amber/40 hover:bg-accent-amber/25 text-accent-amber rounded text-xs font-semibold transition-colors" id="btn-replay" onclick="triggerReplay()">
+<span class="material-symbols-outlined text-sm" data-icon="history">history</span>
+<span>Trigger Replay Attack (Test 409)</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-2 bg-[#1E293B] hover:bg-[#334155] text-[#F8FAFC] border border-[#334155] rounded text-xs font-mono transition-colors" onclick="exportAuditJSON()">
+<span class="material-symbols-outlined text-sm" data-icon="download">download</span>
+<span>Export JSON</span>
+</button>
+</div>
+</div>
+<!-- Real-Time Status Chips -->
+<div class="flex flex-wrap items-center gap-3 pt-1">
+<div class="flex items-center gap-2 px-2.5 py-1 rounded bg-[#0F172A] border border-[#1E293B] text-[11px] font-mono">
+<span class="w-2 h-2 rounded-full bg-accent-cyan animate-pulse"></span>
+<span class="text-[#94A3B8]">ENGINE:</span>
+<span class="text-accent-cyan font-semibold">SUBTLE_CRYPTO ACTIVE</span>
+</div>
+<div class="flex items-center gap-2 px-2.5 py-1 rounded bg-[#0F172A] border border-[#1E293B] text-[11px] font-mono">
+<span class="material-symbols-outlined text-xs text-accent-emerald" data-icon="dns">dns</span>
+<span class="text-[#94A3B8]">KV NONCE CACHE:</span>
+<span class="text-accent-emerald font-semibold" id="kv-count">14,291 ACTIVE KEYS</span>
+</div>
+<div class="flex items-center gap-2 px-2.5 py-1 rounded bg-[#0F172A] border border-[#1E293B] text-[11px] font-mono">
+<span class="material-symbols-outlined text-xs text-primary" data-icon="verified_user">verified_user</span>
+<span class="text-[#94A3B8]">DEFENSE:</span>
+<span class="text-primary font-semibold">ZERO-TRUST REPLAY REJECTION</span>
+</div>
+</div>
+</section>
+<!-- 2. 5-Provider Webhook Selector Matrix (Horizontal Tab Bar) -->
+<section class="bg-[#0F172A] border border-[#1E293B] rounded-lg p-2 overflow-x-auto shadow-sm">
+<div class="flex items-center gap-2 min-w-max" id="provider-tabs">
+<!-- Binance -->
+<button class="provider-tab flex-1 flex flex-col p-3 rounded text-left transition-all border border-transparent hover:border-[#1E293B] hover:bg-[#1E293B]/50" data-provider="binance" onclick="selectProvider('binance')">
+<div class="flex items-center justify-between gap-2">
+<span class="font-headline font-bold text-sm text-[#F8FAFC]">Binance</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent-emerald/10 text-accent-emerald">Verified 12ms ago</span>
+</div>
+<span class="font-mono text-[11px] text-[#94A3B8] mt-1">X-MBX-SIGNATURE (HMAC-SHA256 Hex)</span>
+</button>
+<!-- Bybit (Default Selected) -->
+<button class="provider-tab flex-1 flex flex-col p-3 rounded text-left transition-all border border-primary/50 bg-primary/10" data-provider="bybit" onclick="selectProvider('bybit')">
+<div class="flex items-center justify-between gap-2">
+<div class="flex items-center gap-1.5">
+<span class="font-headline font-bold text-sm text-primary">Bybit</span>
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
+</div>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent-emerald/15 text-accent-emerald font-medium">Active</span>
+</div>
+<span class="font-mono text-[11px] text-[#F8FAFC] mt-1">X-BAPI-SIGN + Timestamp (Window: 1,000ms)</span>
+</button>
+<!-- OKX -->
+<button class="provider-tab flex-1 flex flex-col p-3 rounded text-left transition-all border border-transparent hover:border-[#1E293B] hover:bg-[#1E293B]/50" data-provider="okx" onclick="selectProvider('okx')">
+<div class="flex items-center justify-between gap-2">
+<span class="font-headline font-bold text-sm text-[#F8FAFC]">OKX</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent-emerald/10 text-accent-emerald">Active</span>
+</div>
+<span class="font-mono text-[11px] text-[#94A3B8] mt-1">OK-ACCESS-SIGN (Base64 SHA256) + 5m Guard</span>
+</button>
+<!-- KuCoin -->
+<button class="provider-tab flex-1 flex flex-col p-3 rounded text-left transition-all border border-transparent hover:border-[#1E293B] hover:bg-[#1E293B]/50" data-provider="kucoin" onclick="selectProvider('kucoin')">
+<div class="flex items-center justify-between gap-2">
+<span class="font-headline font-bold text-sm text-[#F8FAFC]">KuCoin</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent-emerald/10 text-accent-emerald">Active</span>
+</div>
+<span class="font-mono text-[11px] text-[#94A3B8] mt-1">KC-API-SIGN + Passphrase Decrypt + v2</span>
+</button>
+<!-- NOWPayments IPN -->
+<button class="provider-tab flex-1 flex flex-col p-3 rounded text-left transition-all border border-transparent hover:border-[#1E293B] hover:bg-[#1E293B]/50" data-provider="nowpayments" onclick="selectProvider('nowpayments')">
+<div class="flex items-center justify-between gap-2">
+<span class="font-headline font-bold text-sm text-[#F8FAFC]">NOWPayments IPN</span>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent-emerald/10 text-accent-emerald">Active</span>
+</div>
+<span class="font-mono text-[11px] text-[#94A3B8] mt-1">x-nowpayments-sig (Sorted HMAC-SHA512)</span>
+</button>
+</div>
+</section>
+<!-- 3. Split-Pane Cryptographic Workbench -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+<!-- LEFT PANE: Incoming Raw Webhook & Header Inspector (5 Cols) -->
+<div class="xl:col-span-5 flex flex-col gap-4 bg-[#0F172A] border border-[#1E293B] rounded-lg p-5">
+<div class="flex items-center justify-between pb-3 border-b border-[#1E293B]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-accent-cyan" data-icon="data_object">data_object</span>
+<div>
+<h2 class="font-headline text-sm font-bold text-[#F8FAFC]">Incoming Raw Webhook &amp; Header Inspector</h2>
+<span class="text-[10px] text-[#94A3B8]">Kiểm tra tiêu đề &amp; tải trọng JSON thô</span>
+</div>
+</div>
+<span class="text-[10px] font-mono px-2 py-0.5 rounded bg-accent-violet/10 text-accent-violet border border-accent-violet/20" id="current-protocol-badge">HMAC-SHA256</span>
+</div>
+<!-- Header Parameters Form -->
+<div class="grid grid-cols-2 gap-3">
+<div class="flex flex-col gap-1">
+<label class="text-[10px] font-mono text-[#94A3B8] uppercase">HMAC Secret Key</label>
+<div class="flex items-center justify-between px-2.5 py-1.5 bg-[#020617] border border-[#1E293B] rounded font-mono text-xs">
+<span class="text-accent-amber" id="secret-key-display">••••••••••••••••3a9f</span>
+<button class="text-[#94A3B8] hover:text-[#F8FAFC]" onclick="toggleSecretVisibility()">
+<span class="material-symbols-outlined text-xs" data-icon="visibility" id="secret-eye-icon">visibility</span>
+</button>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<label class="text-[10px] font-mono text-[#94A3B8] uppercase">Timestamp Header</label>
+<div class="px-2.5 py-1.5 bg-[#020617] border border-[#1E293B] rounded font-mono text-xs text-accent-cyan" id="header-timestamp">
+              1713589201942
+            </div>
+</div>
+<div class="col-span-2 flex flex-col gap-1">
+<label class="text-[10px] font-mono text-[#94A3B8] uppercase flex justify-between">
+<span>Nonce (Cloudflare KV Unique Token)</span>
+<span class="text-accent-emerald text-[9px]">TTL: 86400s (24h)</span>
+</label>
+<div class="px-2.5 py-1.5 bg-[#020617] border border-[#1E293B] rounded font-mono text-xs text-[#F8FAFC] truncate" id="header-nonce">
+              kv_nonce_7f8a9e22c9
+            </div>
+</div>
+<div class="col-span-2 flex flex-col gap-1">
+<label class="text-[10px] font-mono text-[#94A3B8] uppercase">Raw Ingestion Signature Header</label>
+<div class="px-2.5 py-1.5 bg-[#020617] border border-[#1E293B] rounded font-mono text-xs text-accent-emerald break-all" id="header-raw-signature">
+              a4b9c1d0e57288fc009b231174cd9918fb410091aa03d7bc9e821
+            </div>
+</div>
+</div>
+<!-- Interactive JSON Editor -->
+<div class="flex flex-col gap-1.5 mt-1">
+<div class="flex items-center justify-between text-xs">
+<span class="font-mono text-[11px] text-[#94A3B8]">Raw JSON Payload Body</span>
+<span class="text-[10px] font-mono text-accent-emerald flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-accent-emerald"></span> UTF-8 Normalized
+            </span>
+</div>
+<div class="relative bg-[#020617] border border-[#1E293B] rounded-lg p-3 font-mono text-xs leading-relaxed overflow-x-auto min-h-[220px]">
+<textarea class="w-full h-56 bg-transparent text-[#F8FAFC] font-mono text-xs resize-none focus:outline-none border-none p-0 leading-5" id="payload-editor" spellcheck="false">{
+  "trade_id": "BYBIT-PERP-892144",
+  "user_id": "usr_99a4c82b",
+  "exchange": "bybit",
+  "pair": "BTC/USDT",
+  "volume_usd": 125000.00,
+  "fee_paid": 93.75,
+  "rebate_rate": 0.00045,
+  "timestamp": 1713589201942,
+  "nonce": "kv_nonce_7f8a9e22c9"
+}</textarea>
+</div>
+</div>
+<!-- Utility Buttons Underneath Editor -->
+<div class="flex items-center justify-between gap-2 pt-2">
+<div class="flex items-center gap-2">
+<button class="px-3 py-1.5 bg-[#1E293B] hover:bg-[#334155] rounded text-xs font-mono text-[#F8FAFC] flex items-center gap-1.5 transition-colors" onclick="formatJSON()">
+<span class="material-symbols-outlined text-xs" data-icon="code">code</span>
+<span>Format JSON</span>
+</button>
+<button class="px-3 py-1.5 bg-primary/20 hover:bg-primary/30 border border-primary/40 rounded text-xs font-mono text-primary flex items-center gap-1.5 transition-colors" onclick="regenerateSignature()">
+<span class="material-symbols-outlined text-xs" data-icon="refresh">refresh</span>
+<span>Regenerate Signature</span>
+</button>
+</div>
+<button class="px-2.5 py-1.5 bg-accent-crimson/10 hover:bg-accent-crimson/20 border border-accent-crimson/30 rounded text-xs font-mono text-accent-crimson flex items-center gap-1 transition-colors" onclick="tamperPayload()" title="Mutate 1-Byte to simulate attacker tampering">
+<span class="material-symbols-outlined text-xs" data-icon="emergency">emergency</span>
+<span>Mutate 1-Byte</span>
+</button>
+</div>
+</div>
+<!-- RIGHT PANE: WebCrypto Verification Pipeline & Multi-Tier Attribution (7 Cols) -->
+<div class="xl:col-span-7 flex flex-col gap-5 bg-[#0F172A] border border-[#1E293B] rounded-lg p-5">
+<div class="flex items-center justify-between pb-3 border-b border-[#1E293B]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="lock">lock</span>
+<div>
+<h2 class="font-headline text-sm font-bold text-[#F8FAFC]">WebCrypto Verification Pipeline &amp; Attribution</h2>
+<span class="text-[10px] text-[#94A3B8]">Quy trình thẩm định SubtleCrypto &amp; Tính toán chia sẻ hoa hồng tức thời</span>
+</div>
+</div>
+<div class="px-2.5 py-1 rounded bg-accent-emerald/15 border border-accent-emerald/40 text-accent-emerald text-xs font-mono font-semibold flex items-center gap-1.5" id="pipeline-status-badge">
+<span class="material-symbols-outlined text-xs" data-icon="check_circle">check_circle</span>
+<span>200 SIGNATURE_VALID</span>
+</div>
+</div>
+<!-- Cryptographic Verification Stepper -->
+<div class="flex flex-col gap-2.5">
+<div class="text-[11px] font-label uppercase tracking-wider text-[#94A3B8]">Deterministic Verification Pipeline:</div>
+<div class="space-y-2">
+<!-- Step 1 -->
+<div class="flex items-start gap-3 p-2.5 rounded bg-[#020617] border border-[#1E293B] transition-all" id="step-1">
+<div class="w-5 h-5 rounded-full bg-accent-emerald/20 text-accent-emerald flex items-center justify-center font-mono text-[10px] font-bold mt-0.5">1</div>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold text-[#F8FAFC]">Canonical Payload Normalization &amp; Alphabetical Key Sorting</span>
+<span class="text-[10px] font-mono text-accent-emerald" id="step-1-status">RFC Compliant ✓</span>
+</div>
+<div class="text-[11px] text-[#94A3B8] font-mono mt-0.5">Keys reordered deterministically: exchange → fee_paid → nonce → pair...</div>
+</div>
+</div>
+<!-- Step 2 -->
+<div class="flex items-start gap-3 p-2.5 rounded bg-[#020617] border border-[#1E293B] transition-all" id="step-2">
+<div class="w-5 h-5 rounded-full bg-accent-emerald/20 text-accent-emerald flex items-center justify-center font-mono text-[10px] font-bold mt-0.5">2</div>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold text-[#F8FAFC]">Nonce Uniqueness Check in Cloudflare KV Cache</span>
+<span class="text-[10px] font-mono text-accent-emerald" id="step-2-status">UNSEEN (PROCEED) ✓</span>
+</div>
+<div class="text-[11px] text-[#94A3B8] font-mono mt-0.5" id="step-2-detail">KV key: <code class="text-accent-cyan">webhook_nonce:kv_nonce_7f8a9e22c9</code> | Status: Cache Miss (Fresh)</div>
+</div>
+</div>
+<!-- Step 3 -->
+<div class="flex items-start gap-3 p-2.5 rounded bg-[#020617] border border-[#1E293B] transition-all" id="step-3">
+<div class="w-5 h-5 rounded-full bg-accent-emerald/20 text-accent-emerald flex items-center justify-center font-mono text-[10px] font-bold mt-0.5">3</div>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold text-[#F8FAFC]">SubtleCrypto HMAC Generation (Browser Native API)</span>
+<span class="text-[10px] font-mono text-accent-emerald" id="step-3-status">Computed (1.42ms) ✓</span>
+</div>
+<div class="text-[11px] text-[#94A3B8] font-mono mt-0.5">Algorithm: HMAC-SHA256 | Window.crypto.subtle.sign('HMAC', key, data)</div>
+</div>
+</div>
+<!-- Step 4 -->
+<div class="flex items-start gap-3 p-2.5 rounded bg-[#020617] border border-[#1E293B] transition-all" id="step-4">
+<div class="w-5 h-5 rounded-full bg-accent-emerald/20 text-accent-emerald flex items-center justify-center font-mono text-[10px] font-bold mt-0.5">4</div>
+<div class="flex-1">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold text-[#F8FAFC]">Timing-Safe Signature Equality Comparison</span>
+<span class="text-[10px] font-mono text-accent-emerald font-bold" id="step-4-status">MATCH (EXACT) ✓</span>
+</div>
+<div class="text-[11px] text-[#94A3B8] font-mono mt-0.5">Constant-time XOR buffer comparison: 0 differences detected</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Signature Diff Viewer -->
+<div class="bg-[#020617] border border-[#1E293B] rounded-lg p-3.5 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="text-[11px] font-mono uppercase text-[#94A3B8]">Signature Diff Analysis</span>
+<span class="text-[10px] font-mono text-accent-cyan" id="diff-latency">Latency: 1.42ms WebCrypto execution</span>
+</div>
+<div class="grid grid-cols-1 gap-2 font-mono text-xs">
+<div class="flex items-center gap-2 bg-[#0F172A] p-2 rounded border border-[#1E293B]">
+<span class="text-[10px] text-[#94A3B8] w-28 uppercase">Header Sign:</span>
+<span class="text-accent-emerald tracking-wider break-all" id="diff-header-sign">a4b9c1d0e57288fc009b231174cd9918fb410091aa03d7bc9e821</span>
+</div>
+<div class="flex items-center gap-2 bg-[#0F172A] p-2 rounded border border-[#1E293B]">
+<span class="text-[10px] text-[#94A3B8] w-28 uppercase">Computed Sign:</span>
+<span class="text-accent-emerald tracking-wider break-all" id="diff-computed-sign">a4b9c1d0e57288fc009b231174cd9918fb410091aa03d7bc9e821</span>
+</div>
+</div>
+</div>
+<!-- Real-Time Commission Calculation Preview -->
+<div class="bg-gradient-to-br from-[#020617] to-[#0F172A] border border-primary/30 rounded-lg p-4 flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<div>
+<span class="font-headline font-bold text-xs text-[#F8FAFC]">Real-Time Commission Calculation Preview</span>
+<p class="text-[10px] text-[#94A3B8]">Derived from verified $93.75 fee paid • Phân bổ hoa hồng đa cấp tự động</p>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono bg-accent-emerald/20 text-accent-emerald font-semibold border border-accent-emerald/40" id="escrow-pill">
+              COMMISSION AUTO-ESCROW CLEARED
+            </span>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
+<div class="p-2.5 rounded bg-[#0F172A] border border-[#1E293B]">
+<div class="text-[10px] text-[#94A3B8] font-mono uppercase">Affiliate Yield Pool</div>
+<div class="font-headline text-base font-bold text-accent-cyan mt-1" id="stat-yield-pool">$42.19</div>
+<span class="text-[9px] text-[#94A3B8]">45.0% Net Cashback</span>
+</div>
+<div class="p-2.5 rounded bg-[#0F172A] border border-[#1E293B]">
+<div class="text-[10px] text-[#94A3B8] font-mono uppercase">Tier 1 Direct (30%)</div>
+<div class="font-headline text-base font-bold text-accent-emerald mt-1" id="stat-tier-1">$28.13 <span class="text-xs font-normal text-[#94A3B8]">USDC</span></div>
+<span class="text-[9px] text-accent-emerald">Direct Trader Share</span>
+</div>
+<div class="p-2.5 rounded bg-[#0F172A] border border-[#1E293B]">
+<div class="text-[10px] text-[#94A3B8] font-mono uppercase">Tier 2 Sub-Aff (10%)</div>
+<div class="font-headline text-base font-bold text-accent-violet mt-1" id="stat-tier-2">$9.38 <span class="text-xs font-normal text-[#94A3B8]">USDC</span></div>
+<span class="text-[9px] text-[#94A3B8]">Partner Network</span>
+</div>
+<div class="p-2.5 rounded bg-[#0F172A] border border-[#1E293B]">
+<div class="text-[10px] text-[#94A3B8] font-mono uppercase">Tier 3 Ext (5%)</div>
+<div class="font-headline text-base font-bold text-accent-amber mt-1" id="stat-tier-3">$4.69 <span class="text-xs font-normal text-[#94A3B8]">USDC</span></div>
+<span class="text-[9px] text-[#94A3B8]">Master Liquidity Pool</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- 4. Replay Attack & Idempotency Stress Log (Audit Table) -->
+<section class="bg-[#0F172A] border border-[#1E293B] rounded-lg p-5 flex flex-col gap-4">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+<div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-accent-amber" data-icon="history_toggle_off">history_toggle_off</span>
+<h3 class="font-headline text-sm font-bold text-[#F8FAFC]">Replay Attack &amp; Idempotency Stress Log</h3>
+</div>
+<p class="text-xs text-[#94A3B8] mt-0.5">Audit log of simulated ingestion payloads, replay prevention locks, and cryptographic mismatch traps.</p>
+</div>
+<div class="flex items-center gap-2 font-mono text-xs">
+<span class="px-2.5 py-1 rounded bg-[#020617] border border-[#1E293B] text-[#94A3B8]">
+            Total Ingested: <span class="text-[#F8FAFC] font-bold" id="total-ingested-count">48,192</span>
+</span>
+<span class="px-2.5 py-1 rounded bg-accent-crimson/10 border border-accent-crimson/30 text-accent-crimson font-bold">
+            Replays Blocked: 142
+          </span>
+</div>
+</div>
+<!-- Audit Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-[#1E293B] text-[11px] font-mono text-[#94A3B8] uppercase">
+<th class="py-2.5 px-3">Timestamp (UTC)</th>
+<th class="py-2.5 px-3">Provider / Rail</th>
+<th class="py-2.5 px-3">Event Type</th>
+<th class="py-2.5 px-3">Request Hash / Nonce</th>
+<th class="py-2.5 px-3">Ingestion State</th>
+<th class="py-2.5 px-3">Latency</th>
+<th class="py-2.5 px-3 text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-[#1E293B] font-mono text-xs" id="audit-table-body">
+<!-- Row 1: Valid Bybit -->
+<tr class="hover:bg-[#1E293B]/40 transition-colors">
+<td class="py-2.5 px-3 text-[#94A3B8]">12:41:02.194</td>
+<td class="py-2.5 px-3 font-semibold text-[#F8FAFC]">Bybit</td>
+<td class="py-2.5 px-3"><span class="px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[10px]">TRADE_FILL</span></td>
+<td class="py-2.5 px-3 text-accent-cyan truncate max-w-[140px]">0x8f94...e4b2</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 text-accent-emerald font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-accent-emerald"></span> 200 OK (Verified)
+                </span>
+</td>
+<td class="py-2.5 px-3 text-[#94A3B8]">1.8ms</td>
+<td class="py-2.5 px-3 text-right space-x-2">
+<button class="text-accent-cyan hover:underline text-[11px]" onclick="inspectRow('0x8f94...e4b2')">Inspect</button>
+<button class="text-[#94A3B8] hover:text-[#F8FAFC] text-[11px]" onclick="retestRow('0x8f94...e4b2')">Retest</button>
+</td>
+</tr>
+<!-- Row 2: Replay Blocked Binance -->
+<tr class="hover:bg-[#1E293B]/40 transition-colors bg-accent-amber/5">
+<td class="py-2.5 px-3 text-[#94A3B8]">12:40:45.018</td>
+<td class="py-2.5 px-3 font-semibold text-[#F8FAFC]">Binance</td>
+<td class="py-2.5 px-3"><span class="px-1.5 py-0.5 rounded bg-[#1E293B] text-[#94A3B8] text-[10px]">REBATE_CREDIT</span></td>
+<td class="py-2.5 px-3 text-accent-amber truncate max-w-[140px]">0x3c12...88a1</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 text-accent-amber font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-accent-amber"></span> 409 DUPLICATE_NONCE
+                </span>
+<span class="text-[10px] text-[#94A3B8] block">KV cache hit • Replay Prevented</span>
+</td>
+<td class="py-2.5 px-3 text-[#94A3B8]">0.6ms</td>
+<td class="py-2.5 px-3 text-right space-x-2">
+<button class="text-accent-cyan hover:underline text-[11px]" onclick="inspectRow('0x3c12...88a1')">Inspect</button>
+<button class="text-accent-amber hover:underline text-[11px]" onclick="retestRow('0x3c12...88a1')">Audit Lock</button>
+</td>
+</tr>
+<!-- Row 3: Valid NOWPayments -->
+<tr class="hover:bg-[#1E293B]/40 transition-colors">
+<td class="py-2.5 px-3 text-[#94A3B8]">12:38:12.771</td>
+<td class="py-2.5 px-3 font-semibold text-[#F8FAFC]">NOWPayments</td>
+<td class="py-2.5 px-3"><span class="px-1.5 py-0.5 rounded bg-accent-violet/15 text-accent-violet text-[10px]">IPN_PAYMENT</span></td>
+<td class="py-2.5 px-3 text-accent-cyan truncate max-w-[140px]">0x99dd...10fc</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 text-accent-emerald font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-accent-emerald"></span> 200 OK (HMAC-SHA512)
+                </span>
+</td>
+<td class="py-2.5 px-3 text-[#94A3B8]">2.4ms</td>
+<td class="py-2.5 px-3 text-right space-x-2">
+<button class="text-accent-cyan hover:underline text-[11px]" onclick="inspectRow('0x99dd...10fc')">Inspect</button>
+<button class="text-[#94A3B8] hover:text-[#F8FAFC] text-[11px]" onclick="retestRow('0x99dd...10fc')">Retest</button>
+</td>
+</tr>
+<!-- Row 4: Signature Mismatch OKX -->
+<tr class="hover:bg-[#1E293B]/40 transition-colors bg-accent-crimson/5">
+<td class="py-2.5 px-3 text-[#94A3B8]">12:35:59.340</td>
+<td class="py-2.5 px-3 font-semibold text-[#F8FAFC]">OKX</td>
+<td class="py-2.5 px-3"><span class="px-1.5 py-0.5 rounded bg-[#1E293B] text-[#94A3B8] text-[10px]">ACCOUNT_REBATE</span></td>
+<td class="py-2.5 px-3 text-accent-crimson truncate max-w-[140px]">0x11ee...44c2</td>
+<td class="py-2.5 px-3">
+<span class="inline-flex items-center gap-1 text-accent-crimson font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-accent-crimson"></span> 401 INVALID_SIGNATURE
+                </span>
+<span class="text-[10px] text-[#94A3B8] block">Altered fee field • Rejected</span>
+</td>
+<td class="py-2.5 px-3 text-[#94A3B8]">1.2ms</td>
+<td class="py-2.5 px-3 text-right space-x-2">
+<button class="text-accent-cyan hover:underline text-[11px]" onclick="inspectRow('0x11ee...44c2')">Inspect</button>
+<button class="text-accent-crimson hover:underline text-[11px]" onclick="retestRow('0x11ee...44c2')">Flag IP</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+</main>
+<!-- ========================================================================= -->
+<!-- INLINE CLIENT LOGIC: WebCrypto SubtleCrypto & Sandbox Interactions         -->
+<!-- ========================================================================= -->
+<script>
+    // State management
+    let currentProvider = 'bybit';
+    let isSecretMasked = true;
+    const realSecret = "apex_sec_99a8b12f45c7e199d0821aa";
+
+    const providerConfigs = {
+      binance: {
+        protocol: "HMAC-SHA256 (Hex)",
+        headerName: "X-MBX-SIGNATURE",
+        nonce: "kv_nonce_binance_99a1",
+        signHeader: "c5d189bb4109fe22a8198f3214b7e90023a1c892ee34b12aa0981",
+        payload: {
+          trade_id: "BINANCE-FUT-77192",
+          user_id: "usr_binance_440",
+          exchange: "binance",
+          pair: "ETH/USDT",
+          volume_usd: 84000.00,
+          fee_paid: 63.00,
+          rebate_rate: 0.00040,
+          timestamp: Date.now(),
+          nonce: "kv_nonce_binance_99a1"
+        }
+      },
+      bybit: {
+        protocol: "HMAC-SHA256 (Hex)",
+        headerName: "X-BAPI-SIGN",
+        nonce: "kv_nonce_7f8a9e22c9",
+        signHeader: "a4b9c1d0e57288fc009b231174cd9918fb410091aa03d7bc9e821",
+        payload: {
+          trade_id: "BYBIT-PERP-892144",
+          user_id: "usr_99a4c82b",
+          exchange: "bybit",
+          pair: "BTC/USDT",
+          volume_usd: 125000.00,
+          fee_paid: 93.75,
+          rebate_rate: 0.00045,
+          timestamp: 1713589201942,
+          nonce: "kv_nonce_7f8a9e22c9"
+        }
+      },
+      okx: {
+        protocol: "Base64 HMAC-SHA256",
+        headerName: "OK-ACCESS-SIGN",
+        nonce: "kv_nonce_okx_8871ab",
+        signHeader: "qXm93LpZk09jF/92AA81bM==...",
+        payload: {
+          trade_id: "OKX-SWAP-990112",
+          user_id: "usr_okx_912",
+          exchange: "okx",
+          pair: "SOL/USDT",
+          volume_usd: 54000.00,
+          fee_paid: 40.50,
+          rebate_rate: 0.00042,
+          timestamp: Date.now(),
+          nonce: "kv_nonce_okx_8871ab"
+        }
+      },
+      kucoin: {
+        protocol: "KC-API-SIGN (v2)",
+        headerName: "KC-API-SIGN",
+        nonce: "kv_nonce_kucoin_223b",
+        signHeader: "kc_sign_990184bbaa2388190fc...",
+        payload: {
+          trade_id: "KC-MARGIN-33100",
+          user_id: "usr_kucoin_11",
+          exchange: "kucoin",
+          pair: "AVAX/USDT",
+          volume_usd: 32000.00,
+          fee_paid: 24.00,
+          rebate_rate: 0.00040,
+          timestamp: Date.now(),
+          nonce: "kv_nonce_kucoin_223b"
+        }
+      },
+      nowpayments: {
+        protocol: "HMAC-SHA512 (Hex)",
+        headerName: "x-nowpayments-sig",
+        nonce: "kv_nonce_now_667b90",
+        signHeader: "fe8912ba009384bcda7710293847561029384756acbdee119922003344...",
+        payload: {
+          trade_id: "NP-IPN-PAY-55102",
+          user_id: "usr_np_551",
+          exchange: "nowpayments",
+          pair: "USDC/USD",
+          volume_usd: 10000.00,
+          fee_paid: 50.00,
+          rebate_rate: 0.00500,
+          timestamp: Date.now(),
+          nonce: "kv_nonce_now_667b90"
+        }
+      }
+    };
+
+    function selectProvider(key) {
+      currentProvider = key;
+      const cfg = providerConfigs[key];
+      if (!cfg) return;
+
+      // Update Tab CSS
+      document.querySelectorAll('.provider-tab').forEach(tab => {
+        const prov = tab.getAttribute('data-provider');
+        if (prov === key) {
+          tab.className = "provider-tab flex-1 flex flex-col p-3 rounded text-left transition-all border border-primary/50 bg-primary/10";
+          tab.querySelector('.font-headline').className = "font-headline font-bold text-sm text-primary";
+        } else {
+          tab.className = "provider-tab flex-1 flex flex-col p-3 rounded text-left transition-all border border-transparent hover:border-[#1E293B] hover:bg-[#1E293B]/50";
+          tab.querySelector('.font-headline').className = "font-headline font-bold text-sm text-[#F8FAFC]";
+        }
+      });
+
+      document.getElementById('current-protocol-badge').innerText = cfg.protocol;
+      document.getElementById('header-timestamp').innerText = cfg.payload.timestamp;
+      document.getElementById('header-nonce').innerText = cfg.nonce;
+      document.getElementById('header-raw-signature').innerText = cfg.signHeader;
+      document.getElementById('payload-editor').value = JSON.stringify(cfg.payload, null, 2);
+
+      // Re-run execution
+      simulateIngestion();
+    }
+
+    function toggleSecretVisibility() {
+      const disp = document.getElementById('secret-key-display');
+      const icon = document.getElementById('secret-eye-icon');
+      if (isSecretMasked) {
+        disp.innerText = realSecret;
+        icon.innerText = "visibility_off";
+        isSecretMasked = false;
+      } else {
+        disp.innerText = "••••••••••••••••3a9f";
+        icon.innerText = "visibility";
+        isSecretMasked = true;
+      }
+    }
+
+    function formatJSON() {
+      try {
+        const editor = document.getElementById('payload-editor');
+        const parsed = JSON.parse(editor.value);
+        editor.value = JSON.stringify(parsed, null, 2);
+      } catch (e) {
+        alert("Invalid JSON format in payload editor");
+      }
+    }
+
+    // Deterministic key sort
+    function canonicalString(obj) {
+      const keys = Object.keys(obj).sort();
+      let parts = [];
+      for (const k of keys) {
+        parts.push(`${k}=${typeof obj[k] === 'object' ? JSON.stringify(obj[k]) : obj[k]}`);
+      }
+      return parts.join('&');
+    }
+
+    // WebCrypto HMAC execution simulation
+    async function simulateIngestion() {
+      let rawText = document.getElementById('payload-editor').value;
+      let parsed;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch(e) {
+        alert("JSON syntax error. Please rectify before simulation.");
+        return;
+      }
+
+      // Update Commission Calculation based on fee_paid
+      const fee = parseFloat(parsed.fee_paid) || 93.75;
+      const totalYield = (fee * 0.45).toFixed(2);
+      const tier1 = (fee * 0.30).toFixed(2);
+      const tier2 = (fee * 0.10).toFixed(2);
+      const tier3 = (fee * 0.05).toFixed(2);
+
+      document.getElementById('stat-yield-pool').innerText = `$${totalYield}`;
+      document.getElementById('stat-tier-1').innerHTML = `$${tier1} <span class="text-xs font-normal text-[#94A3B8]">USDC</span>`;
+      document.getElementById('stat-tier-2').innerHTML = `$${tier2} <span class="text-xs font-normal text-[#94A3B8]">USDC</span>`;
+      document.getElementById('stat-tier-3').innerHTML = `$${tier3} <span class="text-xs font-normal text-[#94A3B8]">USDC</span>`;
+
+      // Set Valid Pipeline state
+      setPipelineValid(parsed);
+      addAuditRow(parsed.exchange.toUpperCase(), "TRADE_INGEST", "200 OK (Verified)", "text-accent-emerald", "1.4ms");
+    }
+
+    function setPipelineValid(payload) {
+      document.getElementById('pipeline-status-badge').className = "px-2.5 py-1 rounded bg-accent-emerald/15 border border-accent-emerald/40 text-accent-emerald text-xs font-mono font-semibold flex items-center gap-1.5";
+      document.getElementById('pipeline-status-badge').innerHTML = `<span class="material-symbols-outlined text-xs" data-icon="check_circle">check_circle</span><span>200 SIGNATURE_VALID</span>`;
+
+      document.getElementById('step-1-status').innerText = "RFC Compliant ✓";
+      document.getElementById('step-1-status').className = "text-[10px] font-mono text-accent-emerald";
+      
+      document.getElementById('step-2-status').innerText = "UNSEEN (PROCEED) ✓";
+      document.getElementById('step-2-status').className = "text-[10px] font-mono text-accent-emerald";
+      document.getElementById('step-2-detail').innerHTML = `KV key: <code class="text-accent-cyan">webhook_nonce:${payload.nonce || 'nonce_ok'}</code> | Status: Cache Miss (Fresh)`;
+
+      document.getElementById('step-3-status').innerText = "Computed (1.42ms) ✓";
+      document.getElementById('step-3-status').className = "text-[10px] font-mono text-accent-emerald";
+
+      document.getElementById('step-4-status').innerText = "MATCH (EXACT) ✓";
+      document.getElementById('step-4-status').className = "text-[10px] font-mono text-accent-emerald font-bold";
+
+      const validSig = "a4b9c1d0e57288fc009b231174cd9918fb410091aa03d7bc9e821";
+      document.getElementById('header-raw-signature').innerText = validSig;
+      document.getElementById('diff-header-sign').innerText = validSig;
+      document.getElementById('diff-header-sign').className = "text-accent-emerald tracking-wider break-all";
+      document.getElementById('diff-computed-sign').innerText = validSig;
+      document.getElementById('diff-computed-sign').className = "text-accent-emerald tracking-wider break-all";
+
+      document.getElementById('escrow-pill').className = "px-2 py-0.5 rounded text-[10px] font-mono bg-accent-emerald/20 text-accent-emerald font-semibold border border-accent-emerald/40";
+      document.getElementById('escrow-pill').innerText = "COMMISSION AUTO-ESCROW CLEARED";
+    }
+
+    function tamperPayload() {
+      try {
+        const editor = document.getElementById('payload-editor');
+        const parsed = JSON.parse(editor.value);
+        // Mutate fee paid by adding 0.01 to trigger 401
+        parsed.fee_paid = +(parsed.fee_paid + 1.00).toFixed(2);
+        editor.value = JSON.stringify(parsed, null, 2);
+
+        // Update pipeline to 401 error state
+        document.getElementById('pipeline-status-badge').className = "px-2.5 py-1 rounded bg-accent-crimson/15 border border-accent-crimson/40 text-accent-crimson text-xs font-mono font-semibold flex items-center gap-1.5";
+        document.getElementById('pipeline-status-badge').innerHTML = `<span class="material-symbols-outlined text-xs" data-icon="error">error</span><span>401 INVALID_SIGNATURE</span>`;
+
+        document.getElementById('step-4-status').innerText = "MISMATCH ✗ (401)";
+        document.getElementById('step-4-status').className = "text-[10px] font-mono text-accent-crimson font-bold";
+
+        const tamperedHash = "ff8812c019baae2004bb119098cd8823ee4100000000000000000";
+        document.getElementById('diff-computed-sign').innerText = tamperedHash;
+        document.getElementById('diff-computed-sign').className = "text-accent-crimson tracking-wider break-all font-bold";
+
+        document.getElementById('escrow-pill').className = "px-2 py-0.5 rounded text-[10px] font-mono bg-accent-crimson/20 text-accent-crimson font-semibold border border-accent-crimson/40";
+        document.getElementById('escrow-pill').innerText = "ESCROW BLOCKED: TAMPER DETECTED";
+
+        addAuditRow(parsed.exchange.toUpperCase(), "TRADE_FILL", "401 INVALID_SIGNATURE", "text-accent-crimson", "0.9ms");
+      } catch (e) {
+        alert("Unable to tamper invalid JSON.");
+      }
+    }
+
+    function triggerReplay() {
+      try {
+        const editor = document.getElementById('payload-editor');
+        const parsed = JSON.parse(editor.value);
+
+        // Set KV step to 409 DUPLICATE_NONCE
+        document.getElementById('pipeline-status-badge').className = "px-2.5 py-1 rounded bg-accent-amber/15 border border-accent-amber/40 text-accent-amber text-xs font-mono font-semibold flex items-center gap-1.5";
+        document.getElementById('pipeline-status-badge').innerHTML = `<span class="material-symbols-outlined text-xs" data-icon="block">block</span><span>409 REPLAY_BLOCKED</span>`;
+
+        document.getElementById('step-2-status').innerText = "CACHE HIT ✗ (409)";
+        document.getElementById('step-2-status').className = "text-[10px] font-mono text-accent-amber font-bold";
+        document.getElementById('step-2-detail').innerHTML = `KV key: <code class="text-accent-amber">webhook_nonce:${parsed.nonce || 'nonce_hit'}</code> | Status: Locked (Replay Attack Prevented)`;
+
+        document.getElementById('escrow-pill').className = "px-2 py-0.5 rounded text-[10px] font-mono bg-accent-amber/20 text-accent-amber font-semibold border border-accent-amber/40";
+        document.getElementById('escrow-pill').innerText = "ESCROW ABORTED: IDEMPOTENT DUPLICATE";
+
+        addAuditRow(parsed.exchange.toUpperCase(), "REPLAY_ATTACK", "409 DUPLICATE_NONCE", "text-accent-amber", "0.4ms");
+      } catch (e) {
+        alert("Cannot execute replay on invalid payload.");
+      }
+    }
+
+    function regenerateSignature() {
+      try {
+        const editor = document.getElementById('payload-editor');
+        const parsed = JSON.parse(editor.value);
+        parsed.nonce = "kv_nonce_" + Math.random().toString(36).substring(2, 12);
+        parsed.timestamp = Date.now();
+        editor.value = JSON.stringify(parsed, null, 2);
+        
+        document.getElementById('header-timestamp').innerText = parsed.timestamp;
+        document.getElementById('header-nonce').innerText = parsed.nonce;
+        simulateIngestion();
+      } catch (e) {
+        alert("Failed to regenerate signature.");
+      }
+    }
+
+    function addAuditRow(provider, eventType, state, stateClass, latency) {
+      const tbody = document.getElementById('audit-table-body');
+      const now = new Date();
+      const timeStr = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}:${String(now.getUTCSeconds()).padStart(2, '0')}.${String(now.getUTCMilliseconds()).padStart(3, '0')}`;
+      const randomNonce = "0x" + Math.random().toString(16).substring(2, 6) + "..." + Math.random().toString(16).substring(2, 6);
+
+      const tr = document.createElement('tr');
+      tr.className = "hover:bg-[#1E293B]/40 transition-colors animate-pulse";
+      tr.innerHTML = `
+        <td class="py-2.5 px-3 text-[#94A3B8]">${timeStr}</td>
+        <td class="py-2.5 px-3 font-semibold text-[#F8FAFC]">${provider}</td>
+        <td class="py-2.5 px-3"><span class="px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[10px]">${eventType}</span></td>
+        <td class="py-2.5 px-3 text-accent-cyan truncate max-w-[140px]">${randomNonce}</td>
+        <td class="py-2.5 px-3">
+          <span class="inline-flex items-center gap-1 ${stateClass} font-semibold">
+            <span class="w-1.5 h-1.5 rounded-full ${stateClass.replace('text-', 'bg-')}"></span> ${state}
+          </span>
+        </td>
+        <td class="py-2.5 px-3 text-[#94A3B8]">${latency}</td>
+        <td class="py-2.5 px-3 text-right space-x-2">
+          <button onclick="inspectRow('${randomNonce}')" class="text-accent-cyan hover:underline text-[11px]">Inspect</button>
+          <button onclick="retestRow('${randomNonce}')" class="text-[#94A3B8] hover:text-[#F8FAFC] text-[11px]">Retest</button>
+        </td>
+      `;
+
+      tbody.insertBefore(tr, tbody.firstChild);
+      setTimeout(() => tr.classList.remove('animate-pulse'), 1000);
+
+      // Increment count
+      const totalCount = document.getElementById('total-ingested-count');
+      if (totalCount) {
+        let n = parseInt(totalCount.innerText.replace(/,/g, '')) || 48192;
+        totalCount.innerText = (n + 1).toLocaleString();
+      }
+    }
+
+    function inspectRow(nonce) {
+      alert(`Inspecting cryptographic trace & Cloudflare KV state for request: ${nonce}`);
+    }
+
+    function retestRow(nonce) {
+      regenerateSignature();
+    }
+
+    function exportAuditJSON() {
+      const sampleExport = {
+        app: "ApexOS Security Command",
+        engine: "WebCrypto SubtleCrypto & Cloudflare KV Nonce Cache",
+        timestamp: new Date().toISOString(),
+        verified_count: 48192,
+        active_provider: currentProvider,
+        status: "ZERO_TRUST_ENFORCED"
+      };
+      const blob = new Blob([JSON.stringify(sampleExport, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `apexos-audit-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  </script>
+
+<!-- ApexOS Stitch-Loop Unified Navigation Ribbon -->
+<div style="position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(2,6,23,0.94);backdrop-filter:blur(14px);border:1px solid rgba(99,102,241,0.35);border-radius:9999px;padding:6px 16px;display:flex;gap:8px;align-items:center;font-family:'Inter',system-ui,sans-serif;font-size:12px;box-shadow:0 12px 32px rgba(0,0,0,0.7);white-space:nowrap;max-width:96vw;overflow-x:auto;">
+  <span style="color:#06B6D4;font-weight:700;padding-right:8px;border-right:1px solid #334155;display:inline-flex;align-items:center;gap:6px;">
+    <span style="width:7px;height:7px;border-radius:9999px;background:#10B981;display:inline-block;"></span>
+    ApexOS · Stitch-Loop (16/16)
+  </span>
+  <a href="index.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">1. Cashback Cockpit</a>
+  <a href="arbitrage-deals.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">2. Arbitrage & Deals</a>
+  <a href="multichain-payouts.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">3. Multi-Chain Payouts</a>
+  <a href="compliance-fraud.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">4. KYC & Fraud Shield</a>
+  <a href="telegram-mini-app.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">5. Telegram Mini App</a>
+  <a href="style-guide.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">6. Style Guide</a>
+  <a href="webhook-replay-sandbox.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">7. Webhook Sandbox</a>
+  <a href="fee-surge-simulator.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">8. Fee Surge Simulator</a>
+  <a href="immutable-d1-audit-explorer.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">9. D1 Audit Explorer</a>
+  <a href="byok-encryption-vault.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">10. BYOK Key Vault</a>
+  <a href="vip-whale-otc-desk.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">11. VIP Whale Desk</a>
+  <a href="cron-worker-observability.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">12. Cron & D1 Observability</a>
+  <a href="sepay-vietqr-bank-bridge.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">13. SePay & VietQR Bridge</a>
+  <a href="r2-merkle-snapshot-archiver.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">14. R2 Merkle Archiver</a>
+  <a href="ai-agent-arbitrage-bot.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">15. AI Arbitrage Bot</a>
+  <a href="institutional-prime-api-gateway.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">16. Prime API Gateway</a>
+</div>
+</body></html>

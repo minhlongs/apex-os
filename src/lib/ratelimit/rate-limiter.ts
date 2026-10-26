@@ -220,7 +220,7 @@ export class RateLimiter {
   async resetLimit(endpointType: string, identifier: string): Promise<boolean> {
     const key = `${endpointType}|${identifier}`;
     const result = await this.db.prepare('DELETE FROM rate_limits WHERE key = ?').bind(key).run();
-    return result.success && result.changes > 0;
+    return result.success && (result.changes ?? 0) > 0;
   }
 
   /**
@@ -244,19 +244,23 @@ export class RateLimiter {
       return cached;
     }
 
-    // Fetch from database
-    const config = await this.db.prepare(
-      'SELECT * FROM rate_limit_configs WHERE endpoint_type = ? AND is_active = 1'
-    )
-      .bind(endpointType)
-      .first<RateLimitConfig>();
+    // Fetch from database (gracefully return null if rate_limit_configs table is not yet migrated)
+    try {
+      const config = await this.db.prepare(
+        'SELECT * FROM rate_limit_configs WHERE endpoint_type = ? AND is_active = 1'
+      )
+        .bind(endpointType)
+        .first<RateLimitConfig>();
 
-    if (config) {
-      this.configCache.set(endpointType, config);
-      this.configCacheExpiry.set(endpointType, Date.now() + this.CONFIG_CACHE_TTL);
+      if (config) {
+        this.configCache.set(endpointType, config);
+        this.configCacheExpiry.set(endpointType, Date.now() + this.CONFIG_CACHE_TTL);
+      }
+
+      return config || null;
+    } catch {
+      return null;
     }
-
-    return config || null;
   }
 
   /**
@@ -350,10 +354,25 @@ export function createRateLimiter(): RateLimiter {
  * Utility to extract IP from request headers (Cloudflare)
  */
 export function extractIpAddress(headers: Headers): string {
-  return headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-         headers.get('cf-connecting-ip') ||
-         headers.get('x-real-ip') ||
-         '127.0.0.1';
+  const cfConnectingIp = headers.get('cf-connecting-ip')?.trim();
+  if (cfConnectingIp && cfConnectingIp.length > 0) {
+    return cfConnectingIp;
+  }
+
+  const xForwardedFor = headers.get('x-forwarded-for');
+  if (xForwardedFor && xForwardedFor.trim().length > 0) {
+    const leftmost = xForwardedFor.split(',')[0]?.trim();
+    if (leftmost && leftmost.length > 0) {
+      return leftmost;
+    }
+  }
+
+  const xRealIp = headers.get('x-real-ip')?.trim();
+  if (xRealIp && xRealIp.length > 0) {
+    return xRealIp;
+  }
+
+  return '127.0.0.1';
 }
 
 /**

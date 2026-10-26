@@ -187,7 +187,9 @@ export interface CalculatedEarning {
   conversion_id: string;
   affiliate_id: string;
   amount: number;
-  level: number;
+  /** 1 = direct referral, 2 = second level, 3 = third level. Only these three
+   *  values exist, because the referral tree is capped at three levels. */
+  level: 1 | 2 | 3;
   referral_tree_id: string;
   commission_rate: number;
 }

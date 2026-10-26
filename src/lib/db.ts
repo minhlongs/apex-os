@@ -9,7 +9,13 @@
  * Types extend d1-adapter.ts with additional methods like close().
  */
 
-import { QueryMonitor, initializeQueryMonitor, wrapDatabase } from './query-monitor';
+import {
+  QueryMonitor,
+  initializeQueryMonitor,
+  wrapDatabase,
+  getGlobalMonitor,
+  resetGlobalMonitor,
+} from './query-monitor';
 import type { D1Database as D1DatabaseBase } from '@/lib/auth/adapters/d1-adapter';
 import { warn as logWarn, info as logInfo } from '@/lib/logger';
 
@@ -116,8 +122,7 @@ export function getDB(): D1Database {
 /**
  * Get the query monitor instance for stats and debugging.
  */
-export function getQueryMonitor(): import('./query-monitor').QueryMonitor | null {
-  const { getGlobalMonitor } = require('./query-monitor');
+export function getQueryMonitor(): QueryMonitor | null {
   return getGlobalMonitor();
 }
 
@@ -134,6 +139,5 @@ export function isDBInitialized(): boolean {
 export function resetDB(): void {
   wrappedDb = null;
   isInitialized = false;
-  const { resetGlobalMonitor } = require('./query-monitor');
   resetGlobalMonitor();
 }

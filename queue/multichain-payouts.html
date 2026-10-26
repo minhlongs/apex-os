@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS - Multi-Chain Automated Payout Rails &amp; Treasury Health Console</title>
+<!-- Google Fonts: Space Grotesk, Inter, Public Sans & JetBrains Mono for cryptographic data -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            surface: {
+              DEFAULT: "#020617",
+              subtle: "#0b1329",
+              card: "#0F172A",
+              cardHover: "#131f38"
+            },
+            outline: {
+              variant: "#1E293B",
+              bright: "#334155"
+            },
+            primary: {
+              DEFAULT: "#6366F1",
+              container: "#4338CA",
+              accent: "#8B5CF6",
+              cyan: "#06B6D4",
+              teal: "#14B8A6",
+              solana: "#14F195"
+            },
+            accent: {
+              amber: "#F59E0B",
+              emerald: "#10B981",
+              rose: "#F43F5E"
+            }
+          },
+          borderRadius: {
+            "DEFAULT": "0.5rem",
+            "lg": "1rem",
+            "xl": "1.5rem",
+            "full": "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 3px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+  </style>
+</head>
+<body class="bg-surface text-slate-200 font-body antialiased selection:bg-primary selection:text-white min-h-screen flex">
+<!-- LEFT NAVIGATION SIDEBAR (248px width) -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-[#020617] border-r border-[#1E293B] flex flex-col justify-between p-4 select-none">
+<div class="space-y-6">
+<!-- Terminal Node Header -->
+<div class="px-2 pt-1 pb-3 border-b border-[#1E293B]">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-400 p-0.5 flex items-center justify-center shadow-lg shadow-indigo-950/60">
+<div class="w-full h-full bg-[#020617] rounded-[3px] flex items-center justify-center">
+<span class="material-symbols-outlined text-cyan-400 text-lg">token</span>
+</div>
+</div>
+<div>
+<div class="font-headline font-bold text-sm tracking-wider text-white">ApexOS Terminal</div>
+<div class="text-[11px] font-mono text-slate-400 flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                NODE: SG-01 <span class="text-slate-500">38ms</span>
+</div>
+</div>
+</div>
+<button class="px-2 py-1 text-[11px] font-label font-medium bg-[#0F172A] hover:bg-[#1E293B] text-slate-300 border border-[#1E293B] rounded transition-colors">
+            Connect Node
+          </button>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<nav class="space-y-1">
+<div class="px-3 pb-1.5 text-[10px] font-mono uppercase tracking-wider text-slate-300 font-semibold">Core Modules</div>
+<!-- Tab 1: Inactive -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 hover:bg-[#0F172A] hover:text-white transition-colors text-sm font-normal group" href="#cashback">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-slate-300 text-[20px]">dashboard</span>
+<span>Cashback Cockpit</span>
+</a>
+<!-- Tab 2: Inactive -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 hover:bg-[#0F172A] hover:text-white transition-colors text-sm font-normal group" href="#arbitrage">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-slate-300 text-[20px]">query_stats</span>
+<span>Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- Tab 3: ACTIVE (Multi-Chain Payouts) -->
+<a class="flex items-center justify-between px-3 py-2.5 rounded text-white bg-indigo-600/15 border border-indigo-500/30 font-medium text-sm transition-all shadow-inner" href="#payouts">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-cyan-400 text-[20px]">currency_exchange</span>
+<span class="text-white font-medium">Multi-Chain Payouts</span>
+</div>
+<span class="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold tracking-wide">ACTIVE</span>
+</a>
+<!-- Tab 4: Inactive -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 hover:bg-[#0F172A] hover:text-white transition-colors text-sm font-normal group" href="#kyc">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-slate-300 text-[20px]">shield</span>
+<span>KYC &amp; Fraud Command</span>
+</a>
+<!-- Tab 5: Inactive -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 hover:bg-[#0F172A] hover:text-white transition-colors text-sm font-normal group" href="#telegram">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-slate-300 text-[20px]">send</span>
+<span>Telegram Mini App</span>
+</a>
+<!-- Tab 6: Inactive -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-slate-400 hover:bg-[#0F172A] hover:text-white transition-colors text-sm font-normal group" href="#styleguide">
+<span class="material-symbols-outlined text-slate-400 group-hover:text-slate-300 text-[20px]">palette</span>
+<span>Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Sidebar Bottom Footer -->
+<div class="space-y-3 pt-3 border-t border-[#1E293B]">
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-400 hover:bg-[#0F172A] hover:text-white transition-colors text-sm" href="#settings">
+<span class="material-symbols-outlined text-[19px]">settings</span>
+<span>Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 rounded text-slate-400 hover:bg-[#0F172A] hover:text-white transition-colors text-sm" href="#docs">
+<span class="material-symbols-outlined text-[19px]">menu_book</span>
+<span>Documentation</span>
+</a>
+<!-- Build Hash info -->
+<div class="px-3 py-2 bg-[#0F172A]/70 border border-[#1E293B] rounded text-[10px] font-mono text-slate-400 flex items-center justify-between">
+<span class="text-slate-400">SHA256: 3a9c...f481</span>
+<span class="text-cyan-400 font-bold">v3.19.4-PROD</span>
+</div>
+</div>
+</aside>
+<!-- TOP COMMAND BAR (64px) & MAIN CONTAINER -->
+<div class="flex-1 ml-64 flex flex-col min-h-screen">
+<!-- Top Command Bar -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-[#020617]/95 backdrop-blur-md border-b border-[#1E293B] px-6 flex justify-between items-center">
+<!-- Search Input -->
+<div class="w-full max-w-xl relative flex items-center">
+<span class="material-symbols-outlined absolute left-3.5 text-slate-400 text-lg">search</span>
+<input class="w-full bg-[#0F172A] border border-[#1E293B] rounded-lg pl-10 pr-12 py-2 text-xs font-mono text-slate-200 placeholder-slate-400 focus:outline-none focus:border-indigo-500 transition-colors" placeholder="Search payout batches, tx hashes, addresses, idempotency keys..." type="text"/>
+<span class="absolute right-3 px-1.5 py-0.5 rounded bg-[#1E293B] text-[10px] font-mono text-slate-300">⌘K</span>
+</div>
+<!-- Right Command Actions -->
+<div class="flex items-center gap-3.5">
+<!-- Status Pill: 3/3 Chains HEALTHY -->
+<div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-mono font-medium">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+</span>
+          3/3 Chains HEALTHY
+        </div>
+<!-- Master Tier Badge -->
+<div class="px-2.5 py-1 rounded bg-indigo-950/80 border border-indigo-700/40 text-indigo-300 font-label text-[11px] font-bold tracking-wider uppercase">
+          MASTER TIER
+        </div>
+<!-- Locale Toggle -->
+<div class="flex items-center bg-[#0F172A] border border-[#1E293B] rounded p-0.5 text-xs font-mono">
+<button class="px-2 py-1 bg-indigo-600 text-white rounded font-semibold text-[10px]">EN</button>
+<button class="px-2 py-1 text-slate-400 hover:text-white rounded text-[10px]">VI</button>
+</div>
+<!-- Notifications & Terminal Icons -->
+<button class="relative p-2 rounded hover:bg-[#0F172A] text-slate-400 hover:text-white transition-colors" title="System Notifications">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-indigo-500 ring-2 ring-[#020617]"></span>
+</button>
+<button class="p-2 rounded hover:bg-[#0F172A] text-slate-400 hover:text-white transition-colors" title="Debug Horizon/RPC Console">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+</button>
+<!-- Connected Wallet Badge -->
+<div class="flex items-center gap-2.5 px-3 py-1.5 bg-[#0F172A] border border-[#1E293B] rounded-lg">
+<div class="w-6 h-6 rounded-full bg-gradient-to-tr from-cyan-500 to-emerald-400 p-0.5 flex items-center justify-center">
+<div class="w-full h-full bg-[#0F172A] rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[13px] text-cyan-300">account_balance_wallet</span>
+</div>
+</div>
+<div class="text-left">
+<div class="font-mono text-xs font-semibold text-slate-200">0x8F94...c4B2</div>
+<div class="text-[9px] font-mono text-emerald-400 tracking-tighter">SOLANA &amp; EVM CONNECTED</div>
+</div>
+</div>
+</div>
+</header>
+<!-- MAIN SCROLLABLE CONTENT CANVAS -->
+<main class="mt-16 p-8 space-y-8 flex-1">
+<!-- HERO HEADER -->
+<section class="flex flex-col xl:flex-row xl:items-end justify-between gap-6 pb-6 border-b border-[#1E293B]">
+<div class="space-y-2 max-w-4xl">
+<div class="flex flex-wrap items-center gap-2.5">
+<h1 class="text-2xl md:text-3xl font-headline font-bold text-white tracking-tight">
+              Multi-Chain Automated Payout Rails &amp; Treasury Health
+            </h1>
+<span class="px-2.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 text-xs font-mono font-medium">
+              SETTLEMENT ENGINE: ACTIVE (Two-Phase D1)
+            </span>
+<span class="px-2.5 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-mono font-medium">
+              IDEMPOTENCY: ENFORCED (SHA-256)
+            </span>
+</div>
+<p class="text-slate-400 text-sm font-body leading-relaxed">
+            Non-custodial double-entry batch disbursement engine across Stellar Horizon, Ethereum Mainnet, and Solana SPL with real-time circuit breakers.
+          </p>
+</div>
+<!-- Actions Cluster -->
+<div class="flex flex-wrap items-center gap-3">
+<button class="flex items-center gap-2 px-3.5 py-2.5 bg-[#0F172A] hover:bg-[#1E293B] border border-[#1E293B] text-slate-200 rounded-lg text-xs font-medium transition-all shadow-sm">
+<span class="material-symbols-outlined text-base text-slate-400">download</span>
+<span>Download Disbursement CSV</span>
+</button>
+<button class="flex items-center gap-2 px-3.5 py-2.5 bg-[#0F172A] hover:bg-[#1E293B] border border-[#1E293B] text-slate-200 rounded-lg text-xs font-medium transition-all shadow-sm">
+<span class="material-symbols-outlined text-base text-cyan-400">tune</span>
+<span>Simulate Gas &amp; Slippage</span>
+</button>
+<button class="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-lg text-xs font-bold tracking-wide transition-all shadow-lg shadow-indigo-600/30 hover:shadow-indigo-600/50 active:scale-[0.99]">
+<span class="material-symbols-outlined text-base text-white">bolt</span>
+<span>EXECUTE ATOMIC BATCH ($18,420.50)</span>
+</button>
+</div>
+</section>
+<!-- SECTION 1: CIRCUIT BREAKER GATE & CHAIN RESERVE CARDS -->
+<section class="space-y-4">
+<!-- Master Circuit Breaker Banner -->
+<div class="bg-gradient-to-r from-emerald-950/40 via-[#0F172A] to-indigo-950/30 border border-emerald-500/30 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+<div class="flex items-center gap-3.5">
+<div class="w-10 h-10 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+<span class="material-symbols-outlined text-xl">gpp_good</span>
+</div>
+<div>
+<div class="text-xs font-mono font-bold tracking-wider text-emerald-400 uppercase flex items-center gap-2">
+                MASTER CIRCUIT BREAKER GATE: ARMED &amp; GREEN
+                <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
+</div>
+<div class="text-xs font-body text-slate-300 mt-0.5">
+                3/3 Chains Above Safety Floor · Max Single Batch Limit: <span class="font-mono font-semibold text-white">$50,000.00 USDC</span> · Slippage Cap: <span class="font-mono font-semibold text-white">0.05%</span>
+</div>
+</div>
+</div>
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 text-xs font-mono font-semibold transition-colors">
+<span class="material-symbols-outlined text-sm">pause_circle</span>
+            Pause Automated Settlements
+          </button>
+</div>
+<!-- 3-Column Reserve Cards Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+<!-- Card 1: Stellar Horizon -->
+<div class="bg-[#0F172A] border border-[#1E293B] hover:border-teal-500/40 transition-all rounded-xl p-5 space-y-4 relative overflow-hidden group">
+<div class="absolute -right-8 -top-8 w-28 h-28 bg-teal-500/5 rounded-full blur-2xl group-hover:bg-teal-500/10 transition-all"></div>
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-teal-500/10 border border-teal-500/30 flex items-center justify-center text-teal-400 font-bold font-mono text-sm">
+                  XLM
+                </div>
+<div>
+<h2 class="font-headline font-bold text-white text-base">Stellar Horizon</h2>
+<span class="text-[11px] font-mono text-slate-400">Horizon API: Synced (18ms)</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-teal-500/10 border border-teal-500/30 text-teal-300 uppercase">
+                HEALTHY / DISPENSING
+              </span>
+</div>
+<!-- Reserves stats -->
+<div class="space-y-3 pt-1">
+<div>
+<div class="flex justify-between text-xs font-mono mb-1">
+<span class="text-slate-400">Native Gas Reserve</span>
+<span class="font-semibold text-white">14,250 XLM <span class="text-slate-500 font-normal">/ 500 Floor</span></span>
+</div>
+<div class="w-full bg-[#1E293B] h-2 rounded-full overflow-hidden">
+<div class="bg-teal-400 h-full rounded-full" style="width: 96%"></div>
+</div>
+<div class="flex justify-between text-[10px] font-mono text-slate-500 mt-0.5">
+<span>96% Capacity</span>
+<span>Safety Margin: +2,750%</span>
+</div>
+</div>
+<div class="p-3 bg-[#020617]/70 rounded-lg border border-[#1E293B] flex items-center justify-between">
+<div>
+<div class="text-[10px] font-mono text-slate-400 uppercase">Stablecoin Reserve</div>
+<div class="text-base font-mono font-bold text-white">$142,800.00 <span class="text-xs text-teal-400">USDC</span></div>
+</div>
+<div class="text-right">
+<div class="text-[10px] font-mono text-slate-400 uppercase">Avg TX Fee</div>
+<div class="text-xs font-mono text-slate-300">0.0001 XLM <span class="text-[10px] text-slate-500">(~$0.00003)</span></div>
+</div>
+</div>
+</div>
+<!-- Quick Action Links -->
+<div class="flex items-center justify-between pt-2 border-t border-[#1E293B]/70 text-xs font-medium">
+<button class="text-teal-400 hover:text-teal-300 flex items-center gap-1">
+<span>Top-up XLM</span>
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+<button class="text-slate-400 hover:text-white flex items-center gap-1 font-mono text-[11px]">
+<span>Audit Ledger</span>
+<span class="material-symbols-outlined text-sm">open_in_new</span>
+</button>
+</div>
+</div>
+<!-- Card 2: Ethereum Mainnet -->
+<div class="bg-[#0F172A] border border-[#1E293B] hover:border-indigo-500/40 transition-all rounded-xl p-5 space-y-4 relative overflow-hidden group">
+<div class="absolute -right-8 -top-8 w-28 h-28 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/10 transition-all"></div>
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-bold font-mono text-sm">
+                  ETH
+                </div>
+<div>
+<h2 class="font-headline font-bold text-white text-base">Ethereum Mainnet</h2>
+<span class="text-[11px] font-mono text-slate-400">Safe Nonce: #4,819 · Calldata OK</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 uppercase">
+                HEALTHY / DISPENSING
+              </span>
+</div>
+<!-- Reserves stats -->
+<div class="space-y-3 pt-1">
+<div>
+<div class="flex justify-between text-xs font-mono mb-1">
+<span class="text-slate-400">Native Gas Reserve</span>
+<span class="font-semibold text-white">4.85 ETH <span class="text-slate-500 font-normal">/ 0.50 Floor</span></span>
+</div>
+<div class="w-full bg-[#1E293B] h-2 rounded-full overflow-hidden">
+<div class="bg-indigo-400 h-full rounded-full" style="width: 91%"></div>
+</div>
+<div class="flex justify-between text-[10px] font-mono text-slate-500 mt-0.5">
+<span>91% Capacity</span>
+<span>Safety Margin: +870%</span>
+</div>
+</div>
+<div class="p-3 bg-[#020617]/70 rounded-lg border border-[#1E293B] flex items-center justify-between">
+<div>
+<div class="text-[10px] font-mono text-slate-400 uppercase">ERC-20 Reserve</div>
+<div class="text-base font-mono font-bold text-white">$310,500.00 <span class="text-xs text-indigo-400">USDC/USDT</span></div>
+</div>
+<div class="text-right">
+<div class="text-[10px] font-mono text-slate-400 uppercase">EIP-1559 Fee</div>
+<div class="text-xs font-mono text-slate-300">14.2 Gwei <span class="text-[10px] text-slate-500">($1.85)</span></div>
+</div>
+</div>
+</div>
+<!-- Quick Action Links -->
+<div class="flex items-center justify-between pt-2 border-t border-[#1E293B]/70 text-xs font-medium">
+<button class="text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+<span>Refill ETH Gas</span>
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+<button class="text-slate-400 hover:text-white flex items-center gap-1 font-mono text-[11px]">
+<span>View Contract</span>
+<span class="material-symbols-outlined text-sm">open_in_new</span>
+</button>
+</div>
+</div>
+<!-- Card 3: Solana Mainnet -->
+<div class="bg-[#0F172A] border border-[#1E293B] hover:border-emerald-400/40 transition-all rounded-xl p-5 space-y-4 relative overflow-hidden group">
+<div class="absolute -right-8 -top-8 w-28 h-28 bg-[#14F195]/5 rounded-full blur-2xl group-hover:bg-[#14F195]/10 transition-all"></div>
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-[#14F195]/10 border border-[#14F195]/30 flex items-center justify-center text-[#14F195] font-bold font-mono text-sm">
+                  SOL
+                </div>
+<div>
+<h2 class="font-headline font-bold text-white text-base">Solana Mainnet</h2>
+<span class="text-[11px] font-mono text-slate-400">TPS: 2,840 · Slot: #258,419,012</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[#14F195]/10 border border-[#14F195]/30 text-[#14F195] uppercase">
+                HEALTHY / DISPENSING
+              </span>
+</div>
+<!-- Reserves stats -->
+<div class="space-y-3 pt-1">
+<div>
+<div class="flex justify-between text-xs font-mono mb-1">
+<span class="text-slate-400">Native Gas Reserve</span>
+<span class="font-semibold text-white">82.4 SOL <span class="text-slate-500 font-normal">/ 5.0 Floor</span></span>
+</div>
+<div class="w-full bg-[#1E293B] h-2 rounded-full overflow-hidden">
+<div class="bg-[#14F195] h-full rounded-full" style="width: 94%"></div>
+</div>
+<div class="flex justify-between text-[10px] font-mono text-slate-500 mt-0.5">
+<span>94% Capacity</span>
+<span>Safety Margin: +1,548%</span>
+</div>
+</div>
+<div class="p-3 bg-[#020617]/70 rounded-lg border border-[#1E293B] flex items-center justify-between">
+<div>
+<div class="text-[10px] font-mono text-slate-400 uppercase">SPL USDC Reserve</div>
+<div class="text-base font-mono font-bold text-white">$198,400.00 <span class="text-xs text-[#14F195]">USDC</span></div>
+</div>
+<div class="text-right">
+<div class="text-[10px] font-mono text-slate-400 uppercase">Priority Fee (200k CU)</div>
+<div class="text-xs font-mono text-slate-300">0.000005 SOL <span class="text-[10px] text-slate-500">($0.0004)</span></div>
+</div>
+</div>
+</div>
+<!-- Quick Action Links -->
+<div class="flex items-center justify-between pt-2 border-t border-[#1E293B]/70 text-xs font-medium">
+<button class="text-[#14F195] hover:text-[#14F195]/80 flex items-center gap-1">
+<span>Re-delegate Stake</span>
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+</button>
+<button class="text-slate-400 hover:text-white flex items-center gap-1 font-mono text-[11px]">
+<span>Inspect RPC</span>
+<span class="material-symbols-outlined text-sm">open_in_new</span>
+</button>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION 2: ATOMIC DOUBLE-ENTRY BATCH SETTLEMENT WORKBENCH -->
+<section class="bg-[#0F172A] border border-[#1E293B] rounded-xl overflow-hidden shadow-xl">
+<!-- Workbench Header / State Info -->
+<div class="p-5 border-b border-[#1E293B] space-y-4">
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+<div>
+<div class="flex items-center gap-3">
+<span class="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono text-xs font-bold">
+                  Pending Batch #PB-2026-1017
+                </span>
+<span class="text-xs font-mono text-slate-300 font-semibold">48 Eligible Affiliates (Threshold ≥ $50.00 USDC)</span>
+<span class="text-xs font-mono text-cyan-400 font-bold">Total: $18,420.50 USDC</span>
+</div>
+<div class="flex items-center gap-4 mt-2 text-xs font-mono text-slate-400">
+<span class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                  SQL D1 State: <code class="text-slate-300 bg-[#020617] px-1.5 py-0.5 rounded border border-[#1E293B]">is_paid = 0 AND payout_id IS NULL</code> (WAL Locked)
+                </span>
+<span class="hidden sm:inline text-slate-600">|</span>
+<span class="flex items-center gap-1.5">
+<span class="text-slate-400 font-semibold">Idempotency Key:</span>
+<code class="text-indigo-300 bg-[#020617] px-2 py-0.5 rounded border border-[#1E293B]">idem_sha256_9f8a371c4e2098d7...4c2e</code>
+<button class="text-slate-400 hover:text-white" title="Copy Key">
+<span class="material-symbols-outlined text-sm">content_copy</span>
+</button>
+</span>
+</div>
+</div>
+<!-- Interactive Filter Rail Tabs -->
+<div class="flex items-center bg-[#020617] border border-[#1E293B] p-1 rounded-lg text-xs font-mono">
+<button class="px-3 py-1.5 rounded-md bg-indigo-600 text-white font-medium shadow">All Rails (48)</button>
+<button class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[#0F172A] transition-colors">Stellar XLM/USDC (24)</button>
+<button class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[#0F172A] transition-colors">Solana SPL (16)</button>
+<button class="px-3 py-1.5 rounded-md text-slate-400 hover:text-white hover:bg-[#0F172A] transition-colors">Ethereum ERC-20 (8)</button>
+</div>
+</div>
+</div>
+<!-- Table / Data Grid -->
+<div class="overflow-x-auto custom-scrollbar">
+<table class="w-full text-left text-xs font-mono border-collapse">
+<thead>
+<tr class="bg-[#020617]/90 text-slate-400 border-b border-[#1E293B] uppercase text-[11px] tracking-wider">
+<th class="py-3 px-4 font-semibold">Recipient Affiliate / ID</th>
+<th class="py-3 px-4 font-semibold">Target Network &amp; Rail</th>
+<th class="py-3 px-4 font-semibold">Destination Address</th>
+<th class="py-3 px-4 font-semibold text-right">Net Amount</th>
+<th class="py-3 px-4 font-semibold text-right">Fee Est.</th>
+<th class="py-3 px-4 font-semibold">Idempotency Hash</th>
+<th class="py-3 px-4 font-semibold text-center">Pre-flight Validation</th>
+<th class="py-3 px-4 font-semibold text-right">Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-[#1E293B]/70 font-mono">
+<!-- Row 1: Stellar -->
+<tr class="hover:bg-[#131f38] transition-colors">
+<td class="py-3.5 px-4 font-sans">
+<div class="font-bold text-white text-xs">AlphaVentures Vietnam</div>
+<div class="text-[11px] font-mono text-slate-400">#AFF-8821 · Tier 1 VIP</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-teal-500/10 border border-teal-500/30 text-teal-300 text-[11px]">
+<span class="w-1.5 h-1.5 rounded-full bg-teal-400"></span> Stellar Horizon
+                  </span>
+</td>
+<td class="py-3.5 px-4">
+<div class="text-slate-300 font-mono">GCFX7K...2MW9</div>
+<span class="text-[10px] text-slate-400">StrKey Validated (No memo req)</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="font-bold text-white text-xs">$4,850.00</div>
+<span class="text-[10px] text-teal-400">USDC (Stellar Asset)</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400">
+                  0.0001 XLM
+                </td>
+<td class="py-3.5 px-4 text-slate-400">
+<span class="bg-[#020617] px-2 py-0.5 rounded border border-[#1E293B] text-[11px] text-indigo-300">8f3a...c19e</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">
+<span class="material-symbols-outlined text-xs">check_circle</span> PASS (StrKey Valid)
+                  </span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-[#020617] hover:bg-[#1E293B] border border-[#1E293B] text-slate-300 hover:text-white text-[11px]">
+                    Ready
+                  </button>
+</td>
+</tr>
+<!-- Row 2: Solana -->
+<tr class="hover:bg-[#131f38] transition-colors">
+<td class="py-3.5 px-4 font-sans">
+<div class="font-bold text-white text-xs">KyberQuant Labs</div>
+<div class="text-[11px] font-mono text-slate-400">#AFF-4109 · Maker Rebate</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#14F195]/10 border border-[#14F195]/30 text-[#14F195] text-[11px]">
+<span class="w-1.5 h-1.5 rounded-full bg-[#14F195]"></span> Solana SPL
+                  </span>
+</td>
+<td class="py-3.5 px-4">
+<div class="text-slate-300 font-mono">HN7c5P...4P9q</div>
+<span class="text-[10px] text-slate-400">Base58 Checksum Valid</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="font-bold text-white text-xs">$3,920.00</div>
+<span class="text-[10px] text-[#14F195]">SPL USDC</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400">
+                  0.000005 SOL
+                </td>
+<td class="py-3.5 px-4 text-slate-400">
+<span class="bg-[#020617] px-2 py-0.5 rounded border border-[#1E293B] text-[11px] text-indigo-300">1b22...ff90</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">
+<span class="material-symbols-outlined text-xs">check_circle</span> PASS (Associated Token Acc)
+                  </span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-[#020617] hover:bg-[#1E293B] border border-[#1E293B] text-slate-300 hover:text-white text-[11px]">
+                    Ready
+                  </button>
+</td>
+</tr>
+<!-- Row 3: Ethereum -->
+<tr class="hover:bg-[#131f38] transition-colors">
+<td class="py-3.5 px-4 font-sans">
+<div class="font-bold text-white text-xs">Hanoi_Arbitrage_Desk</div>
+<div class="text-[11px] font-mono text-slate-400">#AFF-9014 · Institutional</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-[11px]">
+<span class="w-1.5 h-1.5 rounded-full bg-indigo-400"></span> Ethereum EIP-55
+                  </span>
+</td>
+<td class="py-3.5 px-4">
+<div class="text-slate-300 font-mono">0x71C8...9A4F</div>
+<span class="text-[10px] text-slate-400">Keccak-256 Validated</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="font-bold text-white text-xs">$5,410.50</div>
+<span class="text-[10px] text-indigo-400">ERC-20 USDC</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400">
+                  0.00085 ETH
+                </td>
+<td class="py-3.5 px-4 text-slate-400">
+<span class="bg-[#020617] px-2 py-0.5 rounded border border-[#1E293B] text-[11px] text-indigo-300">77dc...33a2</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">
+<span class="material-symbols-outlined text-xs">check_circle</span> PASS (EIP-55 Validated)
+                  </span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-[#020617] hover:bg-[#1E293B] border border-[#1E293B] text-slate-300 hover:text-white text-[11px]">
+                    Ready
+                  </button>
+</td>
+</tr>
+<!-- Row 4: Stellar -->
+<tr class="hover:bg-[#131f38] transition-colors">
+<td class="py-3.5 px-4 font-sans">
+<div class="font-bold text-white text-xs">SaigonCryptoVIP</div>
+<div class="text-[11px] font-mono text-slate-400">#AFF-2290 · Community Node</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-teal-500/10 border border-teal-500/30 text-teal-300 text-[11px]">
+<span class="w-1.5 h-1.5 rounded-full bg-teal-400"></span> Stellar Horizon
+                  </span>
+</td>
+<td class="py-3.5 px-4">
+<div class="text-slate-300 font-mono">GD5P9A...6L1X</div>
+<span class="text-[10px] text-slate-400">StrKey Validated (No memo req)</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="font-bold text-white text-xs">$2,180.00</div>
+<span class="text-[10px] text-teal-400">USDC (Stellar Asset)</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400">
+                  0.0001 XLM
+                </td>
+<td class="py-3.5 px-4 text-slate-400">
+<span class="bg-[#020617] px-2 py-0.5 rounded border border-[#1E293B] text-[11px] text-indigo-300">99a1...10fd</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">
+<span class="material-symbols-outlined text-xs">check_circle</span> PASS (StrKey Valid)
+                  </span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-[#020617] hover:bg-[#1E293B] border border-[#1E293B] text-slate-300 hover:text-white text-[11px]">
+                    Ready
+                  </button>
+</td>
+</tr>
+<!-- Row 5: Solana -->
+<tr class="hover:bg-[#131f38] transition-colors">
+<td class="py-3.5 px-4 font-sans">
+<div class="font-bold text-white text-xs">DeltaNeutral_SG</div>
+<div class="text-[11px] font-mono text-slate-400">#AFF-3051 · Volume Driver</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[#14F195]/10 border border-[#14F195]/30 text-[#14F195] text-[11px]">
+<span class="w-1.5 h-1.5 rounded-full bg-[#14F195]"></span> Solana SPL
+                  </span>
+</td>
+<td class="py-3.5 px-4">
+<div class="text-slate-300 font-mono">8xLq2Z...88kP</div>
+<span class="text-[10px] text-slate-400">Base58 Checksum Valid</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<div class="font-bold text-white text-xs">$2,060.00</div>
+<span class="text-[10px] text-[#14F195]">SPL USDC</span>
+</td>
+<td class="py-3.5 px-4 text-right text-slate-400">
+                  0.000005 SOL
+                </td>
+<td class="py-3.5 px-4 text-slate-400">
+<span class="bg-[#020617] px-2 py-0.5 rounded border border-[#1E293B] text-[11px] text-indigo-300">44cf...88b1</span>
+</td>
+<td class="py-3.5 px-4 text-center">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-[10px] font-semibold">
+<span class="material-symbols-outlined text-xs">check_circle</span> PASS (Rent Exempt)
+                  </span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-[#020617] hover:bg-[#1E293B] border border-[#1E293B] text-slate-300 hover:text-white text-[11px]">
+                    Ready
+                  </button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Batch Action Bar -->
+<div class="p-4 bg-[#020617]/90 border-t border-[#1E293B] flex flex-col md:flex-row items-center justify-between gap-4">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-indigo-400 text-lg">lock</span>
+<div class="text-xs">
+<span class="font-semibold text-white">Two-Phase Commit Safe Lock Active:</span>
+<span class="text-slate-400"> SQLite D1 rollback trigger will fire if any single broadcast rejects.</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<button class="px-3 py-1.5 bg-[#0F172A] hover:bg-[#1E293B] border border-[#1E293B] text-slate-300 rounded text-xs font-mono transition-colors">
+              Preview Batch JSON Payload
+            </button>
+<button class="px-4 py-1.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded text-xs font-bold font-mono tracking-wide shadow-md shadow-indigo-600/30">
+              Execute Atomic Multi-Chain Batch
+            </button>
+</div>
+</div>
+</section>
+<!-- SECTION 3: BOTTOM SPLIT GRID (2 COLUMNS) -->
+<section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+<!-- COLUMN 1: MULTI-CHAIN ADDRESS VALIDATOR & BINDING SANDBOX -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 space-y-5 flex flex-col justify-between">
+<div class="space-y-4">
+<div class="flex items-center justify-between border-b border-[#1E293B] pb-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-cyan-400 text-xl">fact_check</span>
+<h3 class="font-headline font-bold text-white text-base">Multi-Chain Address Validator &amp; Binding Sandbox</h3>
+</div>
+<span class="text-[10px] font-mono text-cyan-400 bg-cyan-500/10 px-2 py-0.5 rounded border border-cyan-500/30">REAL-TIME TESTER</span>
+</div>
+<!-- Switchable Quick Test Pills -->
+<div class="flex items-center gap-2">
+<span class="text-xs text-slate-400">Spec:</span>
+<button class="px-2.5 py-1 rounded bg-indigo-600/20 text-indigo-300 border border-indigo-500/40 text-xs font-mono font-medium">EIP-55 Keccak</button>
+<button class="px-2.5 py-1 rounded bg-[#020617] text-slate-400 hover:text-white border border-[#1E293B] text-xs font-mono">Solana Base58</button>
+<button class="px-2.5 py-1 rounded bg-[#020617] text-slate-400 hover:text-white border border-[#1E293B] text-xs font-mono">Stellar StrKey</button>
+</div>
+<!-- Input tester -->
+<div class="space-y-1.5">
+<label class="block text-xs font-mono text-slate-400">Destination Address / Payload Hex</label>
+<div class="relative">
+<input class="w-full bg-[#020617] border border-[#1E293B] rounded-lg px-3.5 py-2.5 text-xs font-mono text-emerald-400 focus:outline-none focus:border-indigo-500" type="text" value="0x71C838961F3A172EB3ec77A8cC86780c128D9A4F"/>
+<span class="absolute right-3 top-2.5 text-emerald-400 material-symbols-outlined text-lg">check_circle</span>
+</div>
+</div>
+<!-- Live Status Indicator Feedback Card -->
+<div class="bg-[#020617] border border-emerald-500/30 rounded-lg p-3.5 space-y-2">
+<div class="flex items-center justify-between text-xs font-mono">
+<span class="text-emerald-400 font-bold flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  VALID EIP-55 Keccak Checksum (Chain ID: 1, 56)
+                </span>
+<span class="text-slate-500">Hash Match</span>
+</div>
+<p class="text-[11px] text-slate-400 leading-relaxed font-mono">
+                Bytecode evaluation confirms this is a standard EOA wallet. Zero-address trap prevention: <span class="text-emerald-400">CLEAR</span>. Not a burn sink address.
+              </p>
+</div>
+<!-- Safety safeguards list -->
+<div class="grid grid-cols-3 gap-2 pt-1 text-[11px] font-mono">
+<div class="p-2 bg-[#020617] rounded border border-[#1E293B] text-center">
+<div class="text-slate-400 text-[10px]">Zero-Address Trap</div>
+<div class="text-emerald-400 font-bold mt-0.5">PASSED</div>
+</div>
+<div class="p-2 bg-[#020617] rounded border border-[#1E293B] text-center">
+<div class="text-slate-400 text-[10px]">Contract Bytecode</div>
+<div class="text-cyan-400 font-bold mt-0.5">EOA DETECTED</div>
+</div>
+<div class="p-2 bg-[#020617] rounded border border-[#1E293B] text-center">
+<div class="text-slate-400 text-[10px]">CEX Memo Flag</div>
+<div class="text-slate-300 font-bold mt-0.5">OPTIONAL</div>
+</div>
+</div>
+</div>
+<div class="pt-3 border-t border-[#1E293B] flex items-center justify-between">
+<span class="text-xs text-slate-500 font-mono">Affiliate binding link: #AFF-9014</span>
+<button class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-mono transition-colors font-medium">
+              Update Address Binding
+            </button>
+</div>
+</div>
+<!-- COLUMN 2: TAMPER-PROOF IMMUTABLE AUDIT LOG (payout_audit_logs) -->
+<div class="bg-[#0F172A] border border-[#1E293B] rounded-xl p-5 space-y-4 flex flex-col justify-between">
+<div class="space-y-3">
+<div class="flex items-center justify-between border-b border-[#1E293B] pb-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-emerald-400 text-xl">history_edu</span>
+<h3 class="font-headline font-bold text-white text-base">Immutable SQLite Trigger Audit Stream</h3>
+</div>
+<div class="flex items-center gap-1.5 text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/30">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                LIVE SYNC
+              </div>
+</div>
+<!-- Stream Entries list -->
+<div class="space-y-2.5 max-h-[310px] overflow-y-auto custom-scrollbar pr-1">
+<!-- Log Entry 1: Success ETH -->
+<div class="p-3 bg-[#020617] rounded-lg border border-[#1E293B] space-y-1 hover:border-slate-700 transition-colors">
+<div class="flex items-center justify-between text-xs font-mono">
+<div class="flex items-center gap-2">
+<span class="font-bold text-white">TX-ETH-89104</span>
+<span class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold">SUCCESS</span>
+</div>
+<span class="text-slate-400">12 sec ago</span>
+</div>
+<div class="text-[11px] text-slate-300 font-mono">
+                  Disbursed <span class="text-emerald-400 font-bold">$8,400.00 USDC</span> to <code class="text-indigo-300">0x3f91...81a2</code>
+</div>
+<div class="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+<span>Gas: 13.8 Gwei · Nonce #4818</span>
+<span class="text-cyan-400 hover:underline cursor-pointer">Hash: 0x9b1...c821</span>
+</div>
+</div>
+<!-- Log Entry 2: Success XLM -->
+<div class="p-3 bg-[#020617] rounded-lg border border-[#1E293B] space-y-1 hover:border-slate-700 transition-colors">
+<div class="flex items-center justify-between text-xs font-mono">
+<div class="flex items-center gap-2">
+<span class="font-bold text-white">TX-XLM-55092</span>
+<span class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold">SUCCESS</span>
+</div>
+<span class="text-slate-400">48 sec ago</span>
+</div>
+<div class="text-[11px] text-slate-300 font-mono">
+                  Disbursed <span class="text-teal-400 font-bold">$12,150.00 USDC</span> to <code class="text-teal-300">GABK...44TY</code>
+</div>
+<div class="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+<span>Ledger #49120412 · Horizon Seq: 1940129</span>
+<span class="text-teal-400 hover:underline cursor-pointer">Hash: e312...0194</span>
+</div>
+</div>
+<!-- Log Entry 3: RETRY SOLANA (Warning State) -->
+<div class="p-3 bg-amber-950/20 rounded-lg border border-amber-500/40 space-y-2">
+<div class="flex items-center justify-between text-xs font-mono">
+<div class="flex items-center gap-2">
+<span class="font-bold text-amber-300">TX-SOL-10492</span>
+<span class="px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[10px] font-bold">RETRY REQUIRED</span>
+</div>
+<span class="text-amber-400/80">3 min ago</span>
+</div>
+<div class="text-[11px] text-slate-200 font-mono">
+                  Pending <span class="text-white font-bold">$1,200.00 USDC</span> to <code class="text-amber-200">5Vkm...9Lpr</code>
+</div>
+<div class="text-[10px] text-amber-400/90 font-mono">
+                  RPC timeout, Compute Budget exceeded during sudden network volatility spike.
+                </div>
+<div class="pt-1 flex items-center justify-between">
+<span class="text-[10px] font-mono text-slate-400">Safety lock retained</span>
+<button class="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 text-[10px] font-mono font-bold flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-xs">refresh</span>
+                    Retry Payout (Re-Estimate Gas &amp; CU)
+                  </button>
+</div>
+</div>
+<!-- Log Entry 4: Success XLM -->
+<div class="p-3 bg-[#020617] rounded-lg border border-[#1E293B] space-y-1 hover:border-slate-700 transition-colors">
+<div class="flex items-center justify-between text-xs font-mono">
+<div class="flex items-center gap-2">
+<span class="font-bold text-white">TX-XLM-55091</span>
+<span class="px-1.5 py-0.2 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-semibold">SUCCESS</span>
+</div>
+<span class="text-slate-400">7 min ago</span>
+</div>
+<div class="text-[11px] text-slate-300 font-mono">
+                  Disbursed <span class="text-teal-400 font-bold">$3,400.00 USDC</span> to <code class="text-teal-300">GCFX...2MW9</code>
+</div>
+<div class="text-[10px] text-slate-400 font-mono flex items-center justify-between">
+<span>0.0001 XLM fee</span>
+<span class="text-teal-400 hover:underline cursor-pointer">Hash: a1b2...99ee</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Audit Log Merkle Proof Footer -->
+<div class="pt-3 border-t border-[#1E293B] flex items-center justify-between text-xs font-mono">
+<span class="text-slate-400 text-[11px]">
+              Root Hash: <code class="text-cyan-400 bg-[#020617] px-1.5 py-0.5 rounded border border-[#1E293B]">sha256:7b1e4a90...df8821</code>
+</span>
+<button class="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 text-[11px]">
+<span>Verify Cryptographic State</span>
+<span class="material-symbols-outlined text-sm">verified</span>
+</button>
+</div>
+</div>
+</section>
+</main>
+</div>
+</body></html>

@@ -520,7 +520,67 @@
       "metrics": "Business Metrics",
       "health": "Health Dashboard",
       "alerts": "Alerts",
+      "fraud": "Phát hiện gian lận",
       "settings": "Cài đặt"
+    },
+    "fraud": {
+      "title": "Bảng điều khiển kiểm tra gian lận",
+      "subtitle": "Kiểm tra các lượt nhấp đáng ngờ, đánh giá vận tốc bất thường và ngăn chặn gian lận tiếp thị liên kết.",
+      "engineActive": "Công cụ đang hoạt động",
+      "tabs": {
+        "clicks": "Lượt nhấp bị gắn cờ",
+        "blockedIps": "IP bị chặn",
+        "audit": "Nhật ký kiểm toán"
+      },
+      "kpi": {
+        "flaggedClicks": "Lượt nhấp bị gắn cờ",
+        "pendingReviews": "Chờ xem xét",
+        "blockedIps": "IP bị chặn",
+        "fraudRate": "Tỷ lệ gian lận",
+        "prevented": "Gian lận đã ngăn chặn"
+      },
+      "filters": {
+        "searchPlaceholder": "Tìm theo Mã lượt nhấp, IP hoặc Tiếp thị...",
+        "allReasons": "Tất cả lý do",
+        "statusAll": "Tất cả trạng thái",
+        "statusPending": "Chờ xử lý",
+        "statusApproved": "Đã duyệt",
+        "statusRejected": "Đã từ chối",
+        "dateRange": "Khoảng thời gian",
+        "reset": "Đặt lại bộ lọc"
+      },
+      "table": {
+        "clickId": "Mã lượt nhấp",
+        "deal": "Ưu đãi",
+        "affiliate": "Mã tiếp thị",
+        "ip": "Địa chỉ IP",
+        "score": "Điểm bất thường",
+        "reasons": "Lý do gắn cờ",
+        "status": "Trạng thái",
+        "time": "Thời gian",
+        "actions": "Hành động",
+        "approve": "Duyệt",
+        "reject": "Từ chối",
+        "blockIp": "Chặn IP",
+        "inspect": "Kiểm tra",
+        "empty": "Không tìm thấy lượt nhấp đáng ngờ nào phù hợp với bộ lọc"
+      },
+      "drawer": {
+        "title": "Điều tra pháp y bất thường",
+        "burstAnalysis": "Phân tích vận tốc nhấp dồn dập",
+        "ratioAnalysis": "Phân tích tỷ lệ chuyển đổi",
+        "metadata": "Dữ liệu kỹ thuật",
+        "auditHistory": "Lịch sử kiểm toán"
+      },
+      "modals": {
+        "blockIpTitle": "Chặn địa chỉ IP",
+        "blockIpWarning": "Lưu lượng truy cập từ IP này sẽ bị từ chối ngay lập tức với mã HTTP 403 Forbidden.",
+        "bulkTitle": "Xử lý hàng loạt lượt nhấp",
+        "reasonLabel": "Lý do kiểm toán",
+        "reasonPlaceholder": "Nhập lý do biện minh cho quyết định này...",
+        "confirm": "Xác nhận quyết định",
+        "cancel": "Hủy"
+      }
     },
     "deals": {
       "title": "Deals Management",

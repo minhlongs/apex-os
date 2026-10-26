@@ -1,391 +1,328 @@
-# ApexOS API Endpoints Documentation
+# ApexOS API Endpoints Directory (v1.1.0)
 
-**Base URL:** `/api/*`  
-**Auth:** Better Auth with session cookies  
-**Format:** JSON request/response
-
----
-
-## Public Endpoints
-
-### GET `/api/public/deals`
-
-List public affiliate deals with filters.
-
-**Query params:**
-- `exchange` — filter by exchange (binance, bybit)
-- `category` — filter by category (spot, futures, etc.)
-- `cashback_min` — minimum cashback percentage
-- `page` — page number (default: 1)
-- `limit` — items per page (max: 50, default: 20)
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "deal_123",
-      "name": "Binance Spot Trading",
-      "description": "Earn 30% cashback on fees",
-      "exchange": "binance",
-      "category": "spot",
-      "cashback_percent": 30,
-      "url": "https://binance.com/...",
-      "is_active": true,
-      "created_at": "2025-06-20T10:00:00Z"
-    }
-  ],
-  "pagination": {
-    "total": 150,
-    "page": 1,
-    "totalPages": 8,
-    "hasNext": true
-  }
-}
-```
+**Base URL:** `https://apexos.app/api` (Production) / `http://localhost:3000/api` (Local)  
+**Auth:** Better Auth session cookies (`apex_session`) or Bearer tokens  
+**Format:** JSON Request / JSON Response  
+**Last Updated:** 2026-09-27 (Sprint 10 Final Release)
 
 ---
+
+## 1. Public & Core Endpoints
 
 ### GET `/api/health`
+System health check and uptime monitor. No authentication required.
+- **Response:**
+  ```json
+  {
+    "status": "healthy",
+    "timestamp": "2026-09-27T06:00:00.000Z",
+    "uptime": 86400,
+    "version": "1.1.0"
+  }
+  ```
 
-Health check endpoint (no auth required).
+### GET `/api/public/deals`
+Returns active crypto cashback and affiliate deals with optional filtering and pagination.
+- **Query Parameters:**
+  - `exchange` (optional): `binance` | `bybit` | `okx` | `kucoin`
+  - `category` (optional): `spot` | `futures` | `margin` | `options`
+  - `cashback_min` (optional): Minimum cashback percent (e.g. `20`)
+  - `page` (optional): Default `1`
+  - `limit` (optional): Default `20` (max `50`)
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "id": "deal_okx_futures_01",
+        "name": "OKX Futures Trading Cashback",
+        "exchange": "okx",
+        "category": "futures",
+        "cashback_percent": 30,
+        "url": "https://okx.com/...",
+        "is_active": true
+      }
+    ],
+    "pagination": { "total": 48, "page": 1, "totalPages": 3, "hasNext": true }
+  }
+  ```
 
-**Response:**
-```json
-{
-  "status": "healthy",
-  "timestamp": "2025-06-20T10:00:00Z",
-  "uptime": 86400,
-  "version": "1.0.0"
-}
-```
+### GET `/api/deals` & GET `/api/deals/[id]`
+Public read-only listing and deal detail resolution; admin POST/PATCH/DELETE endpoints for deal CRUD operations.
 
 ---
 
-## Tracking
+## 2. Deal Tracking & Fraud Gating
 
-### GET `/api/tracking/click`
+### GET `/api/tracking/click` & GET `/api/deals/[id]/click`
+Directs traffic from affiliate links to exchange signup pages while attributing referrals.
 
-Record deal click and redirect to deal page.
-
-**Query params:**
-- `deal_id` — required, the deal being clicked
-- `ref` — optional, affiliate referral code
-- `redirect` — optional, override redirect URL
-
-**Rate limit:** 100 req/hour per IP
-
-**Response:** 302 redirect to deal page with tracking cookie set
-
-**Cookie:** `apex_tracking_id` (30-day expiry)
+- **Query Parameters:**
+  - `deal_id` (required on `/tracking/click`)
+  - `ref` (optional): Affiliate referral code (e.g. `VIP888`)
+  - `redirect` (optional): Custom destination URL override
+- **Multi-Tier Fraud & Velocity Gates:**
+  1. **IP Blocklist Check:** If IP is in `blocked_ips` (`is_active = 1`), returns **HTTP 403 Forbidden**.
+  2. **Dual-Window Rate Limiting:**
+     - Exceeding **100 clicks/hour** or **1,000 clicks/day** returns **HTTP 429 Too Many Requests** with `Retry-After`.
+     - Exceeding **150 clicks/hour** auto-blocks the IP into `blocked_ips`.
+  3. **Velocity Anomaly Detection:**
+     - Rapid bursts (<2,000ms from same IP/session) flag `BURST_CLICK` (anomaly score 0.85–0.90).
+     - Skewed click-to-conversion ratio (>10:1 for >= 10 clicks) flags `HIGH_CLICK_CONVERSION_RATIO` (anomaly score 0.70).
+     - Flags set `is_suspicious = 1` for administrative review without dropping legitimate traffic.
+- **Success Behavior:** Sets 30-day tracking cookie `apex_tracking_id` and responds with HTTP 302 Redirect to destination.
 
 ---
 
-## Webhooks
+## 3. Multi-Exchange Webhooks
+
+All webhooks utilize HMAC cryptographic signature verification, 5-minute timestamp validation windows (`DEFAULT_TIMESTAMP_WINDOW_MS = 300,000`), KV replay protection (24h TTL), and database idempotency constraints.
 
 ### POST `/api/webhooks/exchange`
+Unified webhook router auto-detecting exchange source (Binance, Bybit, OKX, KuCoin) via request headers and payload structure.
 
-Receive trade notifications from exchanges (Binance, Bybit).
+### POST `/api/webhooks/exchange/okx`
+Dedicated OKX exchange trade webhook handler.
+- **Headers Required:**
+  - `OK-ACCESS-KEY`: API key
+  - `OK-ACCESS-SIGN`: Hexadecimal HMAC-SHA256 signature
+  - `OK-ACCESS-TIMESTAMP`: ISO 8601 UTC timestamp
+  - `OK-ACCESS-PASSPHRASE`: API passphrase
+- **Signature Algorithm:** `HMAC-SHA256(OKX_WEBHOOK_SECRET, timestamp + method + path + body)`
 
-**Headers:**
-- `X-Binance-Signature` or `X-Bybit-HMAC-Signature`
-- `X-Bybit-Signature-Timestamp` (Bybit only)
+### POST `/api/webhooks/exchange/kucoin`
+Dedicated KuCoin exchange trade webhook handler.
+- **Headers Required:**
+  - `KC-API-KEY`: API key
+  - `KC-API-SIGN`: Base64-encoded HMAC-SHA256 signature
+  - `KC-API-TIMESTAMP`: Millisecond epoch timestamp
+- **Signature Algorithm:** `Base64(HMAC-SHA256(KUCOIN_WEBHOOK_SECRET, timestamp + method + path + body))`
 
-**Security:**
-- HMAC signature verification
-- Timestamp validation (5-minute window)
-- Replay protection (24h KV cache)
-
-**Success response:**
-```json
-{
-  "success": true,
-  "conversionId": "conv_abc123",
-  "earningsIds": ["earn_1", "earn_2", "earn_3"],
-  "message": "Trade recorded and earnings calculated"
-}
-```
-
-**Skipped responses:**
-```json
-{ "success": true, "skipped": true, "reason": "No matching deal" }
-{ "success": true, "skipped": true, "reason": "User not found or account not linked" }
-```
-
-**Environment variables:**
-- `BINANCE_WEBHOOK_SECRET`
-- `BYBIT_WEBHOOK_SECRET`
+### POST `/api/webhooks/resend`
+Ingests email lifecycle events (`email.delivered`, `email.bounced`, `email.complained`, `email.opened`) from Resend and records them in `email_events`.
 
 ---
 
-## User Endpoints (Authenticated)
+## 4. Billing, Crypto Checkout & IPN
 
-### GET/POST `/api/deals`
+### POST `/api/payments`
+Creates a NOWPayments hosted checkout invoice for membership tier upgrades. Requires user authentication.
+- **Request Body:**
+  ```json
+  {
+    "plan": "PREMIUM"
+  }
+  ```
+  *Allowed plans:* `BASIC` ($9), `PREMIUM` ($29), `ENTERPRISE` ($99), `MASTER` ($299).
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "data": {
+      "paymentId": "5001234567",
+      "orderId": "apex-usr83921-premium-1774659200000",
+      "invoiceUrl": "https://nowpayments.io/payment/?iid=5001234567",
+      "amount": 29,
+      "currency": "USD",
+      "plan": "PREMIUM"
+    }
+  }
+  ```
 
-Admin-only: CRUD operations for deals.
+### GET `/api/payments/history`
+Returns paginated payment transaction history for the authenticated user.
+- **Query Parameters:** `page` (default 1), `limit` (default 10).
+- **Response:**
+  ```json
+  {
+    "success": true,
+    "data": [
+      {
+        "id": "pay_98234",
+        "order_id": "apex-usr83921-premium-1774659200000",
+        "payment_status": "confirmed",
+        "plan": "PREMIUM",
+        "price_amount": 29,
+        "price_currency": "USD",
+        "created_at": "2026-09-27T05:20:00Z"
+      }
+    ],
+    "pagination": { "total": 1, "page": 1, "totalPages": 1 }
+  }
+  ```
 
-**Auth:** Requires `role === 'admin'`
+### GET `/api/payments/status`
+Polls payment status by payment ID.
+- **Query Parameter:** `payment_id` (required).
 
-**POST body (create):**
-```json
-{
-  "name": "Binance Spot Trading",
-  "description": "Earn 30% cashback on fees",
-  "exchange": "binance",
-  "category": "spot",
-  "cashback_percent": 30,
-  "url": "https://binance.com/...",
-  "expires_at": "2025-12-31T23:59:59Z",
-  "is_active": true
-}
-```
+### POST `/api/webhooks/ipn`
+Instant Payment Notification (IPN) callback from NOWPayments.
+- **Security:** Verifies `x-nowpayments-sig` using `HMAC-SHA512` over recursively sorted JSON payload keys. Rejects invalid signatures with HTTP 401.
+- **Idempotency:** Ignores duplicate callbacks if payment is already `confirmed` or `finished`.
+- **Lifecycle Action:** Upgrades user tier in `profiles`, records activation in `tier_activations`, and enqueues receipt in `email_queue`.
 
 ---
 
-### GET `/api/affiliate/dashboard`
+## 5. Profile, Mobile & Wallet Connect
 
-Affiliate dashboard statistics.
+### POST `/api/profile/wallet`
+Binds a non-custodial cryptocurrency wallet to the user's profile for payouts.
+- **Request Body:**
+  ```json
+  {
+    "walletAddress": "0x71C...39724",
+    "preferredChain": "ethereum"
+  }
+  ```
+  *Chains supported:* `ethereum` (EIP-55 checksum hex), `solana` (Base58 32-44 chars), `stellar` (StrKey 56 chars).
 
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "affiliate_code": "KING001",
-    "stats": {
-      "total_clicks": 1234,
-      "total_conversions": 56,
-      "total_earnings": 1234.56,
-      "pending_earnings": 234.56,
-      "paid_earnings": 1000.00,
-      "referral_count": 12
-    },
-    "referral_tree": [
+### POST `/api/notifications/register`
+Registers native mobile push tokens (APNs, FCM, Expo) tied to the authenticated user.
+- **Request Body:**
+  ```json
+  {
+    "token": "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]",
+    "platform": "ios",
+    "deviceType": "expo"
+  }
+  ```
+
+### POST `/api/profile/deep-link-analytics`
+Ingests batched mobile deep-link routing events from the mobile client (`apex-os://`).
+- **Request Body:**
+  ```json
+  {
+    "events": [
       {
-        "level": 1,
-        "users": [{ "id": "user_1", "email": "...", "earnings": 500 }]
-      },
-      {
-        "level": 2,
-        "users": [...]
+        "kind": "billing-result",
+        "route": "apex-os://billing/result?status=confirmed&txnId=500123",
+        "timestamp": "2026-09-27T06:30:00Z",
+        "source": "direct"
       }
     ]
   }
-}
-```
+  ```
 
 ---
+
+## 6. Advanced Analytics Engine
+
+Admin-only endpoints providing aggregated metrics backed by Cloudflare D1 materialized views and Cloudflare KV caching (5-minute TTL, `X-Cache: HIT|MISS`).
+
+### GET `/api/analytics/deals`
+Returns aggregated deal performance (clicks, conversions, gross trading volume, commission earned, conversion rate).
+- **Query Parameters:** `date_from`, `date_to`, `exchange`, `deal_id`, `category`, `page`, `limit`.
+
+### GET `/api/analytics/affiliates`
+Aggregated affiliate metrics across direct referrals and downlines.
+- **Query Parameters:** `date_from`, `date_to`, `tier` (`1` | `2` | `3`), `affiliate_id`.
+
+### GET `/api/analytics/exchanges`
+Breakdown of volume, conversion rates, and revenue across Binance, Bybit, OKX, and KuCoin.
+
+### GET `/api/analytics/funnel`
+Full lifecycle conversion funnel metrics: `visits` -> `clicks` -> `signups` -> `activations` -> `conversions`.
+
+### POST `/api/analytics/web-vitals`
+Ingests client-side Core Web Vitals (LCP, FID, CLS, TTFB, INP).
+
+---
+
+## 7. Administrative Fraud Review
+
+Admin-only endpoints (`role === 'admin'`) for monitoring and acting on suspicious traffic.
+
+### GET `/api/admin/fraud/clicks`
+Returns paginated list of clicks flagged with `is_suspicious = 1`.
+- **Query Parameters:** `date_from`, `date_to`, `reason` (`BURST_CLICK`, `HIGH_CLICK_CONVERSION_RATIO`), `affiliate_id`, `min_score`, `page`, `limit`.
+
+### GET `/api/admin/fraud/stats`
+Returns summary statistics: total clicks, flagged clicks, active blocked IPs, anomaly score distributions.
+
+### GET `/api/admin/fraud/blocked-ips`
+Returns list of currently blocked IP addresses, reason codes, blocking admin, and expiration timestamps.
+
+### POST `/api/admin/fraud/actions`
+Submits single or bulk administrative decisions. Writes immutable audit entries to `fraud_reviews`.
+- **Request Body:**
+  ```json
+  {
+    "action": "approve" | "reject" | "block_ip" | "unblock_ip" | "bulk_resolve",
+    "clickId": "click_12345",
+    "reason": "Verified legitimate organic trader through Discord ticket #402",
+    "notes": "Reviewed transaction history on OKX explorer"
+  }
+  ```
+
+---
+
+## 8. Affiliate Dashboard & Team Endpoints
+
+Authenticated partner endpoints.
+
+### GET `/api/affiliate/dashboard`
+Returns personal affiliate statistics: lifetime clicks, confirmed conversions, total earnings, pending payouts, and referral code.
 
 ### GET `/api/affiliate/conversions`
+Paginated ledger of conversions credited to the user with exchange attribution.
 
-List affiliate conversions with filters.
-
-**Query params:**
-- `page`, `limit`
-- `status` — pending/paid
-- `date_from`, `date_to`
-
----
+### GET `/api/affiliate/team`
+Returns the 3-level referral tree downline with node counts and aggregated team commission volume.
 
 ### GET `/api/affiliate/payouts`
-
-Payout history.
-
-**Response includes:**
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "payout_123",
-      "amount": 100.00,
-      "status": "completed",
-      "paid_at": "2025-06-15T10:00:00Z",
-      "transaction_id": "stellar_tx_hash...",
-      "note": "Weekly payout"
-    }
-  ],
-  "summary": {
-    "total_paid": 5000.00,
-    "pending_amount": 234.56
-  }
-}
-```
+Lists historical Stellar USDC payouts with transaction hashes.
 
 ---
 
-## Admin Endpoints (Authenticated + Admin Role)
+## 9. Cron Workers & Background Automation
 
-### GET `/api/admin/affiliates`
+Protected by `Authorization: Bearer ${CRON_SECRET}`.
 
-List all affiliates with sorting/pagination.
+### POST `/api/cron/process-email-queue`
+Dequeues pending transactional emails in batches of 50, dispatches via Resend, tracks delivery states, and executes automatic retries (<3 attempts).
 
-**Query params:**
-- `page`, `limit`
-- `sortBy` — `lifetime_earnings`, `clicks`, `conversions`
-- `sortOrder` — `asc`/`desc`
-- `timeRange` — `all`, `7d`, `30d`, `90d`
+### POST `/api/cron/refresh-analytics`
+Refreshes analytical aggregation statistics and triggers `ANALYZE sqlite_stat1` on Cloudflare D1.
 
----
-
-### GET `/api/admin/alerts`
-
-Alert management with filters.
-
-**Query params:**
-- `status` — `active`, `acknowledged`, `resolved`
-- `severity` — `critical`, `warning`, `info`
-- `type` — alert type filter
-- `isRead` — `true`/`false`
-- `isSilenced` — `true`/`false`
-- `search` — text search
-- `page`, `limit`
+### POST `/api/cron`
+Weekly routine: compiles pending affiliate commissions into Stellar USDC payout batches and enqueues weekly digest emails.
 
 ---
 
-### GET `/api/admin/metrics`
-
-Business metrics dashboard.
-
-**Response:**
-```json
-{
-  "success": true,
-  "metrics": {
-    "revenue": {
-      "today": 1234.56,
-      "week": 8642.00,
-      "month": 35000.00
-    },
-    "conversions": {
-      "today": 45,
-      "week": 312,
-      "month": 1200
-    },
-    "affiliates": {
-      "active": 150,
-      "new_week": 12
-    }
-  }
-}
-```
-
----
-
-### POST `/api/admin/alerts`
-
-Perform alert actions.
-
-**Body:**
-```json
-{
-  "action": "acknowledge" | "resolve" | "snooze" | "markRead" | "markUnread",
-  "alertId": "alert_123",
-  "alertIds": ["alert_1", "alert_2"],  // for bulk actions
-  "snoozeUntil": "2025-06-21T10:00:00Z"  // for snooze
-}
-```
-
----
-
-### GET `/api/admin/analytics/overview`
-
-Traffic analytics (page views, referrers, devices, countries).
-
----
+## 10. Monitoring & Alert Engine
 
 ### GET `/api/monitoring/alert-engine`
+Returns real-time status of alerting thresholds, circuit breaker state, and active incidents.
 
-Alert engine status and evaluation metrics.
-
-**Query:**
-- `stats=true` — include evaluation statistics
-- `errors=true` — include error statistics
-- `circuit-breakers=true` — show circuit breaker status
-
----
+### GET `/api/monitoring/d1`
+Database latency health monitor, query latency percentiles (p50, p95, p99), and connection pool metrics.
 
 ### GET `/api/monitoring/evaluation`
-
-Dedicated evaluation metrics.
-
----
-
-### POST `/api/monitoring/evaluation?action=cleanup`
-
-Clean up old evaluation data (retention).
+Detailed evaluation metrics for alert rules and automated triggers.
 
 ---
 
-### GET `/api/payouts`
+## 11. Error Response Standards
 
-Trigger or check payout run (admin only).
-
-**POST** with empty body triggers manual payout run.
-
----
-
-## Error Response Format
+All API responses follow consistent JSON error envelopes:
 
 ```json
 {
   "success": false,
-  "error": "ERROR_CODE",
-  "message": "Human-readable error message",
-  "details": {}  // optional additional context
+  "error": "RATE_LIMIT_EXCEEDED",
+  "message": "Click rate limit exceeded (100 clicks/hour). Please retry later.",
+  "retryAfter": 1800
 }
 ```
 
-**Common error codes:**
-- `RATE_LIMITED` — Too many requests, check `Retry-After` header
-- `UNAUTHORIZED` — Authentication required
-- `FORBIDDEN` — Insufficient permissions
-- `VALIDATION_ERROR` — Invalid request body
-- `NOT_FOUND` — Resource not found
-- `INTERNAL_ERROR` — Server error
+### Common Error Status Codes
 
----
-
-## Rate Limits
-
-| Endpoint | Limit |
-|----------|-------|
-| `/api/tracking/click` | 100 req/hour per IP |
-| `/api/auth/signup` | 3 req/min per email |
-| `/api/auth/signin` | 5 req/min per IP |
-| Webhook endpoints | Unlimited (verified sources) |
-
----
-
-## Environment Variables
-
-See `CLAUDE.md` for full list.
-
-Key variables:
-- `BETTER_AUTH_SECRET` — Auth session signing
-- `BINANCE_WEBHOOK_SECRET` — Binance webhook HMAC
-- `BYBIT_WEBHOOK_SECRET` — Bybit webhook HMAC
-- `NEXT_PUBLIC_MIXPANEL_TOKEN` — Analytics (Mixpanel)
-- `NEXT_PUBLIC_AMPLITUDE_API_KEY` — Analytics (Amplitude)
-- `STELLAR_SECRET_KEY` — Payout signing key
-
----
-
-## Testing
-
-```bash
-# Health check
-curl https://apex-os.pages.dev/api/health
-
-# List deals
-curl https://apex-os.pages.dev/api/public/deals
-
-# Webhook test (use scripts/send-mock-webhook.ts)
-tsx scripts/send-mock-webhook.ts --exchange binance --volume 1000
-```
-
----
-
-**Last updated:** 2025-06-25  
-**API version:** v1
+| Status Code | Code String | Description |
+|---|---|---|
+| **400 Bad Request** | `VALIDATION_ERROR` | Malformed request body or invalid parameters |
+| **401 Unauthorized** | `UNAUTHORIZED` | Missing or invalid authentication session or HMAC signature |
+| **403 Forbidden** | `IP_BLOCKED` / `FORBIDDEN` | Blocked IP address or insufficient role permissions |
+| **404 Not Found** | `NOT_FOUND` | Resource or deal not found |
+| **429 Too Many Requests** | `RATE_LIMIT_EXCEEDED` | Exceeded hourly (100) or daily (1,000) click threshold |
+| **500 Internal Error** | `INTERNAL_ERROR` | Server execution exception |

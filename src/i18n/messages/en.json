@@ -520,7 +520,67 @@
       "metrics": "Business Metrics",
       "health": "Health Dashboard",
       "alerts": "Alerts",
+      "fraud": "Fraud & Risk",
       "settings": "Settings"
+    },
+    "fraud": {
+      "title": "Fraud Review Dashboard",
+      "subtitle": "Inspect flagged suspicious clicks, evaluate anomaly velocity, and mitigate affiliate fraud.",
+      "engineActive": "Engine Active",
+      "tabs": {
+        "clicks": "Flagged Clicks",
+        "blockedIps": "Blocked IPs",
+        "audit": "Audit Trail"
+      },
+      "kpi": {
+        "flaggedClicks": "Flagged Clicks",
+        "pendingReviews": "Pending Reviews",
+        "blockedIps": "Blocked IPs",
+        "fraudRate": "Fraud Rate",
+        "prevented": "Fraud Prevented"
+      },
+      "filters": {
+        "searchPlaceholder": "Search by Click ID, IP, or Affiliate...",
+        "allReasons": "All Reasons",
+        "statusAll": "All Statuses",
+        "statusPending": "Pending",
+        "statusApproved": "Approved",
+        "statusRejected": "Rejected",
+        "dateRange": "Date Range",
+        "reset": "Reset Filters"
+      },
+      "table": {
+        "clickId": "Click ID",
+        "deal": "Deal",
+        "affiliate": "Affiliate",
+        "ip": "IP Address",
+        "score": "Anomaly Score",
+        "reasons": "Flag Reasons",
+        "status": "Status",
+        "time": "Timestamp",
+        "actions": "Actions",
+        "approve": "Approve",
+        "reject": "Reject",
+        "blockIp": "Block IP",
+        "inspect": "Inspect",
+        "empty": "No suspicious clicks found matching your filter criteria"
+      },
+      "drawer": {
+        "title": "Anomaly Forensic Inspection",
+        "burstAnalysis": "Burst Velocity Analysis",
+        "ratioAnalysis": "Conversion Ratio Analysis",
+        "metadata": "Technical Metadata",
+        "auditHistory": "Audit History"
+      },
+      "modals": {
+        "blockIpTitle": "Block IP Address",
+        "blockIpWarning": "Traffic from this IP will be immediately rejected with HTTP 403 Forbidden.",
+        "bulkTitle": "Bulk Resolve Clicks",
+        "reasonLabel": "Audit Reason",
+        "reasonPlaceholder": "Enter justification for this review decision...",
+        "confirm": "Confirm Decision",
+        "cancel": "Cancel"
+      }
     },
     "deals": {
       "title": "Deals Management",

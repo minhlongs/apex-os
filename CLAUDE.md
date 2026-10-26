@@ -16,6 +16,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Deployment Target:** Cloudflare Pages (via OpenNext)
 
+## Required Runtime
+
+**Node.js 26.x is required.** The test suite and production build were proven on **26.7.0**; `.nvmrc` records the exact version and `package.json` `engines.node` declares the accepted range.
+
+`better-sqlite3` ships a native binding compiled for Node 26's ABI (147). On an older runtime the binding fails to load, and the symptom is ~443 test failures that look like product bugs but are a toolchain mismatch. `npm test` runs `scripts/verify-node-version.cjs` first and refuses to start Jest rather than producing those misleading failures.
+
+If `npm test` stops with a Node version error, switch runtimes and re-run:
+
+```bash
+fnm use 26                                          # or: nvm use 26
+export PATH=/opt/homebrew/opt/node@26/bin:$PATH     # Homebrew keg on this machine
+node --version                                      # expect v26.x
+```
+
+Dependency installs use `pnpm-lock.yaml` (the tree was installed with pnpm, visible as the `node_modules/.pnpm` store layout). pnpm itself is not currently available in this environment; `npm install` works with the same tree.
+
 **Project Root:** `/Users/macbook/apex-os`
 
 **Operational Runbook:** `docs/operational-runbook.md`
@@ -24,19 +40,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Common Development Commands
 
+All commands require Node 26 (see "Required Runtime" above). `npm test` refuses to run on an incompatible runtime rather than emitting hundreds of false failures.
+
 ```bash
 # Development
-pnpm dev                    # Start local dev server at localhost:3000
-pnpm build                 # Production build (outputs to .next)
-pnpm start                # Start production server
-pnpm lint                 # ESLint check (eslint . --ext .ts,.tsx)
+npm run dev                    # Start local dev server at localhost:3000
+npm run build                 # Production build (outputs to .next)
+npm start                     # Start production server
+npm run lint                  # ESLint check (eslint . --ext .ts,.tsx)
 
 # Testing
-pnpm test                 # Run all Jest tests once
-pnpm test:watch           # Run tests in watch mode
-pnpm test:coverage        # Run tests with coverage report
-pnpm test path/to/file.test.ts    # Single test file
-pnpm test -t "test name"          # Single test by name pattern
+npm test                      # Run all Jest tests once (verifies Node first)
+npm run test:watch           # Run tests in watch mode
+npm run test:coverage        # Run tests with coverage report
+npm test path/to/file.test.ts    # Single test file
+npm test -t "test name"          # Single test by name pattern
 
 # Database (D1)
 wrangler d1 execute apex-os-db --file src/database/migrations/003_affiliate_schema.sql   # Apply schema

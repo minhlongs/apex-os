@@ -15,6 +15,27 @@ const METRICS_CACHE_CONFIG: MetricsCacheConfig = {
 
 export { METRICS_CACHE_CONFIG };
 
+type MetricsCacheEntry = { data: BusinessMetricsResponse; expires: number };
+type MetricsMemoryCache = Map<string, MetricsCacheEntry>;
+
+/**
+ * Access the in-memory cache instance shared across module replicas via globalThis.
+ * The slot is installed lazily on first write.
+ */
+function getMemoryCache(create: false): MetricsMemoryCache | undefined;
+function getMemoryCache(create: true): MetricsMemoryCache;
+function getMemoryCache(create: boolean): MetricsMemoryCache | undefined {
+  const store = globalThis as typeof globalThis & { metricsCache?: MetricsMemoryCache };
+  if (store.metricsCache) {
+    return store.metricsCache;
+  }
+  if (create) {
+    store.metricsCache = new Map<string, MetricsCacheEntry>();
+    return store.metricsCache;
+  }
+  return undefined;
+}
+
 /**
  * Generate a cache key from query parameters
  * Uses simple string key since KV supports long keys
@@ -48,8 +69,8 @@ export async function getCachedMetrics(cacheKey: string): Promise<BusinessMetric
     }
 
     // Fallback to in-memory cache
-    if (typeof globalThis !== 'undefined' && globalThis.metricsCache) {
-      const memoryCache = globalThis.metricsCache as Map<string, { data: BusinessMetricsResponse; expires: number }>;
+    const memoryCache = getMemoryCache(false);
+    if (memoryCache) {
       const entry = memoryCache.get(cacheKey);
       if (entry && Date.now() < entry.expires) {
         return entry.data;
@@ -77,11 +98,7 @@ export async function setCachedMetrics(cacheKey: string, data: BusinessMetricsRe
 
     // Also set in memory for faster subsequent access in same instance
     if (typeof globalThis !== 'undefined') {
-      if (!globalThis.metricsCache) {
-        globalThis.metricsCache = new Map<string, { data: BusinessMetricsResponse; expires: number }>();
-      }
-      const memoryCache = globalThis.metricsCache as Map<string, { data: BusinessMetricsResponse; expires: number }>;
-      memoryCache.set(cacheKey, {
+      getMemoryCache(true).set(cacheKey, {
         data,
         expires: Date.now() + ttl * 1000,
       });
@@ -108,8 +125,8 @@ export async function invalidateCache(cacheKeyOrPattern: string): Promise<number
     }
 
     // Invalidate memory cache
-    if (typeof globalThis !== 'undefined' && globalThis.metricsCache) {
-      const memoryCache = globalThis.metricsCache as Map<string, { data: BusinessMetricsResponse; expires: number }>;
+    const memoryCache = getMemoryCache(false);
+    if (memoryCache) {
       if (cacheKeyOrPattern === '*') {
         const size = memoryCache.size;
         memoryCache.clear();
@@ -131,8 +148,8 @@ export async function invalidateCache(cacheKeyOrPattern: string): Promise<number
  * Get cache TTL remaining for a key (for response headers)
  */
 export function getCacheTtlRemaining(cacheKey: string): number | undefined {
-  if (typeof globalThis !== 'undefined' && globalThis.metricsCache) {
-    const memoryCache = globalThis.metricsCache as Map<string, { data: BusinessMetricsResponse; expires: number }>;
+  const memoryCache = getMemoryCache(false);
+  if (memoryCache) {
     const entry = memoryCache.get(cacheKey);
     if (entry) {
       return Math.max(0, Math.floor((entry.expires - Date.now()) / 1000));

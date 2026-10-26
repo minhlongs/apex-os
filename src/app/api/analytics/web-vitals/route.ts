@@ -6,8 +6,6 @@
  * Runtime: Edge for global low-latency
  */
 
-export const runtime = 'edge';
-
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db';
 import { error as logError } from '@/lib/logger';

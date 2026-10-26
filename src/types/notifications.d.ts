@@ -196,6 +196,7 @@ interface FetchEvent extends Event {
 // ============================================================================
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
   interface HTMLElementTagNameMap {
     // Add custom elements if needed
   }

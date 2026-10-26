@@ -5,6 +5,11 @@
  */
 
 import openNextWorker from './.open-next/worker.js';
+import {
+  CRON_ALERT_ENGINE,
+  CRON_D1_METRICS,
+  CRON_WEEKLY_PAYOUTS,
+} from './worker-cron-schedules.js';
 
 // Re-export named exports from OpenNext worker (Durable Objects, etc.)
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from './.open-next/worker.js';
@@ -25,8 +30,24 @@ export default {
       globalThis.STORAGE = env.STORAGE;
     }
 
-    // Handle cron-triggered payouts
+    // Handle cron-triggered payouts.
+    //
+    // `cf-cron-trigger` is a request header, so a client can spoof it and reach
+    // the payout path from outside Cloudflare's scheduler. Require the shared
+    // secret that the scheduled invocation is configured to carry, and refuse
+    // anything else.
     if (request.headers.get('cf-cron-trigger')) {
+      const presented = request.headers.get('authorization');
+      const expected = env.CRON_SECRET ? `Bearer ${env.CRON_SECRET}` : null;
+      if (!expected || presented !== expected) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Unauthorized',
+        }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return this.handleCron(request, env, ctx);
     }
 
@@ -39,17 +60,17 @@ export default {
     const cronSchedule = request.headers.get('cf-cron-schedule') || '';
 
     // Execute alert engine evaluation (every 5 minutes)
-    if (cronSchedule === '*/5 * * * *') {
+    if (cronSchedule === CRON_ALERT_ENGINE) {
       return this.handleAlertEngineCron(request, env, ctx);
     }
 
     // Execute D1 metrics monitoring (every 30 minutes)
-    if (cronSchedule === '*/30 * * * *') {
+    if (cronSchedule === CRON_D1_METRICS) {
       return this.handleMonitoringCron(request, env, ctx);
     }
 
     // Execute weekly payouts (Sunday at 00:00 UTC)
-    if (cronSchedule === '0 0 * * 0') {
+    if (cronSchedule === CRON_WEEKLY_PAYOUTS) {
       return this.handlePayoutCron(request, env, ctx);
     }
 
@@ -65,38 +86,17 @@ export default {
   },
 
   async handlePayoutCron(request, env, ctx) {
-    // Execute weekly payouts
+    // Delegate weekly payouts to the single BatchSettlementService authority via /api/cron?job=payouts
     try {
-      // Import payouts service
-      const { createPayoutsService } = await import('./src/lib/payouts/payouts-service.js');
-
-      // Use DB binding from env
       const db = env.DB;
       if (!db) {
         return new Response('Database not available', { status: 503 });
       }
 
-      const payoutsService = createPayoutsService(db);
-
-      // Get pending earnings grouped by affiliate
-      const pendingEarningsQuery = `
-        SELECT
-          e.affiliate_id,
-          SUM(e.amount) as total_amount,
-          GROUP_CONCAT(e.id) as earning_ids
-        FROM earnings e
-        WHERE e.is_paid = 0
-        GROUP BY e.affiliate_id
-        HAVING total_amount >= 10.00
-      `;
-
-      const pendingResults = await db.prepare(pendingEarningsQuery)
-        .all();
-
-      if (pendingResults.results.length === 0) {
+      if (String(env.AUTO_SETTLE_PAYOUTS || '').toLowerCase() === 'false') {
         return new Response(JSON.stringify({
           success: true,
-          message: 'No pending payouts to process',
+          message: 'Manual-first rollout: set AUTO_SETTLE_PAYOUTS=true to enable automatic cron payouts',
           processed: 0,
           totalAmount: 0,
           timestamp: new Date().toISOString(),
@@ -105,80 +105,15 @@ export default {
         });
       }
 
-      // Get affiliate info
-      const affiliateIds = pendingResults.results.map(r => r.affiliate_id);
-      const placeholders = affiliateIds.map(() => '?').join(',');
-      const affiliates = await db.prepare(`
-        SELECT id, email, full_name, payout_method, payout_method_details
-        FROM profiles
-        WHERE id IN (${placeholders})
-      `)
-        .bind(...affiliateIds)
-        .all();
-
-      const affiliateMap = new Map(affiliates.results.map(a => [a.id, a]));
-
-      // Process each affiliate's payout
-      const results = [];
-      let totalPayoutAmount = 0;
-
-      for (const pending of pendingResults.results) {
-        const affiliate = affiliateMap.get(pending.affiliate_id);
-        if (!affiliate) {
-          console.warn(`Affiliate not found: ${pending.affiliate_id}`);
-          continue;
-        }
-
-        const payoutMethod = affiliate.payout_method || 'crypto';
-        const payoutDetails = affiliate.payout_method_details
-          ? JSON.parse(affiliate.payout_method_details)
-          : {};
-
-        try {
-          const payout = await payoutsService.createPayout({
-            affiliate_id: pending.affiliate_id,
-            payout_method: payoutMethod,
-            payout_method_details: payoutDetails,
-            amount: pending.total_amount,
-            currency: 'USDC',
-            fee: pending.total_amount * 0.01,
-            scheduled_at: new Date().toISOString(),
-            status: 'processing',
-            notes: `Auto-generated payout for ${pending.earning_ids.split(',').length} earnings`,
-          });
-
-          // Mark earnings as paid
-          const earningIds = pending.earning_ids.split(',');
-          for (const earningId of earningIds) {
-            await db.prepare('UPDATE earnings SET is_paid = 1, paid_at = datetime("now"), payout_id = ? WHERE id = ?')
-              .bind(payout.id, earningId)
-              .run();
-          }
-
-          results.push({
-            affiliate_id: pending.affiliate_id,
-            affiliate_email: affiliate.email,
-            amount: pending.total_amount,
-            payout_id: payout.id,
-          });
-          totalPayoutAmount += pending.total_amount;
-        } catch (error) {
-          console.error(`Failed to create payout for ${pending.affiliate_id}:`, error);
-        }
-      }
-
-      // Return summary
-      return new Response(JSON.stringify({
-        success: true,
-        message: `Processed ${results.length} payouts`,
-        processed: results.length,
-        totalAmount: totalPayoutAmount,
-        payouts: results,
-        timestamp: new Date().toISOString(),
-      }), {
-        headers: { 'Content-Type': 'application/json' },
+      const cronUrl = new URL('/api/cron?job=payouts', request.url);
+      const delegatedRequest = new Request(cronUrl.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${env.CRON_SECRET || ''}`,
+        },
       });
 
+      return await openNextWorker.fetch(delegatedRequest, env, ctx);
     } catch (error) {
       console.error('Cron payout execution error:', error);
       return new Response(JSON.stringify({

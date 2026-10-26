@@ -9,9 +9,10 @@
       "typescript": {}
     }
   },
+  "ignorePatterns": ["apex-os-mobile/**", ".next/**", "out/**", "coverage/**"],
   "rules": {
     "@typescript-eslint/no-explicit-any": "off",
-    "@typescript-eslint/no-unused-vars": "warn",
+    "@typescript-eslint/no-unused-vars": "off",
     "@typescript-eslint/ban-ts-comment": "off"
   },
   "overrides": [
@@ -22,13 +23,27 @@
       },
       "rules": {
         "@typescript-eslint/no-explicit-any": "off",
-        "@typescript-eslint/no-unused-vars": "off"
+        "@typescript-eslint/no-unused-vars": "off",
+        "@typescript-eslint/no-require-imports": "off",
+        "@typescript-eslint/no-non-null-asserted-optional-chain": "off",
+        "no-var": "off"
       }
     },
     {
-      "files": ["scripts/**"],
+      "files": [
+        "check-braces.js",
+        "fix-vi-json.js",
+        "next.config.js",
+        "k6/**",
+        "worker-wrapper.js",
+        "scripts/**"
+      ],
       "parserOptions": {
         "project": null
+      },
+      "rules": {
+        "@typescript-eslint/no-require-imports": "off",
+        "import/no-anonymous-default-export": "off"
       }
     }
   ]

@@ -1,13 +1,24 @@
 {
   "name": "apex-os",
-  "version": "1.0.2",
+  "version": "1.5.0",
   "private": true,
+  "engines": {
+    "node": ">=26.0.0 <27"
+  },
   "scripts": {
     "dev": "next dev",
-    "build": "NEXT_DISABLE_TYPE_CHECK=1 next build",
+    "build": "next build",
+    "build:worker": "opennextjs-cloudflare build",
+    "deploy:staging": "bash scripts/assert-staging-isolation.sh && npm run build:worker && opennextjs-cloudflare deploy --config wrangler.staging.jsonc",
+    "deploy:production": "npm run build:worker && opennextjs-cloudflare deploy --config wrangler.jsonc",
+    "verify:deploy": "bash scripts/verify-deployment.sh",
+    "reconcile:payouts": "bash scripts/reconcile-historical-payouts.sh",
+    "gate": "bash scripts/go-live-gate.sh",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
-    "test": "jest",
+    "verify-node": "node scripts/verify-node-version.cjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run verify-node && jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:alerting": "tsx scripts/test-alerting-system.ts",
@@ -23,10 +34,11 @@
     "better-auth": "0.8.7-beta.5",
     "lucide-react": "^0.441.0",
     "mixpanel-browser": "^2.80.0",
-    "next": "^16.2.6",
+    "next": "16.4.3",
     "next-intl": "^4.12.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",
+    "react-is": "18.3.1",
     "recharts": "^3.8.1",
     "resend": "^6.14.0",
     "stellar-sdk": "^12.3.0",
@@ -35,7 +47,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
-    "@opennextjs/cloudflare": "latest",
+    "@opennextjs/cloudflare": "1.20.13",
     "@sentry/nextjs": "^10.59.0",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^14.0.0",
@@ -56,7 +68,9 @@
     "puppeteer": "^25.1.0",
     "tailwindcss": "^3.4.0",
     "ts-jest": "^29.1.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "wrangler": "4.152.0",
+    "webpack": "^5.112.2"
   },
   "jest": {
     "preset": "ts-jest",

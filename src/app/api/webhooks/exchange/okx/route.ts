@@ -84,6 +84,7 @@ import {
 import { getDB } from '@/lib/db';
 import type { D1Database } from '@/lib/db';
 import { error as logError, info as logInfo, warn as logWarn } from '@/lib/logger';
+import { commissionOf, createEarnings, toUsdc } from '@/lib/webhooks/earnings';
 
 const OKX_WEBHOOK_SECRET = process.env.OKX_WEBHOOK_SECRET;
 
@@ -116,9 +117,8 @@ function validateTimestampOrError(
 }
 
 async function verifyOkxSignatureInternal(
-  payload: string,
-  headers: Record<string, string>,
-  rawBody: string
+  rawBody: string,
+  headers: Record<string, string>
 ): Promise<{ valid: boolean; error?: string }> {
   if (!OKX_WEBHOOK_SECRET) {
     return { valid: false, error: 'OKX webhook secret not configured' };
@@ -195,8 +195,7 @@ async function createConversion(
 ): Promise<string> {
   const conversionId = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
   const deal = await findDeal(db, trade.exchange, trade.symbol);
-  const cashbackPercent = deal?.cashback_percent ?? 0;
-  const commissionAmount = trade.totalValue * (cashbackPercent / 100);
+  const commission = commissionOf(trade, deal?.cashback_percent ?? 0);
   await db.prepare(`
     INSERT INTO conversions (
       id, deal_id, deal_click_id, affiliate_code, affiliate_id,
@@ -215,9 +214,9 @@ async function createConversion(
     trade.orderId,
     trade.orderId,
     trade.exchange,
-    trade.totalValue,
+    toUsdc(commission.revenue),
     trade.currency,
-    commissionAmount,
+    commission.total === null ? 0 : toUsdc(commission.total),
     'percentage',
     'sale',
     'approved',
@@ -236,74 +235,6 @@ async function createConversion(
   return conversionId;
 }
 
-async function createEarnings(
-  db: D1Database,
-  conversionId: string,
-  affiliateId: string,
-  dealId: string,
-  commissionAmount: number
-): Promise<string[]> {
-  const earningsIds: string[] = [];
-  const tree = await db.prepare(
-    `SELECT id, parent_id, level, path
-     FROM referral_tree
-     WHERE affiliate_id = ?
-     LIMIT 1`
-  ).bind(affiliateId).first<{ id: string; parent_id?: string; level: number; path?: string }>();
-  if (!tree) return earningsIds;
-
-  const level1Rate = 0.30;
-  const level1Amount = commissionAmount * level1Rate;
-  const earnings1Id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
-  await db.prepare(`
-    INSERT INTO earnings (id, conversion_id, affiliate_id, referral_tree_id, amount, commission_type, commission_rate, level, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-  `).bind(earnings1Id, conversionId, affiliateId, tree.id, level1Amount, 'percentage', level1Rate, 1).run();
-  earningsIds.push(earnings1Id);
-
-  if (tree.parent_id) {
-    const parent = await db.prepare(
-      `SELECT rt.id, p.id as affiliate_id
-       FROM referral_tree rt
-       JOIN profiles p ON rt.affiliate_id = p.id
-       WHERE rt.id = ? AND p.role IN ("affiliate", "master_trader")
-       LIMIT 1`
-    ).bind(tree.parent_id).first<{ id: string; affiliate_id: string }>();
-    if (parent) {
-      const level2Rate = 0.10;
-      const level2Amount = commissionAmount * level2Rate;
-      const earnings2Id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
-      await db.prepare(`
-        INSERT INTO earnings (id, conversion_id, affiliate_id, referral_tree_id, amount, commission_type, commission_rate, level, parent_earnings_id, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-      `).bind(earnings2Id, conversionId, parent.affiliate_id, parent.id, level2Amount, 'percentage', level2Rate, 2, earnings1Id).run();
-      earningsIds.push(earnings2Id);
-
-      if (tree.level >= 3) {
-        const grandparent = await db.prepare(
-          `SELECT rt.id, p.id as affiliate_id
-           FROM referral_tree rt
-           JOIN profiles p ON rt.affiliate_id = p.id
-           WHERE rt.id = (SELECT parent_id FROM referral_tree WHERE id = ?)
-             AND p.role IN ("affiliate", "master_trader")
-           LIMIT 1`
-        ).bind(tree.parent_id).first<{ id: string; affiliate_id: string }>();
-        if (grandparent) {
-          const level3Rate = 0.05;
-          const level3Amount = commissionAmount * level3Rate;
-          const earnings3Id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
-          await db.prepare(`
-            INSERT INTO earnings (id, conversion_id, affiliate_id, referral_tree_id, amount, commission_type, commission_rate, level, parent_earnings_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
-          `).bind(earnings3Id, conversionId, grandparent.affiliate_id, grandparent.id, level3Amount, 'percentage', level3Rate, 3, earnings2Id).run();
-          earningsIds.push(earnings3Id);
-        }
-      }
-    }
-  }
-  return earningsIds;
-}
-
 export async function POST(request: NextRequest): Promise<Response> {
   const startTime = Date.now();
   const requestId = `req_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
@@ -317,18 +248,35 @@ export async function POST(request: NextRequest): Promise<Response> {
   }
 
   try {
-    const body = (await request.json()) as Record<string, unknown>;
+    // Read the raw bytes first: a Request body is a single-use stream, so reading
+    // .json() before .text() consumes it and leaves HMAC verification over ''.
+    const rawBody = await request.text();
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => { headers[key.toLowerCase()] = value; });
-    const rawBody = await request.text();
 
-    // Verify signature
-    const signatureCheck = await verifyOkxSignatureInternal(rawBody, headers, rawBody);
+    // Verify the signature over the raw bytes BEFORE parsing. Parsing first and
+    // answering malformed JSON with 200 would let an unauthenticated caller
+    // skip the signature check entirely: unsigned non-JSON must be rejected
+    // here with 401, never reach the parser to be answered 200.
+    const signatureCheck = await verifyOkxSignatureInternal(rawBody, headers);
     if (!signatureCheck.valid) {
       logWarn(`[OKX Webhook] Signature verification failed:`, signatureCheck.error);
       return NextResponse.json(
         WebhookErrorResponses.invalidSignature(signatureCheck.error, requestId),
         { status: getHttpStatusCode(WebhookErrorCode.INVALID_SIGNATURE) }
+      );
+    }
+
+    // Parse only now that the bytes are proven authentic. A caller who cannot
+    // sign was rejected with 401 above; one who CAN sign but sent non-JSON
+    // lands here and is answered 400 INVALID_PAYLOAD.
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json(
+        WebhookErrorResponses.invalidPayload('Invalid JSON in request body', requestId),
+        { status: getHttpStatusCode(WebhookErrorCode.INVALID_PAYLOAD) }
       );
     }
 
@@ -401,8 +349,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     const conversionId = await createConversion(db, trade, deal.id, profile.id, click?.affiliate_code, click?.id);
 
     // Calculate commission and create earnings
-    const commissionAmount = trade.totalValue * ((deal?.cashback_percent ?? 0) / 100);
-    const earningsIds = await createEarnings(db, conversionId, profile.id, deal.id, commissionAmount);
+    const commission = commissionOf(trade, deal.cashback_percent ?? 0);
+    const earningsIds = await createEarnings(db, conversionId, profile.id, commission);
 
     // Track analytics
     const clientIP = extractIpAddress(request.headers);
@@ -412,8 +360,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       deal_name: deal.name,
       exchange: 'okx',
       symbol: trade.symbol,
-      volume: trade.totalValue,
-      commission: commissionAmount,
+      volume: toUsdc(commission.revenue),
+      commission: commission.total === null ? 0 : toUsdc(commission.total),
       currency: trade.currency,
       affiliate_code: click?.affiliate_code,
       click_id: click?.id,
@@ -421,6 +369,10 @@ export async function POST(request: NextRequest): Promise<Response> {
     }, clientIP).catch(() => {});
 
     const duration = Date.now() - startTime;
+
+    // Mark as processed for replay protection
+    await markWebhookProcessed('okx', trade.orderId, trade.symbol);
+
     // Invalidate cache for the affiliate
     void invalidateAffiliateCache(profile.id, ['affiliate-dashboard', 'affiliate-conversions']).catch(err =>
       logError('[OKX Webhook] Cache invalidation error:', err)

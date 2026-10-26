@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>ApexOS - Cloudflare Edge Cron Worker, Email Queue &amp; D1 Query Latency Observability Command</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;family=Public+Sans:wght@400;500;600;700&amp;family=Space+Grotesk:wght@500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            night: "#020617",
+            surface: "#0F172A",
+            "surface-variant": "#1E293B",
+            border: "#1E293B",
+            divider: "#334155",
+            primary: "#6366F1",
+            secondary: "#8B5CF6",
+            cyan: "#06B6D4",
+            emerald: "#10B981",
+            amber: "#F59E0B",
+            crimson: "#EF4444",
+            "on-surface": "#F8FAFC",
+            "on-surface-variant": "#94A3B8"
+          },
+          borderRadius: {
+            DEFAULT: "0.5rem",
+            lg: "1rem",
+            xl: "0.75rem", // 12px
+            full: "9999px"
+          },
+          fontFamily: {
+            headline: ["Space Grotesk", "sans-serif"],
+            display: ["Space Grotesk", "sans-serif"],
+            body: ["Inter", "sans-serif"],
+            label: ["Public Sans", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      display: inline-block;
+      vertical-align: middle;
+      line-height: 1;
+    }
+    .specular-glow {
+      box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 10px 25px -5px rgba(2, 6, 23, 0.7);
+    }
+    .indigo-specular {
+      box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.35), 0 0 20px -3px rgba(99, 102, 241, 0.45);
+    }
+    .cyan-specular {
+      box-shadow: inset 0 1px 1px 0 rgba(255, 255, 255, 0.25), 0 0 15px -3px rgba(6, 182, 212, 0.3);
+    }
+    /* custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #020617;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #1E293B;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #334155;
+    }
+  </style>
+</head>
+<body class="bg-night text-on-surface font-body antialiased selection:bg-primary selection:text-white min-h-screen overflow-x-hidden">
+<!-- SIDEBAR NAVIGATION (Width: 248px matching ApexOS Terminal nodes) -->
+<aside class="fixed top-0 left-0 h-screen w-64 z-40 bg-surface border-r border-border shadow-sm flex flex-col justify-between p-4 select-none">
+<div class="flex flex-col gap-6">
+<!-- Terminal Brand Node Header -->
+<div class="flex items-center gap-3 px-2 py-1">
+<div class="w-9 h-9 rounded-xl bg-gradient-to-br from-primary via-secondary to-cyan flex items-center justify-center text-white shadow-md shadow-primary/20">
+<span class="material-symbols-outlined text-xl">terminal</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline text-base font-bold tracking-wider text-on-surface">ApexOS Terminal</span>
+<span class="font-label tracking-wide text-[11px] text-on-surface-variant font-medium">Arbitrage &amp; Settlement Hub</span>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<nav aria-label="Main Navigation" class="flex flex-col gap-1.5">
+<!-- Tab: Cashback Cockpit -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150 ease-in-out text-sm" href="#cockpit">
+<span class="material-symbols-outlined text-[19px]">dashboard</span>
+<span class="font-body">Cashback Cockpit</span>
+</a>
+<!-- Tab: Arbitrage & Deal Crawler -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150 ease-in-out text-sm" href="#crawler">
+<span class="material-symbols-outlined text-[19px]">query_stats</span>
+<span class="font-body">Arbitrage &amp; Deal Crawler</span>
+</a>
+<!-- Tab: Multi-Chain Payouts -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150 ease-in-out text-sm" href="#payouts">
+<span class="material-symbols-outlined text-[19px]">currency_exchange</span>
+<span class="font-body">Multi-Chain Payouts</span>
+</a>
+<!-- Tab: KYC & Fraud Command -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150 ease-in-out text-sm" href="#fraud">
+<span class="material-symbols-outlined text-[19px]">shield</span>
+<span class="font-body">KYC &amp; Fraud Command</span>
+</a>
+<!-- Tab: D1 Audit Explorer -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150 ease-in-out text-sm" href="#d1">
+<span class="material-symbols-outlined text-[19px]">database</span>
+<span class="font-body">D1 Audit Explorer</span>
+</a>
+<!-- Tab: Cron & Worker Health [ACTIVE] -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-primary bg-primary/10 font-medium transition-all duration-150 ease-in-out text-sm border-l-2 border-primary" href="#cron-observability">
+<span class="material-symbols-outlined text-[19px]" style="font-variation-settings: 'FILL' 1;">timer</span>
+<div class="flex items-center justify-between w-full">
+<span class="font-body font-semibold">Cron &amp; Worker Health</span>
+<span class="inline-block w-2 h-2 rounded-full bg-emerald shadow-[0_0_8px_#10B981]"></span>
+</div>
+</a>
+<!-- Tab: Telegram Mini App -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150 ease-in-out text-sm" href="#telegram">
+<span class="material-symbols-outlined text-[19px]">send</span>
+<span class="font-body">Telegram Mini App</span>
+</a>
+<!-- Tab: Style Guide -->
+<a class="flex items-center gap-3 px-3 py-2.5 rounded text-on-surface-variant font-normal hover:bg-surface-variant hover:text-on-surface transition-colors duration-150 ease-in-out text-sm" href="#style-guide">
+<span class="material-symbols-outlined text-[19px]">palette</span>
+<span class="font-body">Style Guide</span>
+</a>
+</nav>
+</div>
+<!-- Sidebar Bottom / Footer Controls -->
+<div class="flex flex-col gap-3 pt-3 border-t border-border">
+<!-- Node Connection Button -->
+<button class="w-full flex items-center justify-center gap-2 py-2 px-3 bg-surface-variant hover:bg-divider text-xs font-mono font-medium rounded-lg text-on-surface transition-colors duration-150 border border-slate-700/60">
+<span class="material-symbols-outlined text-sm text-cyan">sensors</span>
+<span>Connect Node</span>
+</button>
+<div class="flex flex-col gap-1">
+<a class="flex items-center gap-3 px-3 py-1.5 rounded text-on-surface-variant text-xs hover:bg-surface-variant hover:text-on-surface transition-colors" href="#settings">
+<span class="material-symbols-outlined text-base">settings</span>
+<span class="font-body">Settings</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-1.5 rounded text-on-surface-variant text-xs hover:bg-surface-variant hover:text-on-surface transition-colors" href="#documentation">
+<span class="material-symbols-outlined text-base">menu_book</span>
+<span class="font-body">Documentation</span>
+</a>
+</div>
+<div class="px-2 py-1.5 bg-night/80 rounded-lg border border-slate-800/80 flex items-center justify-between text-[11px] font-mono text-slate-400">
+<span class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span>
+          CF-SIN #07
+        </span>
+<span class="text-slate-500">v4.9.2</span>
+</div>
+</div>
+</aside>
+<!-- TOP APP BAR (Height: 64px, left-64) -->
+<header class="fixed top-0 right-0 left-64 h-16 z-30 bg-surface/90 backdrop-blur-md border-b border-border flex justify-between items-center px-6">
+<!-- Left: Search Box -->
+<div class="flex items-center gap-4 w-96">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
+<input class="w-full bg-night border border-border rounded-lg pl-9 pr-12 py-1.5 text-xs text-on-surface placeholder:text-slate-500 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary font-mono transition-all" placeholder="Search Cron Jobs, D1 Indexes, Trace IDs or Edge Logs..." type="text"/>
+<kbd class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] bg-surface-variant text-slate-400 px-1.5 py-0.5 rounded border border-slate-700 font-mono">⌘K</kbd>
+</div>
+</div>
+<!-- Right Controls Cluster -->
+<div class="flex items-center gap-3">
+<!-- 3/3 Chains HEALTHY -->
+<div class="flex items-center gap-2 bg-emerald/10 border border-emerald/30 text-emerald text-xs font-mono px-3 py-1 rounded-full">
+<span class="w-2 h-2 rounded-full bg-emerald animate-pulse"></span>
+<span class="font-semibold tracking-tight">3/3 Chains HEALTHY</span>
+</div>
+<!-- MASTER TIER -->
+<div class="flex items-center gap-1.5 bg-primary/15 border border-primary/40 text-primary text-xs font-label uppercase font-bold tracking-wider px-2.5 py-1 rounded-md">
+<span class="material-symbols-outlined text-sm">workspace_premium</span>
+<span>MASTER TIER</span>
+</div>
+<!-- EN/VI Switcher -->
+<div class="flex items-center bg-night border border-border rounded-lg p-0.5 text-xs font-mono text-slate-400">
+<button class="px-2 py-0.5 rounded bg-surface-variant text-white font-medium">EN</button>
+<button class="px-2 py-0.5 rounded hover:text-white transition-colors">VI</button>
+</div>
+<div class="h-4 w-[1px] bg-divider mx-1"></div>
+<!-- Trailing Icon Actions -->
+<button class="relative p-2 text-on-surface-variant hover:text-white hover:bg-surface-variant rounded-lg transition-colors" title="Notifications">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+<span class="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full"></span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-white hover:bg-surface-variant rounded-lg transition-colors" title="Edge Console Terminal">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+</button>
+<!-- Operator Wallet Badge -->
+<div class="flex items-center gap-2.5 pl-2">
+<div class="flex items-center gap-2 bg-night border border-border py-1 px-2.5 rounded-lg">
+<div class="relative">
+<div class="w-6 h-6 rounded-full bg-gradient-to-tr from-cyan via-primary to-secondary flex items-center justify-center text-[10px] font-mono font-bold text-white">
+              0x
+            </div>
+<span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald rounded-full border-2 border-night"></span>
+</div>
+<span class="font-mono text-xs text-slate-300 font-medium">0x8F94...c4B2</span>
+<span class="text-[10px] text-emerald bg-emerald/10 px-1 py-0.2 rounded font-mono font-semibold">DUAL-SYNC</span>
+</div>
+</div>
+</div>
+</header>
+<!-- MAIN VIEW CANVAS (ml-64 mt-16) -->
+<main class="ml-64 mt-16 p-8 space-y-7 pb-20">
+<!-- 1. HEADER SECTION -->
+<section class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-2 border-b border-border/80">
+<div class="space-y-1.5">
+<!-- Breadcrumb -->
+<div class="flex items-center gap-2 text-xs font-mono text-slate-400">
+<span class="text-cyan font-medium flex items-center gap-1">
+<span class="material-symbols-outlined text-sm">cloud</span>
+            CLOUDFLARE WORKERS V4.9
+          </span>
+<span class="text-slate-600">/</span>
+<span class="text-slate-300">OBSERVABILITY &amp; EDGE TELEMETRY</span>
+<span class="text-slate-600">/</span>
+<span class="text-amber bg-amber/10 px-2 py-0.5 rounded text-[11px] font-mono border border-amber/20">Edge Cron Engine #07</span>
+</div>
+<!-- Main Title -->
+<h1 class="font-headline text-2xl lg:text-3xl font-bold tracking-tight text-white flex items-center gap-3">
+          Cloudflare Edge Cron Worker, Email Queue &amp; D1 Query Latency Observability
+          <span class="text-xs font-mono font-normal text-emerald bg-emerald/10 border border-emerald/20 px-2.5 py-1 rounded-full flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald animate-ping"></span>
+            LIVE TICKING
+          </span>
+</h1>
+<!-- Bilingual Micro-Subtitle [EN | VI] -->
+<p class="text-xs text-on-surface-variant font-body max-w-4xl leading-relaxed">
+<span class="text-slate-400 font-medium">Bảng điều khiển Giám sát Cron Worker, Hàng đợi Email &amp; Độ trễ truy vấn D1</span>
+<span class="text-slate-600 mx-1.5">·</span>
+<span>Real-time execution tracking, cold-start telemetry, and D1 SQLite trigger latency inspection with automated circuit breaker failover.</span>
+</p>
+</div>
+<!-- Action Buttons -->
+<div class="flex items-center gap-2.5 shrink-0 self-start lg:self-center">
+<!-- Button: Simulate Dry Run -->
+<button class="px-3.5 py-2 rounded-lg bg-surface-variant hover:bg-divider border border-border text-xs font-mono text-slate-200 flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-sm text-cyan">play_circle</span>
+<span>Simulate Cron Execution (Dry Run)</span>
+</button>
+<!-- Button: Export Telemetry JSON -->
+<button class="px-3.5 py-2 rounded-lg bg-surface-variant hover:bg-divider border border-border text-xs font-mono text-slate-200 flex items-center gap-2 transition-all">
+<span class="material-symbols-outlined text-sm text-slate-400">download</span>
+<span>Export Telemetry JSON</span>
+</button>
+<!-- Button: Trigger All Active Crons -->
+<button class="px-4 py-2 rounded-lg bg-gradient-to-r from-primary via-indigo-500 to-secondary hover:brightness-110 text-xs font-mono font-semibold text-white flex items-center gap-2 indigo-specular transition-all">
+<span class="material-symbols-outlined text-sm">bolt</span>
+<span>Trigger All Active Crons</span>
+</button>
+</div>
+</section>
+<!-- 2. EDGE OBSERVABILITY BENTO KPIS (4 Hero Cards) -->
+<section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+<!-- Card 1: Cloudflare Worker Cron Health -->
+<div class="bg-surface rounded-xl border border-border p-5 specular-glow flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition-all">
+<div class="absolute -right-6 -bottom-6 w-28 h-28 bg-emerald/5 rounded-full blur-2xl group-hover:bg-emerald/10 transition-colors"></div>
+<div class="flex items-start justify-between">
+<div class="space-y-1">
+<span class="text-xs font-label uppercase tracking-wider text-slate-400 font-semibold">Cloudflare Worker Cron Health</span>
+<div class="flex items-baseline gap-2">
+<span class="font-headline text-3xl font-bold text-white tracking-tight">7/7 Active</span>
+<span class="font-mono text-xs text-emerald font-semibold">100% Sync</span>
+</div>
+</div>
+<span class="text-[10px] font-mono font-semibold bg-emerald/15 border border-emerald/30 text-emerald px-2 py-0.5 rounded-full uppercase tracking-wider">
+            EDGE SYNC OK
+          </span>
+</div>
+<div class="mt-4 space-y-2">
+<!-- Progress Bar 100% Green Integrity -->
+<div class="w-full bg-night h-2 rounded-full overflow-hidden p-0.5 border border-border">
+<div class="bg-gradient-to-r from-emerald via-teal-400 to-emerald h-full rounded-full w-full shadow-[0_0_8px_#10B981]"></div>
+</div>
+<div class="flex items-center justify-between text-xs font-mono text-slate-400 pt-1">
+<span>99.98% Uptime · 0 Missed Ticks</span>
+<span class="text-slate-300 font-medium">sin-01 (Singapore Edge)</span>
+</div>
+</div>
+</div>
+<!-- Card 2: D1 Query Latency P95 -->
+<div class="bg-surface rounded-xl border border-border p-5 specular-glow flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition-all">
+<div class="absolute -right-6 -bottom-6 w-28 h-28 bg-cyan/5 rounded-full blur-2xl group-hover:bg-cyan/10 transition-colors"></div>
+<div class="flex items-start justify-between">
+<div class="space-y-1">
+<span class="text-xs font-label uppercase tracking-wider text-slate-400 font-semibold">D1 Query Latency P95</span>
+<div class="flex items-baseline gap-2">
+<span class="font-mono text-3xl font-bold text-white tabular-nums tracking-tight">14.2ms</span>
+<span class="font-mono text-xs text-cyan font-semibold">P50: 4.8ms</span>
+</div>
+</div>
+<span class="text-[10px] font-mono font-semibold bg-cyan/15 border border-cyan/30 text-cyan px-2 py-0.5 rounded-full uppercase tracking-wider">
+            ULTRA-LOW LATENCY
+          </span>
+</div>
+<div class="mt-4 space-y-2">
+<!-- Latency Distribution Bars -->
+<div class="grid grid-cols-3 gap-1.5 text-center text-[10px] font-mono">
+<div class="bg-night/80 border border-slate-800 rounded p-1">
+<span class="text-slate-400 block text-[9px]">1-10ms</span>
+<span class="text-emerald font-bold">84.0%</span>
+</div>
+<div class="bg-night/80 border border-slate-800 rounded p-1">
+<span class="text-slate-400 block text-[9px]">10-50ms</span>
+<span class="text-cyan font-bold">15.8%</span>
+</div>
+<div class="bg-night/80 border border-slate-800 rounded p-1">
+<span class="text-slate-400 block text-[9px]">&gt;50ms</span>
+<span class="text-amber font-bold">0.2%</span>
+</div>
+</div>
+<div class="flex items-center justify-between text-xs font-mono text-slate-400 pt-1">
+<span>Avg 6.4ms · 0 Slow Queries (&gt;1000ms)</span>
+</div>
+</div>
+</div>
+<!-- Card 3: Resend Email Queue Pipeline -->
+<div class="bg-surface rounded-xl border border-border p-5 specular-glow flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition-all">
+<div class="absolute -right-6 -bottom-6 w-28 h-28 bg-primary/5 rounded-full blur-2xl group-hover:bg-primary/10 transition-colors"></div>
+<div class="flex items-start justify-between">
+<div class="space-y-1">
+<span class="text-xs font-label uppercase tracking-wider text-slate-400 font-semibold">Resend Email Queue Pipeline</span>
+<div class="flex items-baseline gap-2">
+<span class="font-mono text-3xl font-bold text-white tabular-nums tracking-tight">1,482 Sent</span>
+<span class="font-mono text-xs text-primary font-semibold">48 queued</span>
+</div>
+</div>
+<span class="text-[10px] font-mono font-semibold bg-primary/20 border border-primary/40 text-primary px-2 py-0.5 rounded-full uppercase tracking-wider">
+            BATCH DISPATCH READY
+          </span>
+</div>
+<div class="mt-4 space-y-2">
+<!-- Queue Cadence indicator -->
+<div class="flex items-center justify-between bg-night/80 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs font-mono">
+<span class="text-slate-400">Next batch in:</span>
+<span class="text-white font-bold tracking-wider flex items-center gap-1">
+<span class="material-symbols-outlined text-sm text-cyan animate-spin">sync</span>
+              08m 14s
+            </span>
+</div>
+<div class="flex items-center justify-between text-xs font-mono text-slate-400 pt-1">
+<span>0 Dead-Letter · 15m Cadence</span>
+<span class="text-emerald">Retry pool: 0 failed</span>
+</div>
+</div>
+</div>
+<!-- Card 4: D1 Storage & WAL Utilization -->
+<div class="bg-surface rounded-xl border border-border p-5 specular-glow flex flex-col justify-between relative overflow-hidden group hover:border-slate-700 transition-all">
+<div class="absolute -right-6 -bottom-6 w-28 h-28 bg-secondary/5 rounded-full blur-2xl group-hover:bg-secondary/10 transition-colors"></div>
+<div class="flex items-start justify-between">
+<div class="space-y-1">
+<span class="text-xs font-label uppercase tracking-wider text-slate-400 font-semibold">D1 Storage &amp; WAL Utilization</span>
+<div class="flex items-baseline gap-2">
+<span class="font-mono text-2xl font-bold text-white tabular-nums tracking-tight">1.42 GB</span>
+<span class="font-mono text-xs text-slate-400">/ 10.00 GB</span>
+</div>
+</div>
+<span class="text-[10px] font-mono font-semibold bg-secondary/20 border border-secondary/40 text-secondary px-2 py-0.5 rounded-full uppercase tracking-wider">
+            14.2% ALLOCATED
+          </span>
+</div>
+<div class="mt-4 space-y-2">
+<!-- Utilization Meter Bar -->
+<div class="w-full bg-night h-2 rounded-full overflow-hidden p-0.5 border border-border">
+<div class="bg-gradient-to-r from-primary to-cyan h-full rounded-full" style="width: 14.2%;"></div>
+</div>
+<div class="flex items-center justify-between text-xs font-mono text-slate-400 pt-1">
+<span>WAL checkpoint: 0.00ms drift</span>
+<span class="text-slate-300">148,920 writes</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 3. CLOUDFLARE WORKERS CRON SCHEDULE MATRIX (/api/cron) -->
+<section class="bg-surface rounded-xl border border-border specular-glow overflow-hidden">
+<!-- Section Header -->
+<div class="p-5 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-4 bg-surface-variant/30">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-primary/20 border border-primary/30 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-lg">schedule</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h2 class="font-headline text-lg font-bold text-white tracking-tight">Cloudflare Workers Cron Schedule Matrix</h2>
+<span class="text-xs font-mono bg-night text-cyan border border-cyan/30 px-2 py-0.5 rounded-full">/api/cron</span>
+</div>
+<p class="text-xs text-on-surface-variant font-body">Managed Cloudflare Edge Crons dispatched via <span class="font-mono text-slate-300">wrangler.toml</span> configuration rules</p>
+</div>
+</div>
+<!-- Filter Tabs -->
+<div class="flex items-center gap-1.5 bg-night p-1 rounded-lg border border-border text-xs font-mono">
+<button class="px-3 py-1 rounded bg-surface-variant text-white font-medium border border-slate-700/60 shadow-sm">All Schedules (7)</button>
+<button class="px-3 py-1 rounded text-slate-400 hover:text-white transition-colors">Core Health</button>
+<button class="px-3 py-1 rounded text-slate-400 hover:text-white transition-colors">Queues &amp; Retries</button>
+<button class="px-3 py-1 rounded text-slate-400 hover:text-white transition-colors">Weekly Settlement</button>
+</div>
+</div>
+<!-- Schedule Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-border text-[11px] font-label uppercase tracking-wider text-slate-400 bg-night/50">
+<th class="py-3 px-4 font-semibold">Cron Identifier &amp; Expression</th>
+<th class="py-3 px-4 font-semibold">Human Schedule &amp; Target Path</th>
+<th class="py-3 px-4 font-semibold">Last Execution &amp; Latency</th>
+<th class="py-3 px-4 font-semibold">Status Code</th>
+<th class="py-3 px-4 font-semibold">Rows Scanned / Payload</th>
+<th class="py-3 px-4 font-semibold text-right">Edge Action</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-border/60 text-xs font-mono">
+<!-- Job 1: alerts -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-emerald"></span>
+<span class="font-bold text-white font-body text-sm">alerts</span>
+<code class="text-xs bg-night px-2 py-0.5 rounded text-cyan border border-slate-800">*/5 * * * *</code>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-body text-xs">Every 5 minutes</span>
+<span class="text-slate-500 text-[11px]">/api/cron/alerts</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="text-slate-300">2m ago</span>
+<span class="text-slate-500">·</span>
+<span class="text-emerald font-semibold tabular-nums">42ms</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald/10 border border-emerald/30 text-emerald px-2 py-0.5 rounded">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>
+                  SUCCESS (200 OK)
+                </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-slate-300 tabular-nums">142 rows</span>
+<span class="text-slate-500 text-[11px] block">Threshold sweep complete</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-primary/20 hover:text-primary hover:border-primary/40 border border-border text-slate-300 text-xs font-mono transition-all">
+                  Trigger Job Now
+                </button>
+</td>
+</tr>
+<!-- Job 2: email-queue -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-emerald"></span>
+<span class="font-bold text-white font-body text-sm">email-queue</span>
+<code class="text-xs bg-night px-2 py-0.5 rounded text-cyan border border-slate-800">*/15 * * * *</code>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-body text-xs">Every 15 minutes</span>
+<span class="text-slate-500 text-[11px]">/api/cron/email-queue</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="text-slate-300">11m ago</span>
+<span class="text-slate-500">·</span>
+<span class="text-emerald font-semibold tabular-nums">184ms</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald/10 border border-emerald/30 text-emerald px-2 py-0.5 rounded">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>
+                  SUCCESS (200 OK)
+                </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-slate-300 tabular-nums">840 rows</span>
+<span class="text-primary text-[11px] block font-semibold">(48 emails pushed)</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-primary/20 hover:text-primary hover:border-primary/40 border border-border text-slate-300 text-xs font-mono transition-all">
+                  Trigger Job Now
+                </button>
+</td>
+</tr>
+<!-- Job 3: d1-metrics -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-emerald"></span>
+<span class="font-bold text-white font-body text-sm">d1-metrics</span>
+<code class="text-xs bg-night px-2 py-0.5 rounded text-cyan border border-slate-800">*/30 * * * *</code>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-body text-xs">Every 30 minutes</span>
+<span class="text-slate-500 text-[11px]">/api/cron/d1-metrics</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="text-slate-300">18m ago</span>
+<span class="text-slate-500">·</span>
+<span class="text-emerald font-semibold tabular-nums">92ms</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald/10 border border-emerald/30 text-emerald px-2 py-0.5 rounded">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>
+                  SUCCESS (200 OK)
+                </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-slate-300 tabular-nums">2,140 rows</span>
+<span class="text-slate-500 text-[11px] block">WAL checkpoints verified</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-primary/20 hover:text-primary hover:border-primary/40 border border-border text-slate-300 text-xs font-mono transition-all">
+                  Trigger Job Now
+                </button>
+</td>
+</tr>
+<!-- Job 4: email-retry -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-slate-500"></span>
+<span class="font-bold text-white font-body text-sm">email-retry</span>
+<code class="text-xs bg-night px-2 py-0.5 rounded text-cyan border border-slate-800">*/30 * * * *</code>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-body text-xs">Every 30 minutes</span>
+<span class="text-slate-500 text-[11px]">/api/cron/email-retry</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="text-slate-300">18m ago</span>
+<span class="text-slate-500">·</span>
+<span class="text-slate-400 font-semibold tabular-nums">38ms</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 text-[11px] font-semibold bg-slate-800/80 border border-slate-700 text-slate-300 px-2 py-0.5 rounded">
+<span class="material-symbols-outlined text-[13px]">pause_circle</span>
+                  IDLE / NO_OP
+                </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-slate-400 tabular-nums">0 rows</span>
+<span class="text-emerald text-[11px] block">(No dead letters)</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-primary/20 hover:text-primary hover:border-primary/40 border border-border text-slate-300 text-xs font-mono transition-all">
+                  Trigger Job Now
+                </button>
+</td>
+</tr>
+<!-- Job 5: analytics-refresh -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-emerald"></span>
+<span class="font-bold text-white font-body text-sm">analytics-refresh</span>
+<code class="text-xs bg-night px-2 py-0.5 rounded text-cyan border border-slate-800">0 * * * *</code>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-body text-xs">Every hour (at minute 0)</span>
+<span class="text-slate-500 text-[11px]">/api/cron/analytics-refresh</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="text-slate-300">41m ago</span>
+<span class="text-slate-500">·</span>
+<span class="text-cyan font-semibold tabular-nums">420ms</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald/10 border border-emerald/30 text-emerald px-2 py-0.5 rounded">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>
+                  SUCCESS (200 OK)
+                </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-slate-300 tabular-nums">18,420 rows</span>
+<span class="text-slate-500 text-[11px] block">Materialized aggregation sync</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-primary/20 hover:text-primary hover:border-primary/40 border border-border text-slate-300 text-xs font-mono transition-all">
+                  Trigger Job Now
+                </button>
+</td>
+</tr>
+<!-- Job 6: payouts -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-emerald"></span>
+<span class="font-bold text-white font-body text-sm">payouts</span>
+<code class="text-xs bg-night px-2 py-0.5 rounded text-cyan border border-slate-800">0 0 * * 0</code>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-body text-xs">Sunday at 00:00 UTC</span>
+<span class="text-slate-500 text-[11px]">/api/cron/payouts</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="text-slate-300">4d ago</span>
+<span class="text-slate-500">·</span>
+<span class="text-amber font-semibold tabular-nums">1,240ms</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald/10 border border-emerald/30 text-emerald px-2 py-0.5 rounded">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>
+                  SUCCESS (200 OK)
+                </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-slate-300 tabular-nums">124,500 rows</span>
+<span class="text-emerald text-[11px] block font-semibold">($18,420.50 settled)</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-primary/20 hover:text-primary hover:border-primary/40 border border-border text-slate-300 text-xs font-mono transition-all">
+                  Trigger Job Now
+                </button>
+</td>
+</tr>
+<!-- Job 7: campaigns -->
+<tr class="hover:bg-surface-variant/40 transition-colors">
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2.5">
+<span class="w-2 h-2 rounded-full bg-emerald"></span>
+<span class="font-bold text-white font-body text-sm">campaigns</span>
+<code class="text-xs bg-night px-2 py-0.5 rounded text-cyan border border-slate-800">0 0 * * 0</code>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex flex-col">
+<span class="text-slate-200 font-body text-xs">Sunday at 00:00 UTC</span>
+<span class="text-slate-500 text-[11px]">/api/cron/campaigns</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<div class="flex items-center gap-2">
+<span class="text-slate-300">4d ago</span>
+<span class="text-slate-500">·</span>
+<span class="text-emerald font-semibold tabular-nums">310ms</span>
+</div>
+</td>
+<td class="py-3.5 px-4">
+<span class="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald/10 border border-emerald/30 text-emerald px-2 py-0.5 rounded">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>
+                  SUCCESS (200 OK)
+                </span>
+</td>
+<td class="py-3.5 px-4">
+<span class="text-slate-300 tabular-nums">4,800 rows</span>
+<span class="text-slate-500 text-[11px] block">Weekly rebate tiers recalibrated</span>
+</td>
+<td class="py-3.5 px-4 text-right">
+<button class="px-2.5 py-1 rounded bg-surface-variant hover:bg-primary/20 hover:text-primary hover:border-primary/40 border border-border text-slate-300 text-xs font-mono transition-all">
+                  Trigger Job Now
+                </button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<!-- 4. D1 QUERY TELEMETRY & ALERT THRESHOLD INSPECTOR (/api/monitoring/d1) -->
+<section class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+<!-- LEFT SIDE: 4 Default D1 Alert Rules (5 cols) -->
+<div class="xl:col-span-5 bg-surface rounded-xl border border-border specular-glow p-5 space-y-4">
+<div class="flex items-center justify-between pb-3 border-b border-border">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-primary text-xl">notifications_active</span>
+<div>
+<h3 class="font-headline text-base font-bold text-white">Default D1 Alert Rules</h3>
+<p class="text-xs text-on-surface-variant font-mono">Telemetry policy engine &amp; threshold auto-remedy</p>
+</div>
+</div>
+<span class="text-[11px] font-mono text-emerald bg-emerald/10 border border-emerald/30 px-2 py-0.5 rounded">
+            4/4 ARMED
+          </span>
+</div>
+<div class="space-y-3">
+<!-- Rule 1: Slow Query > 1000ms -->
+<div class="bg-surface-variant/40 border border-slate-800 rounded-lg p-3.5 space-y-2 hover:border-slate-700 transition-colors">
+<div class="flex items-start justify-between">
+<div>
+<span class="font-headline text-xs font-bold text-white block">Rule 1: Slow Query &gt; 1000ms</span>
+<span class="text-[11px] text-slate-400 font-mono">Action: <span class="text-crimson font-semibold">Auto-Abort</span> (SQL query cancel token)</span>
+</div>
+<span class="text-[10px] font-mono font-bold bg-emerald/15 text-emerald border border-emerald/30 px-2 py-0.5 rounded">
+                HEALTHY 0/hr
+              </span>
+</div>
+<div class="flex items-center justify-between text-xs font-mono text-slate-400 pt-1 border-t border-slate-800/80">
+<span>Threshold: <strong class="text-slate-200">1,000ms</strong></span>
+<div class="flex items-center gap-2 text-[11px]">
+<button class="hover:text-cyan transition-colors">Snooze 1h</button>
+<span class="text-slate-600">·</span>
+<button class="hover:text-amber transition-colors">Mute</button>
+<span class="text-slate-600">·</span>
+<button class="hover:text-primary transition-colors">Edit</button>
+</div>
+</div>
+</div>
+<!-- Rule 2: Storage Usage >= 80% -->
+<div class="bg-surface-variant/40 border border-slate-800 rounded-lg p-3.5 space-y-2 hover:border-slate-700 transition-colors">
+<div class="flex items-start justify-between">
+<div>
+<span class="font-headline text-xs font-bold text-white block">Rule 2: Storage Usage &gt;= 80%</span>
+<span class="text-[11px] text-slate-400 font-mono">Action: <span class="text-amber font-semibold">PagerDuty &amp; Slack</span> Webhook Alert</span>
+</div>
+<span class="text-[10px] font-mono font-bold bg-emerald/15 text-emerald border border-emerald/30 px-2 py-0.5 rounded">
+                HEALTHY 14.2% current
+              </span>
+</div>
+<div class="flex items-center justify-between text-xs font-mono text-slate-400 pt-1 border-t border-slate-800/80">
+<span>Threshold: <strong class="text-slate-200">8.00 GB (80%)</strong></span>
+<div class="flex items-center gap-2 text-[11px]">
+<button class="hover:text-cyan transition-colors">Snooze 1h</button>
+<span class="text-slate-600">·</span>
+<button class="hover:text-amber transition-colors">Mute</button>
+<span class="text-slate-600">·</span>
+<button class="hover:text-primary transition-colors">Edit</button>
+</div>
+</div>
+</div>
+<!-- Rule 3: Excessive Slow Queries > 10/hr -->
+<div class="bg-surface-variant/40 border border-slate-800 rounded-lg p-3.5 space-y-2 hover:border-slate-700 transition-colors">
+<div class="flex items-start justify-between">
+<div>
+<span class="font-headline text-xs font-bold text-white block">Rule 3: Excessive Slow Queries &gt; 10/hr</span>
+<span class="text-[11px] text-slate-400 font-mono">Action: <span class="text-secondary font-semibold">Circuit Breaker Reroute</span> to Read Replica</span>
+</div>
+<span class="text-[10px] font-mono font-bold bg-emerald/15 text-emerald border border-emerald/30 px-2 py-0.5 rounded">
+                HEALTHY 0 count
+              </span>
+</div>
+<div class="flex items-center justify-between text-xs font-mono text-slate-400 pt-1 border-t border-slate-800/80">
+<span>Threshold: <strong class="text-slate-200">10 occurrences</strong></span>
+<div class="flex items-center gap-2 text-[11px]">
+<button class="hover:text-cyan transition-colors">Snooze 1h</button>
+<span class="text-slate-600">·</span>
+<button class="hover:text-amber transition-colors">Mute</button>
+<span class="text-slate-600">·</span>
+<button class="hover:text-primary transition-colors">Edit</button>
+</div>
+</div>
+</div>
+<!-- Rule 4: High Row Scan > 10,000 rows -->
+<div class="bg-surface-variant/40 border border-slate-800 rounded-lg p-3.5 space-y-2 hover:border-slate-700 transition-colors">
+<div class="flex items-start justify-between">
+<div>
+<span class="font-headline text-xs font-bold text-white block">Rule 4: High Row Scan &gt; 10,000 rows</span>
+<span class="text-[11px] text-slate-400 font-mono">Action: <span class="text-cyan font-semibold">Log Warning</span> &amp; Enforce Query Index Hint</span>
+</div>
+<span class="text-[10px] font-mono font-bold bg-cyan/15 text-cyan border border-cyan/30 px-2 py-0.5 rounded">
+                MONITORED
+              </span>
+</div>
+<div class="flex items-center justify-between text-xs font-mono text-slate-400 pt-1 border-t border-slate-800/80">
+<span>Threshold: <strong class="text-slate-200">10,000 rows</strong></span>
+<div class="flex items-center gap-2 text-[11px]">
+<button class="hover:text-cyan transition-colors">Snooze 1h</button>
+<span class="text-slate-600">·</span>
+<button class="hover:text-amber transition-colors">Mute</button>
+<span class="text-slate-600">·</span>
+<button class="hover:text-primary transition-colors">Edit</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- RIGHT SIDE: Interactive Query Latency Simulator & REPL (7 cols) -->
+<div class="xl:col-span-7 bg-surface rounded-xl border border-border specular-glow p-5 flex flex-col justify-between space-y-4">
+<div>
+<div class="flex items-center justify-between pb-3 border-b border-border">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-cyan text-xl">data_object</span>
+<h3 class="font-headline text-base font-bold text-white">Interactive Query Latency Simulator &amp; REPL</h3>
+<span class="text-xs font-mono bg-night text-slate-400 px-2 py-0.5 rounded border border-border">d1.apex-prod-01</span>
+</div>
+<span class="text-[11px] font-mono text-slate-400">Target: <strong class="text-white">CF D1 SQLite v3.45.1</strong></span>
+</div>
+<!-- SQL Code Area -->
+<div class="mt-4 space-y-2">
+<div class="flex items-center justify-between text-xs font-mono text-slate-400">
+<span>SQL Query Input:</span>
+<span class="text-slate-500">Read-Only Prepared Statement</span>
+</div>
+<div class="relative bg-night rounded-lg border border-border p-3 font-mono text-xs">
+<textarea class="w-full bg-transparent border-0 text-slate-100 p-0 focus:ring-0 focus:outline-none resize-none font-mono text-xs leading-relaxed" id="sqlInput" rows="3" spellcheck="false">SELECT audit_id, net_amount, status, created_at FROM payout_audit_logs WHERE status = 'PENDING' ORDER BY created_at DESC LIMIT 50;</textarea>
+<div class="absolute right-2 bottom-2 text-[10px] text-slate-600 font-mono">SQLite dialect</div>
+</div>
+</div>
+<!-- Simulation Quick Buttons -->
+<div class="mt-3 flex flex-wrap items-center gap-2">
+<button class="px-3 py-1.5 rounded-lg bg-primary hover:bg-indigo-600 text-white text-xs font-mono font-medium flex items-center gap-1.5 transition-all shadow-sm shadow-primary/30" id="btnRunBenchmark">
+<span class="material-symbols-outlined text-sm">play_arrow</span>
+              Run Query Benchmark
+            </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-divider border border-border text-amber hover:text-white text-xs font-mono flex items-center gap-1.5 transition-all" id="btnSimulateSpike">
+<span class="material-symbols-outlined text-sm">warning</span>
+              Simulate 1,200ms Spike
+            </button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-variant hover:bg-divider border border-border text-cyan hover:text-white text-xs font-mono flex items-center gap-1.5 transition-all" id="btnSimulateScan">
+<span class="material-symbols-outlined text-sm">table_rows</span>
+              Simulate 50k Row Scan
+            </button>
+</div>
+</div>
+<!-- Result Telemetry Box -->
+<div class="bg-night rounded-xl border border-slate-800 p-4 space-y-3">
+<div class="flex items-center justify-between text-xs font-mono pb-2 border-b border-slate-800/80">
+<span class="text-slate-400 flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-emerald"></span>
+              Execution Telemetry Result
+            </span>
+<span class="text-emerald font-semibold bg-emerald/10 border border-emerald/30 px-2 py-0.5 rounded text-[11px]" id="telemetryStatus">
+              200 OK · ZERO_DRIFT
+            </span>
+</div>
+<!-- Benchmark Metrics Grid -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-center">
+<div class="bg-surface-variant/30 rounded p-2 border border-slate-800">
+<span class="text-[10px] text-slate-400 block uppercase">Execution Time</span>
+<span class="text-emerald font-bold text-base tabular-nums" id="resExecTime">8.4ms</span>
+</div>
+<div class="bg-surface-variant/30 rounded p-2 border border-slate-800">
+<span class="text-[10px] text-slate-400 block uppercase">Rows Returned</span>
+<span class="text-slate-200 font-bold text-base tabular-nums" id="resRowsReturned">42</span>
+</div>
+<div class="bg-surface-variant/30 rounded p-2 border border-slate-800">
+<span class="text-[10px] text-slate-400 block uppercase">Rows Read</span>
+<span class="text-slate-200 font-bold text-base tabular-nums" id="resRowsRead">42</span>
+</div>
+<div class="bg-surface-variant/30 rounded p-2 border border-slate-800">
+<span class="text-[10px] text-slate-400 block uppercase">Index Used</span>
+<span class="text-cyan font-bold text-xs truncate block pt-0.5" id="resIndexUsed">idx_payouts_status</span>
+</div>
+</div>
+<!-- Subtext trace detail -->
+<div class="flex items-center justify-between text-[11px] font-mono text-slate-500 pt-1">
+<span>D1 Engine: Cloudflare D1 SQLite v3.45.1</span>
+<span class="text-slate-400 font-medium">Trace ID: cf-edge-84b29-sin</span>
+</div>
+</div>
+</div>
+</section>
+<!-- 5. FOOTER TELEMETRY STATUS BAR -->
+<footer class="bg-surface rounded-xl border border-border p-3.5 specular-glow flex flex-col md:flex-row items-center justify-between gap-3 text-xs font-mono text-slate-400">
+<div class="flex flex-wrap items-center gap-3">
+<span class="flex items-center gap-1.5 text-slate-300">
+<span class="material-symbols-outlined text-sm text-cyan">cloud_done</span>
+          Cloudflare Workers runtime v4.9
+        </span>
+<span class="text-slate-700 hidden sm:inline">|</span>
+<span class="flex items-center gap-1.5 text-slate-300">
+<span class="material-symbols-outlined text-sm text-emerald">database</span>
+          D1 Edge Database: <code class="text-slate-200">sin-01-node.apex</code>
+</span>
+<span class="text-slate-700 hidden sm:inline">|</span>
+<span class="flex items-center gap-1.5 text-emerald">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald"></span>
+          Cron Scheduler: ACTIVE
+        </span>
+</div>
+<div class="flex flex-wrap items-center gap-3">
+<span class="flex items-center gap-1.5 text-slate-300">
+<span class="material-symbols-outlined text-sm text-primary">mark_email_read</span>
+          Resend API: <span class="text-emerald font-semibold">CONNECTED (24ms ping)</span>
+</span>
+<span class="text-slate-700 hidden sm:inline">|</span>
+<span class="text-slate-400">
+          Idempotency Salt: <code class="text-slate-200 bg-night px-1.5 py-0.5 rounded border border-slate-800">a7e3-cf91-4e8b</code>
+</span>
+</div>
+</footer>
+</main>
+<!-- Interactive JavaScript for micro-interactions & simulations -->
+<script>
+    // Simple micro-interactions for the Query simulator
+    const btnBenchmark = document.getElementById('btnRunBenchmark');
+    const btnSpike = document.getElementById('btnSimulateSpike');
+    const btnScan = document.getElementById('btnSimulateScan');
+
+    const resExecTime = document.getElementById('resExecTime');
+    const resRowsReturned = document.getElementById('resRowsReturned');
+    const resRowsRead = document.getElementById('resRowsRead');
+    const resIndexUsed = document.getElementById('resIndexUsed');
+    const telemetryStatus = document.getElementById('telemetryStatus');
+
+    btnBenchmark.addEventListener('click', () => {
+      telemetryStatus.className = "text-emerald font-semibold bg-emerald/10 border border-emerald/30 px-2 py-0.5 rounded text-[11px]";
+      telemetryStatus.innerText = "200 OK · ZERO_DRIFT";
+      resExecTime.className = "text-emerald font-bold text-base tabular-nums";
+      resExecTime.innerText = (Math.random() * 4 + 5).toFixed(1) + "ms";
+      resRowsReturned.innerText = "42";
+      resRowsRead.innerText = "42";
+      resIndexUsed.className = "text-cyan font-bold text-xs truncate block pt-0.5";
+      resIndexUsed.innerText = "idx_payouts_status";
+    });
+
+    btnSpike.addEventListener('click', () => {
+      telemetryStatus.className = "text-crimson font-semibold bg-crimson/10 border border-crimson/30 px-2 py-0.5 rounded text-[11px] animate-pulse";
+      telemetryStatus.innerText = "SLOW_QUERY_TRIPPED · AUTO_ABORT";
+      resExecTime.className = "text-crimson font-bold text-base tabular-nums";
+      resExecTime.innerText = "1,248.5ms";
+      resRowsReturned.innerText = "0 (Canceled)";
+      resRowsRead.innerText = "48,210";
+      resIndexUsed.className = "text-amber font-bold text-xs truncate block pt-0.5";
+      resIndexUsed.innerText = "FULL_TABLE_SCAN";
+    });
+
+    btnScan.addEventListener('click', () => {
+      telemetryStatus.className = "text-amber font-semibold bg-amber/10 border border-amber/30 px-2 py-0.5 rounded text-[11px]";
+      telemetryStatus.innerText = "WARN · SCAN_LIMIT_HIT";
+      resExecTime.className = "text-amber font-bold text-base tabular-nums";
+      resExecTime.innerText = "342.1ms";
+      resRowsReturned.innerText = "50,000";
+      resRowsRead.innerText = "50,000";
+      resIndexUsed.className = "text-slate-400 font-bold text-xs truncate block pt-0.5";
+      resIndexUsed.innerText = "idx_created_at_desc";
+    });
+  </script>
+
+<!-- ApexOS Stitch-Loop Unified Navigation Ribbon -->
+<div style="position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:99999;background:rgba(2,6,23,0.94);backdrop-filter:blur(14px);border:1px solid rgba(99,102,241,0.35);border-radius:9999px;padding:6px 16px;display:flex;gap:8px;align-items:center;font-family:'Inter',system-ui,sans-serif;font-size:12px;box-shadow:0 12px 32px rgba(0,0,0,0.7);white-space:nowrap;max-width:96vw;overflow-x:auto;">
+  <span style="color:#06B6D4;font-weight:700;padding-right:8px;border-right:1px solid #334155;display:inline-flex;align-items:center;gap:6px;">
+    <span style="width:7px;height:7px;border-radius:9999px;background:#10B981;display:inline-block;"></span>
+    ApexOS · Stitch-Loop (16/16)
+  </span>
+  <a href="index.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">1. Cashback Cockpit</a>
+  <a href="arbitrage-deals.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">2. Arbitrage & Deals</a>
+  <a href="multichain-payouts.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">3. Multi-Chain Payouts</a>
+  <a href="compliance-fraud.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">4. KYC & Fraud Shield</a>
+  <a href="telegram-mini-app.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">5. Telegram Mini App</a>
+  <a href="style-guide.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">6. Style Guide</a>
+  <a href="webhook-replay-sandbox.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">7. Webhook Sandbox</a>
+  <a href="fee-surge-simulator.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">8. Fee Surge Simulator</a>
+  <a href="immutable-d1-audit-explorer.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">9. D1 Audit Explorer</a>
+  <a href="byok-encryption-vault.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">10. BYOK Key Vault</a>
+  <a href="vip-whale-otc-desk.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">11. VIP Whale Desk</a>
+  <a href="cron-worker-observability.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">12. Cron & D1 Observability</a>
+  <a href="sepay-vietqr-bank-bridge.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">13. SePay & VietQR Bridge</a>
+  <a href="r2-merkle-snapshot-archiver.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">14. R2 Merkle Archiver</a>
+  <a href="ai-agent-arbitrage-bot.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">15. AI Arbitrage Bot</a>
+  <a href="institutional-prime-api-gateway.html" style="color:#F8FAFC;text-decoration:none;padding:4px 10px;border-radius:9999px;border:1px solid transparent;transition:all 0.15s;" onmouseover="this.style.background='#1E293B';this.style.borderColor='rgba(6,182,212,0.4)'" onmouseout="this.style.background='transparent';this.style.borderColor='transparent'">16. Prime API Gateway</a>
+</div>
+</body></html>

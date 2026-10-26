@@ -7,29 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-29
+
 ### Added
-- **Claude-Zenos Unified Launcher** - Unified launcher integrating Claude Code with ZenOS branding and LM Studio model selection
-- **Cloudflare D1 Migration** - Complete migration to Cloudflare D1 with type checking fixes and local development support
-- **OPC Platform Dev Environment** - Bootstrap script for initializing opc-community-platform development environment
-- **Production Readiness Verification Script** - Automated script to verify production deployment readiness
-- **Global Auto-Routing for Claude Code** - Intelligent model routing system with LM Studio integration and proper TTY handling
-- **Mekong Furniture OPC Automation System** - Complete automation system for Mekong Furniture OPC operations
+- **Telegram Mini App (TMA) Touch Client (`/[locale]/telegram/app`)**: Edge-rendered, touch-optimized WebApp interface (`telegram-app-client.tsx`) designed for the Telegram client with native `--tg-theme-*` CSS variables, `.pt-safe`/`.pb-safe` safe-area padding, and touch targets $\ge 44$px. Includes 4 embedded views: Deals & Arbitrage explorer, Viral Referral sharing & 1-click link generator with HapticFeedback, Olympic Leaderboard, and personal Earnings summary with multi-chain Web3 wallet binding.
+- **Telegram WebApp SDK Integration**: React hook `src/hooks/useTelegramWebApp.ts` supporting safe SSR fallback, viewport height adaptation, theme change event listeners, MainButton and BackButton controls, and native HapticFeedback triggers (`impactOccurred`, `notificationOccurred`).
+- **Cryptographic `initData` Authentication & Account Binding**: Edge runtime endpoint `POST /api/auth/telegram` verifying Telegram `initData` HMAC-SHA256 signatures via Web Crypto `SubtleCrypto` with constant-time equality comparisons (`timingSafeEqual`) and 24-hour replay attack prevention. Supports linking existing ApexOS profiles, auto-provisioning new accounts with synthetic emails (`tg_{id}@telegram.apexos.io`), issuing 30-day session tokens in `sessions`, and validating multi-chain wallet addresses (Ethereum, Solana, Stellar).
+- **Telegram Bot Webhook & Social Referral Engine**: Edge runtime webhook `POST /api/webhooks/telegram` validating `X-Telegram-Bot-Api-Secret-Token`. Features deep-link referral onboarding (`/start ref_<code`) binding referees in `telegram_referrals` and `referral_tree`, awarding social referral bonuses (\$5.00), preventing self-referrals and duplicate links, interactive inline queries (`@ApexOSBot <query>`) returning rich article share cards with deal rates and referral deep links, and bot commands (`/deals`, `/earnings`, `/leaderboard`, `/link`, `/help`).
+- **D1 Schema Migration 026**: Migration `026_telegram_mini_app.sql` introducing `telegram_users`, `telegram_referrals`, and `telegram_bot_events` tables with composite indexes (`idx_telegram_users_tg_id`, `idx_telegram_users_user_id`, `idx_telegram_referrals_code`, `idx_telegram_bot_events_type_created`) and SQLite database engine triggers (`trg_telegram_bot_events_no_update`, `trg_telegram_bot_events_no_delete`) enforcing tamper-proof audit trails.
+- **Direct Personal Chat Notifications & Leaderboard**: Extended `TelegramNotifier` supporting direct chat notifications (cashback confirmations, referral activations, and payout dispatches) with user ID resolution, markdown formatting, deep-link CTA buttons, and resilient error handling; edge API `GET /api/telegram/leaderboard` and Olympic podium UI component `TelegramLeaderboard.tsx` for tracking top viral affiliates.
 
-### Changed
-- **Auto-Routing Rewrite** - Complete rewrite of ck-init auto-routing with improved TTY handling
-- **Project Status** - Marked project as complete with mainnet deployment deferred
+## [1.4.0] - 2026-09-28
 
-### Fixed
-- **Skill.py and Setup Verification** - Fixed verify-setup arithmetic issues and added missing skill.py
+### Added
+- **Multi-Exchange Rate & Campaign Crawler Engine**: Pluggable `ExchangeCrawlerAdapter` architecture indexing spot and futures trading fee schedules, VIP volume tiers, and affiliate cashback structures across **Binance**, **Bybit**, **OKX**, and **KuCoin**, with resilient exponential backoff (`withRetry`), rate-limit safety, and edge-compatible fallback fixtures (`fixtures/*`).
+- **Cross-Exchange Arbitrage & Yield Matrix Engine**: Pure TypeScript mathematical engine (`src/lib/arbitrage/math.ts` and `ArbitrageEngine`) computing net trading fees with cashback advantages, preserving maker fee rebates on negative rates, calculating basis point (bps) spreads ($\text{spreadBps} = (\text{netBase} - \text{netTarget}) \times 10,000$), net savings percentages, volume tier projections ($10k, $50k, $250k), and opportunity classification (`FEE_SPREAD`, `CASHBACK_MAX`, `VIP_PROMOTION`).
+- **Real-Time Alert Dispatching & Multi-Channel Push**: `ArbitrageAlertService` detecting high-spread opportunities ($\ge 15\text{ bps}$ or fee savings $\ge 20\%$), dispatching formatted Markdown alerts to Telegram channels via `TelegramNotifier`, pushing alerts to registered mobile devices (`device_tokens`), and enforcing a rolling 1-hour deduplication window with a $\ge 50\%$ spread-widening bypass.
+- **Public & Admin APIs**: Edge runtime compatible public endpoint `GET /api/deals/arbitrage` supporting multi-parameter filtering (`pair`, `market_type`, `min_spread`, `opportunity_type`) and pagination; Admin RBAC endpoints `POST /api/admin/crawler/run` and `GET /api/admin/crawler/status` for triggering manual crawls and monitoring sync run logs.
+- **Interactive Arbitrage & Yield Finder Deals UI**: Interactive component `ArbitrageFinder.tsx` mounted on `/[locale]/deals` with interactive trading volume sliders ($10k-$1M), maker/taker order blend sliders, live fee savings calculators with canonical $810/yr benchmark displays, and 1-click CTA buttons routing directly to affiliate deal links; administrative crawler management page at `/[locale]/admin/crawler`.
+- **D1 Schema Migration 025**: Migration `025_deal_crawler_arbitrage.sql` creating `exchange_rate_cards`, `arbitrage_opportunities`, and `crawler_sync_runs` tables with composite indexes (`idx_arbitrage_active_spread`, `idx_rate_cards_lookup`, `idx_crawler_sync_exchange`, `idx_arbitrage_pair_market`) and automated SQLite update triggers.
 
-### Documentation
-- **Claude-Zenos Unified Launcher Documentation** - Comprehensive documentation for the unified launcher
-- **Ship Pipeline Documentation** - Added ship pipeline documentation and scripts
-- **Production Deployment Quick Reference** - Quick reference guide for production deployment
-- **Handover Package** - Urgent handover package for immediate production deployment
-- **Claude Code Integration Guide** - Integration guide for auto-routing configuration
-- **Production Deployment Checklist** - Setup guide and checklist for production deployment
-- **Progress Checklist for Init Workflow** - Detailed progress tracking for initialization workflow
+## [1.3.0] - 2026-09-28
+
+### Added
+- **KYC & Regulatory Compliance Engine**: Tiered 30-day rolling payout limits ($500 unverified ceiling, $2,500 basic, $50,000+ enhanced) protecting cryptocurrency settlement rails against illicit flows and financial non-compliance.
+- **On-Chain Sanctions & AML Address Screening**: Pre-flight screening of recipient wallet addresses on Ethereum, Solana, and Stellar via `SanctionsScreeningService`, blocking OFAC SDN sanctioned addresses and mixer deposits with `compliance_blocked` status and high-severity audit logging.
+- **Identity Verification Webhook & Automated Release**: Provider-agnostic KYC session generation (`/api/kyc/initiate`) and edge HMAC-SHA256 webhook handler (`/api/webhooks/kyc`) that upgrades user profiles to `tier2_enhanced` upon approval and automatically unholds previously blocked `kyc_required` payouts via `AutoReleaseService`.
+- **Administrative Compliance Review Dashboard**: Responsive management dashboard (`/admin/compliance`) and secure API endpoints (`/api/admin/compliance/*`) for reviewing held payouts, managing local sanctions watchlists, and logging immutable audit events into `compliance_audit_logs`.
+- **D1 Schema Migration 024**: Migration `024_kyc_compliance_schema.sql` adding `sanctioned_addresses` (pre-seeded with OFAC SDN list), `compliance_audit_logs` with SQLite engine immutability triggers, and payout compliance tracking fields.
+
+## [1.2.0] - 2026-09-28
+
+### Added
+- **Multi-Chain Automated Payout Rails & Settlement Engine**: Pluggable `PayoutChainAdapter` architecture extending settlement beyond Stellar to Ethereum (EVM ERC-20 USDC/USDT) and Solana (SPL USDC) with pure TypeScript Keccak-256 and Base58 codecs for edge runtime compatibility.
+- **Automated Batch Settlement & Ledger Safety**: `BatchSettlementService` with $50 minimum threshold aggregation, Cloudflare D1 atomic two-phase reservation (`db.batch`), deterministic SHA-256 idempotency key generation, and strict double-entry ledger reconciliation.
+- **Treasury Health Monitoring & Circuit Breaker**: `TreasuryHealthService` inspecting native gas and stablecoin reserves across Ethereum, Solana, and Stellar, grading health status (`HEALTHY`, `LOW_RESERVE`, `CRITICAL`), and pausing automated batch processing when hot wallet reserves fall below safety floors.
+- **Admin Payout Controls & Immutability**: Endpoints for batch preview and triggering (`/api/admin/payouts/batch`), failed payout retry with gas re-estimation and CAS guards (`/api/admin/payouts/retry`), and treasury inspection (`/api/admin/payouts/treasury`), backed by tamper-proof `payout_audit_logs` protected by SQLite engine triggers.
+- **D1 Schema Migration 023**: Migration `023_multichain_payouts.sql` introducing `payout_batches`, `payout_audit_logs`, multi-chain columns on `payouts`, and immutability triggers.
+
+## [1.1.0] - 2026-09-27
+
+### Added
+- **OKX & KuCoin Multi-Exchange Webhooks**: Unified router (`/api/webhooks/exchange`) and dedicated endpoints (`/okx`, `/kucoin`), HMAC-SHA256 signature verification (including KuCoin Base64 encoding), 5-minute timestamp validation windows, and 30-day click attribution matching.
+- **Advanced Analytics Dashboard & D1 Views**: 5 materialized views in migration `018_analytics_views.sql` (`analytics_daily_deals`, `analytics_daily_affiliates`, `analytics_exchange_breakdown`, `analytics_top_pairs`, `analytics_funnel_daily`), administrative analytics dashboard (`/[locale]/admin/analytics`), CSV export, and KV caching layer.
+- **Lifecycle Transactional Email Engine**: 5 React Email templates (`WelcomeEmail`, `ConversionEarnedEmail`, `PayoutSentEmail`, `WeeklySummaryEmail`, `DealExpiringEmail`), queue architecture in D1 (`email_queue`, `email_events`), priority scheduling, retry processor (up to 3 retries), and hourly cron trigger (`/api/cron/process-email-queue`).
+- **ApexOS Mobile Store & TestFlight Readiness**: React Native 0.86 and Expo SDK 52 mobile application, Hermes bytecode optimization producing a 5.4MB dual-platform bundle (<50MB ceiling), complete EAS Build profiles (`development`, `preview`, `production`), App Store / Google Play metadata, global `ErrorBoundary`, safe area handling, and deep link routing (`apex-os://billing/result`, `apex-os://wallet-connected`).
+- **Fraud Anomaly Detection Engine & Admin Review**: Multi-tier defense on click tracking, dual-window rate limiting (100 clicks/hr, 1,000 clicks/day per IP), velocity burst anomaly detection (<2s delta), click-to-conversion ratio skew detection (>10:1), IP blocklisting (HTTP 403), auto-blocking repeat offenders (150 clicks/hr), full admin fraud management dashboard (`/admin/fraud`), and immutable SQLite trigger audit logs (`fraud_reviews`).
+- **NOWPayments Crypto Billing & Wallet Binding**: Authenticated checkout API (`/api/payments`) supporting tier upgrades (BASIC, PREMIUM, ENTERPRISE, MASTER), HMAC-SHA512 IPN webhook verification (`/api/webhooks/ipn`), idempotent tier activation ledger (`tier_activations`), and multi-chain wallet profile binding (`/api/profile/wallet` supporting Ethereum, Solana, Stellar) with native push notification registration (`/api/notifications/register`).
+
+### Performance
+- **KV Caching Deserialization Fixes**: Eliminated redundant `JSON.parse` operations on pre-parsed KV cache objects across analytics and affiliate routes.
+- **Database Composite Indexes**: Added high-efficiency composite indexes on `deals(is_active, created_at DESC)`, `payments(user_id, created_at DESC)`, `deal_clicks(ip_address, created_at)`, and `conversions(status, converted_at)`.
+- **Query Optimizations**: Refactored click velocity burst queries from `OR` clauses to indexed single-column lookups and `UNION ALL`, reducing query latency on high-volume click streams.
+
+### Security
+- **Cryptographic Replay Protection**: Nonce and trade ID replay protection using Cloudflare KV with standard `get`/`put` key-value operations and 24-hour expiration windows.
+- **Strict HMAC Signatures**: Validated HMAC-SHA256 (Binance, Bybit, OKX, KuCoin) and HMAC-SHA512 (NOWPayments IPN) with canonical payload sorting and timing-safe equality comparisons.
+- **Dual-Window IP Rate Limiting & Auto-Block**: RFC 6585-compliant 429 rate limit responses with `Retry-After` headers and auto-blocking for repeated offenders exceeding 150 clicks/hour.
 
 ## [1.0.1] - 2026-06-25
 

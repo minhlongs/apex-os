@@ -63,10 +63,12 @@ export function NotificationPreferences({ initialSettings, onSave }: Notificatio
   const updateQuietHours = (field: 'enabled' | 'start_hour' | 'end_hour' | 'timezone', value: boolean | number | string) => {
     setSettings(prev => ({
       ...prev,
+      // The computed key spread of an optional block cannot prove the required
+      // fields survive; the runtime object shape is unchanged.
       quiet_hours: {
         ...prev.quiet_hours,
         [field]: value,
-      },
+      } as NonNullable<NotificationSettings['quiet_hours']>,
     }));
     setHasChanges(true);
     setError(null);

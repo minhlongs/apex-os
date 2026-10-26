@@ -311,6 +311,10 @@ export async function fetchTopDeals(
   limit: number = 10
 ): Promise<BusinessMetricsResponse['top_deals']> {
   const { start_date, end_date, deal_type, exchange, status } = params;
+  // Date bounds are optional on the request shape but always materialized by
+  // parseQueryParams; fall back to the resolved Date objects if a caller omitted them.
+  const periodStart = start_date ?? params.startDateObj.toISOString().split('T')[0];
+  const periodEnd = end_date ?? params.endDateObj.toISOString().split('T')[0];
   const startDate = `${start_date}T00:00:00.000Z`;
   const endDate = `${end_date}T23:59:59.999Z`;
 
@@ -410,8 +414,8 @@ export async function fetchTopDeals(
 
   return {
     period: {
-      start_date: params.start_date,
-      end_date: params.end_date,
+      start_date: periodStart,
+      end_date: periodEnd,
     },
     limit,
     deals: dealMetrics,
@@ -531,33 +535,49 @@ export async function fetchBusinessMetricsSnapshot(
     LIMIT 1
   `).first<{ balance_usdc: number }>();
 
+  // Aggregate queries always yield one row, but first() is typed T | undefined;
+  // zeroed defaults keep the arithmetic below total, matching the ?.field || 0 reads.
+  const todayAgg = {
+    revenue: todayMetrics?.revenue ?? 0,
+    conversions: todayMetrics?.conversions ?? 0,
+    clicks: todayMetrics?.clicks ?? 0,
+  };
+  const webhook = {
+    total: webhookResult?.total ?? 0,
+    failed: webhookResult?.failed ?? 0,
+  };
+  const payout = {
+    total: payoutResult?.total ?? 0,
+    failed: payoutResult?.failed ?? 0,
+  };
+
   // Calculate today's conversion rate
-  const todayConversionRate = todayMetrics.clicks > 0
-    ? (todayMetrics.conversions / todayMetrics.clicks) * 100
+  const todayConversionRate = todayAgg.clicks > 0
+    ? (todayAgg.conversions / todayAgg.clicks) * 100
     : 0;
 
   // Determine revenue trend
-  const todayRev = todayMetrics.revenue;
+  const todayRev = todayAgg.revenue;
   const yesterdayRev = yesterdayResult?.revenue || 0;
   const revenueTrend: 'up' | 'down' | 'stable' = todayRev > yesterdayRev * 1.1 ? 'up'
     : todayRev < yesterdayRev * 0.9 ? 'down'
     : 'stable';
 
   return {
-    todayRevenue: todayMetrics.revenue,
+    todayRevenue: todayAgg.revenue,
     yesterdayRevenue: yesterdayRev,
     sevenDayAvgRevenue: sevenDayAvgResult?.avg_revenue || 0,
     revenueTrend,
     todayConversionRate,
     last7DayAvgConversionRate: conversionRateResult?.avg_rate || 0,
-    clicksToday: todayMetrics.clicks,
-    conversionsToday: todayMetrics.conversions,
-    webhookFailureRate: webhookResult.total > 0 ? (webhookResult.failed / webhookResult.total) * 100 : 0,
-    webhookTotalAttempts: webhookResult.total,
-    webhookFailedAttempts: webhookResult.failed,
-    payoutFailureRate: payoutResult.total > 0 ? (payoutResult.failed / payoutResult.total) * 100 : 0,
-    totalPayouts: payoutResult.total,
-    failedPayouts: payoutResult.failed,
+    clicksToday: todayAgg.clicks,
+    conversionsToday: todayAgg.conversions,
+    webhookFailureRate: webhook.total > 0 ? (webhook.failed / webhook.total) * 100 : 0,
+    webhookTotalAttempts: webhook.total,
+    webhookFailedAttempts: webhook.failed,
+    payoutFailureRate: payout.total > 0 ? (payout.failed / payout.total) * 100 : 0,
+    totalPayouts: payout.total,
+    failedPayouts: payout.failed,
     stellarBalance: stellarResult?.balance_usdc || 0,
   };
 }
@@ -571,12 +591,18 @@ export function buildSummary(
   activeAffiliates: BusinessMetricsResponse['active_affiliates'],
   topDeals: BusinessMetricsResponse['top_deals']
 ): BusinessMetricsResponse['summary'] {
-  const totalRevenue = dailyRevenue.reduce((sum, d) => sum + d.revenue, 0);
-  const totalConversions = dailyRevenue.reduce((sum, d) => sum + d.conversions, 0);
-  const totalCommission = dailyRevenue.reduce((sum, d) => sum + d.commission_paid, 0);
+  // Date bounds are optional on the request shape but always materialized by
+  // parseQueryParams; fall back to the resolved Date objects if a caller omitted them.
+  const periodStart = params.start_date ?? params.startDateObj.toISOString().split('T')[0];
+  const periodEnd = params.end_date ?? params.endDateObj.toISOString().split('T')[0];
+
+  const dailyRevenueRows = dailyRevenue ?? [];
+  const totalRevenue = dailyRevenueRows.reduce((sum, d) => sum + d.revenue, 0);
+  const totalConversions = dailyRevenueRows.reduce((sum, d) => sum + d.conversions, 0);
+  const totalCommission = dailyRevenueRows.reduce((sum, d) => sum + d.commission_paid, 0);
 
   // Calculate overall conversion rate (approximation based on revenue and avg order value)
-  const totalClicks = dailyRevenue.reduce((sum, d) => {
+  const totalClicks = dailyRevenueRows.reduce((sum, d) => {
     const avgOrderValue = d.average_order_value || 100;
     const clicks = d.conversions > 0 && d.commission_rate_percent > 0
       ? d.conversions / (d.commission_rate_percent / 100)
@@ -591,8 +617,8 @@ export function buildSummary(
   const topAffiliate = activeAffiliates?.top_performers[0];
 
   return {
-    period_start: params.start_date,
-    period_end: params.end_date,
+    period_start: periodStart,
+    period_end: periodEnd,
     total_revenue: Math.round(totalRevenue * 100) / 100,
     total_conversions: totalConversions,
     overall_conversion_rate: Math.round(overallConversionRate * 100) / 100,

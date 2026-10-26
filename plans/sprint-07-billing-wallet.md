@@ -1,7 +1,7 @@
 ---
 title: "Sprint 7: Billing & Wallet Connect"
 description: "Payment flows, tier activation, NOWPayments integration, and wallet setup for mobile"
-status: pending
+status: complete
 priority: P1
 effort: 80h
 branch: main
@@ -9,6 +9,7 @@ tags: [apex-os, q3-2026, mobile, billing, wallet, payments, nowpayments]
 created: 2026-08-03
 depends:
   - "sprint-06-mobile-complete"
+completed: 2026-09-25
 ---
 
 # Sprint 7: Billing & Wallet Connect
@@ -24,11 +25,11 @@ depends:
 
 | Phase | Task | Priority | Effort | Status |
 |-------|------|----------|--------|--------|
-| 1 | NOWPayments Checkout Flow | P1 | 20h | pending |
-| 2 | Tier Activation Webhook | P1 | 15h | pending |
-| 3 | Wallet Connect Module | P1 | 25h | pending |
-| 4 | Profile Wallet Integration | P2 | 10h | pending |
-| 5 | Billing History Screen | P2 | 10h | pending |
+| 1 | NOWPayments Checkout Flow | P1 | 20h | complete |
+| 2 | Tier Activation Webhook | P1 | 15h | complete |
+| 3 | Wallet Connect Module | P1 | 25h | complete |
+| 4 | Profile Wallet Integration | P2 | 10h | complete |
+| 5 | Billing History Screen | P2 | 10h | complete |
 
 ---
 

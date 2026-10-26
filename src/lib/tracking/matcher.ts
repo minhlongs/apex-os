@@ -280,6 +280,7 @@ export class Matcher {
           AND affiliate_id = ?
           AND affiliate_code IS NOT NULL
           AND affiliate_code != ''
+          AND (is_suspicious = 0 OR is_suspicious IS NULL)
         ORDER BY created_at DESC
         LIMIT 1
       `)
@@ -299,6 +300,7 @@ export class Matcher {
           AND created_at >= ?
           AND affiliate_code IS NOT NULL
           AND affiliate_code != ''
+          AND (is_suspicious = 0 OR is_suspicious IS NULL)
         ORDER BY created_at DESC
         LIMIT 1
       `)
