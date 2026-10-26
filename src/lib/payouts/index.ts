@@ -39,6 +39,17 @@ export {
 } from './treasury-health-service';
 export type { CanSettleResult } from './treasury-health-service';
 export { PayoutAuditService, createAuditStatement, payoutAuditService } from './audit-service';
+export {
+  classifyHistoricalPayoutRow,
+  reconcileHistoricalPayouts,
+} from './reconcile-historical-payouts';
+export type {
+  HistoricalPayoutAnomalyReason,
+  HistoricalPayoutRow,
+  FlaggedHistoricalPayout,
+  OrphanedPaidEarningRow,
+  HistoricalPayoutReconciliationReport,
+} from './reconcile-historical-payouts';
 
 // Multi-Chain Types
 export type {

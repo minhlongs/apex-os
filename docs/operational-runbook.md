@@ -555,74 +555,74 @@ images: {
 
 ## Deployment Procedures
 
+### Gate-on-Every-Deploy Doctrine (Mandatory)
+
+Every staging and production deployment **must** pass `npm run gate` (`scripts/go-live-gate.sh`, gates `G0`–`G5`) before and after deployment. Never bypass TypeScript checks (`tsc --noEmit`), ESLint (`--max-warnings 0`), or Staging D1 isolation (`scripts/assert-staging-isolation.sh`). Always invoke the repository-pinned `wrangler` binary (`./node_modules/.bin/wrangler`) under Node `26.7.0`.
+
+See also:
+- `docs/cutover-runbook.md` — T-1h to T+first-payout production cutover & historical payout reconciliation (`npm run reconcile:payouts`)
+- `docs/rollback-runbook.md` — 1-command instant Worker rollback
+- `docs/go-live-checklist.md` — G0–G5 audit matrix
+
 ### Pre-Deployment Checklist
 
 ```bash
-# 1. Verify environment variables
-cat .env.local | grep -v '^#' | grep '='
+export PATH=/opt/homebrew/opt/node@26/bin:$(pwd)/node_modules/.bin:$PATH
+node --version                                # Expect v26.7.0
 
-# 2. Run linting
-pnpm lint
+# 1. Run the unified G0-G5 Go-Live Gate (includes tsc, eslint, staging D1 isolation, money invariants)
+GATE_SHA=$(git rev-parse HEAD) npm run gate
 
-# 3. Run tests
-pnpm test
+# 2. Run full test suite
+CI=true npm test
 
-# 4. Build locally
-pnpm build
-
-# 5. Verify build output
-ls -la .open-next/  # if using OpenNext
-ls -la .next/       # if deploying directly
+# 3. Build Cloudflare Worker bundle via OpenNext
+npm run build:worker
+ls -la .open-next/worker.js
 ```
 
 ### Deployment Methods
 
-#### Method 1: Wrangler CLI (Direct)
+#### Method 1: Pinned OpenNext + Wrangler Scripts (Recommended)
 
 ```bash
-# Build first
-pnpm build
+# Deploy to Staging (runs assert-staging-isolation.sh + build:worker + deploy)
+npm run deploy:staging
+bash scripts/verify-deployment.sh https://staging.apex-os.com $(git rev-parse HEAD)
 
-# Deploy
-wrangler pages deploy .open-next --project-name apex-os
-
-# With branch name (preview)
-wrangler pages deploy .open-next --branch feature-branch
+# Deploy to Production
+npm run deploy:production
+GATE_SHA=$(git rev-parse HEAD) GATE_URL=https://apex-os.com npm run gate
+bash scripts/verify-deployment.sh https://apex-os.com $(git rev-parse HEAD)
 ```
 
-#### Method 2: GitHub Integration (Recommended)
+#### Method 2: GitHub Actions CI/CD (`.github/workflows/deploy.yml`)
 
-1. Push to GitHub
-2. Cloudflare Pages auto-deploys (if configured)
-3. Monitor build in Cloudflare Dashboard
+1. Push to `main`/`master` or trigger `workflow_dispatch` on `.github/workflows/deploy.yml`.
+2. Staging deploys first (`apex-os-staging`), runs `scripts/verify-deployment.sh`, and gates Production (`apex-os`).
 
 ### Post-Deployment Verification
 
 ```bash
-# 1. Get deployment URL
-wrangler pages deployment show-latest --project-name apex-os
+# 1. Verify live SHA and protected-route smoke tests
+bash scripts/verify-deployment.sh https://apex-os.com $(git rev-parse HEAD)
 
-# 2. Test health endpoint
-curl https://apex-os.pages.dev/api/health
-
-# 3. Test critical flows
-# - Authentication
-# - Deal listing
-# - Click tracking
-# - Webhook endpoint (test with mock)
+# 2. Check /api/version and /api/health
+curl -fsSL https://apex-os.com/api/version
+curl -fsSL https://apex-os.com/api/health
 ```
 
 ### Rollback Procedures
 
 ```bash
-# List deployments
-wrangler pages deployment list --project-name apex-os
+# List recent Worker deployments using the pinned wrangler binary
+./node_modules/.bin/wrangler deployments list --config wrangler.jsonc
 
-# Rollback to specific deployment
-wrangler pages deployment rollback --project-name apex-os <deployment-id>
+# Instant rollback to previous Worker deployment
+./node_modules/.bin/wrangler rollback --config wrangler.jsonc -y
 
-# Or via Dashboard:
-# Pages → Deployments → Select previous → Promote to production
+# Verify post-rollback health and protected routes
+bash scripts/verify-deployment.sh https://apex-os.com
 ```
 
 ---

@@ -2,7 +2,7 @@
 
 ## Overview
 - **Priority**: P2
-- **Status**: pending
+- **Status**: completed
 - **Effort**: 4h (+2h for the mandatory fabricated-payout reconciliation pre-flight)
 - **Blocks**: none (go-live is authorized by Phase 06)
 - **Depends on**: Phase 06 green gate + founder sign-off
