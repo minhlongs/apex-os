@@ -5,12 +5,14 @@ on:
     branches:
       - main
       - master
+      - 'feature/sprint4-email-automation-complete'
       - 'feat/**'
       - 'fix/**'
   pull_request:
     branches:
       - main
       - master
+      - 'feature/sprint4-email-automation-complete'
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -26,6 +28,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Setup Node.js 26.7.0
         uses: actions/setup-node@v4
