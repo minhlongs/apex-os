@@ -51,11 +51,32 @@ export interface Profile {
   referred_by: string | null
   /** Notification preferences (JSON) */
   notification_settings: string | null
+  /** External exchange identifiers JSON (okx, kucoin, binance, bybit) */
+  external_ids?: string | null
   /** Creation timestamp */
   created_at: string
   /** Last update timestamp */
   updated_at: string
 }
+
+/**
+ * Supported exchanges for external API key linking
+ */
+export type LinkedExchange = 'okx' | 'kucoin' | 'binance' | 'bybit'
+
+/**
+ * Single exchange API key linkage entry stored in profiles.external_ids
+ */
+export interface ExchangeKeyLink {
+  api_key_id: string
+  label?: string
+  linked_at: string
+}
+
+/**
+ * Map of linked exchange identifiers stored in profiles.external_ids
+ */
+export type ProfileExternalIds = Partial<Record<LinkedExchange, ExchangeKeyLink>>
 
 /**
  * User plan enum - subscription tier
