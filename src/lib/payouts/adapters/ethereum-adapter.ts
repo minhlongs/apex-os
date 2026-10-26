@@ -99,6 +99,14 @@ export class EthereumAdapter extends BasePayoutChainAdapter {
       process.env.ETHEREUM_HOT_WALLET ??
       ETHEREUM_DEFAULTS.HOT_WALLET;
     this.privateKey = config?.privateKey ?? process.env.ETHEREUM_PRIVATE_KEY;
+    if (this.privateKey) {
+      try {
+        const signer = createSecp256k1Signer(this.privateKey);
+        this.hotWalletAddress = signer.address;
+      } catch {
+        // preserve configured hotWalletAddress
+      }
+    }
     this.usdcContractAddress =
       config?.usdcContractAddress ??
       process.env.ETHEREUM_USDC_CONTRACT ??
@@ -323,8 +331,8 @@ export class EthereumAdapter extends BasePayoutChainAdapter {
           calldata,
           [],
           signature.recoveryParam,
-          '0x' + signature.r,
-          '0x' + signature.s,
+          BigInt('0x' + signature.r),
+          BigInt('0x' + signature.s),
         ];
 
         const rlpSigned = encodeRlp(signedTx);
@@ -333,10 +341,15 @@ export class EthereumAdapter extends BasePayoutChainAdapter {
         rawSignedTx.set(rlpSigned, 1);
 
         const rawTxHex = '0x' + Buffer.from(rawSignedTx).toString('hex');
-        const computedHash = keccak256(rawSignedTx);
 
         const broadcastRes = await this.rpc.call<string>('eth_sendRawTransaction', [rawTxHex]);
-        transactionHash = broadcastRes || computedHash;
+        if (!broadcastRes || typeof broadcastRes !== 'string') {
+          return this.createFailedResult(
+            params,
+            'Ethereum broadcast returned no transaction hash'
+          );
+        }
+        transactionHash = broadcastRes;
       } catch (signError: unknown) {
         const msg = signError instanceof Error ? signError.message : String(signError);
         return this.createFailedResult(

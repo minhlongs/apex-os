@@ -20,7 +20,7 @@ import { encryptApiKey, decryptApiKey } from './crypto';
 /**
  * Provider types được hỗ trợ
  */
-export type ByokProvider = 'binance' | 'bybit' | 'resend';
+export type ByokProvider = 'binance' | 'bybit' | 'resend' | 'okx' | 'kucoin';
 
 /**
  * API Key record metadata

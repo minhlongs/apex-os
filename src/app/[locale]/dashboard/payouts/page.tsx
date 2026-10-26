@@ -48,17 +48,17 @@ export default async function PayoutsPage({ params, searchParams }: Props) {
 
         {/* Page Header */}
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">{t('title')}</h1>
-          <p className="mt-1 text-sm text-gray-600">{t('subtitle')}</p>
+          <h1 className="text-2xl font-bold text-stitch-primary">{t('title')}</h1>
+          <p className="mt-1 text-sm text-stitch-muted">{t('subtitle')}</p>
         </div>
 
         {/* Payouts Table with Filters */}
         <Suspense fallback={
-          <div className="bg-white rounded-lg shadow p-8 text-center">
+          <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-8 text-center">
             <div className="animate-pulse space-y-4">
-              <div className="h-4 bg-gray-200 rounded w-1/4 mx-auto"></div>
-              <div className="h-32 bg-gray-200 rounded"></div>
-              <div className="h-32 bg-gray-200 rounded"></div>
+              <div className="h-4 bg-stitch-well rounded w-1/4 mx-auto"></div>
+              <div className="h-32 bg-stitch-well rounded-xl"></div>
+              <div className="h-32 bg-stitch-well rounded-xl"></div>
             </div>
           </div>
         }>

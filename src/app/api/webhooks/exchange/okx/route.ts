@@ -86,7 +86,9 @@ import type { D1Database } from '@/lib/db';
 import { error as logError, info as logInfo, warn as logWarn } from '@/lib/logger';
 import { commissionOf, createEarnings, toUsdc } from '@/lib/webhooks/earnings';
 
-const OKX_WEBHOOK_SECRET = process.env.OKX_WEBHOOK_SECRET;
+function getOkxWebhookSecret(): string | undefined {
+  return process.env.OKX_WEBHOOK_SECRET;
+}
 
 function validateTimestampOrError(
   headers: Record<string, string>,
@@ -120,7 +122,8 @@ async function verifyOkxSignatureInternal(
   rawBody: string,
   headers: Record<string, string>
 ): Promise<{ valid: boolean; error?: string }> {
-  if (!OKX_WEBHOOK_SECRET) {
+  const secret = getOkxWebhookSecret();
+  if (!secret) {
     return { valid: false, error: 'OKX webhook secret not configured' };
   }
 
@@ -135,7 +138,7 @@ async function verifyOkxSignatureInternal(
     const isValid = await verifyOkxSignature(
       rawBody,
       signatureHeader,
-      OKX_WEBHOOK_SECRET,
+      secret,
       timestamp,
       'POST',
       '/api/webhooks/exchange/okx'
@@ -189,13 +192,13 @@ async function createConversion(
   db: D1Database,
   trade: StandardizedTrade,
   dealId: string,
+  cashbackPercent: number,
   affiliateId: string,
   affiliateCode?: string,
   dealClickId?: string
 ): Promise<string> {
   const conversionId = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
-  const deal = await findDeal(db, trade.exchange, trade.symbol);
-  const commission = commissionOf(trade, deal?.cashback_percent ?? 0);
+  const commission = commissionOf(trade, cashbackPercent);
   await db.prepare(`
     INSERT INTO conversions (
       id, deal_id, deal_click_id, affiliate_code, affiliate_id,
@@ -327,7 +330,7 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     // Match user by OKX API key from header
-    const apiKey = headers['ok-access-key'];
+    const apiKey = headers['ok-access-key'] || headers['x-okx-api-key'];
     const profile = await findProfileByOkxApiKey(db, apiKey);
     if (!profile) {
       logInfo(`[OKX Webhook] No matching user found for API key: ${apiKey?.slice(0, 8)}...`);
@@ -346,10 +349,19 @@ export async function POST(request: NextRequest): Promise<Response> {
     ).bind(deal.id, profile.id).first<{ id: string; affiliate_code?: string; affiliate_id: string }>();
 
     // Create conversion
-    const conversionId = await createConversion(db, trade, deal.id, profile.id, click?.affiliate_code, click?.id);
+    const cashbackPercent = deal.cashback_percent ?? 0;
+    const conversionId = await createConversion(
+      db,
+      trade,
+      deal.id,
+      cashbackPercent,
+      profile.id,
+      click?.affiliate_code,
+      click?.id
+    );
 
     // Calculate commission and create earnings
-    const commission = commissionOf(trade, deal.cashback_percent ?? 0);
+    const commission = commissionOf(trade, cashbackPercent);
     const earningsIds = await createEarnings(db, conversionId, profile.id, commission);
 
     // Track analytics
@@ -396,7 +408,7 @@ export async function GET(): Promise<Response> {
     status: 'ok',
     exchange: 'okx',
     timestamp: new Date().toISOString(),
-    configured: !!OKX_WEBHOOK_SECRET,
+    configured: !!getOkxWebhookSecret(),
     security: {
       signatureVerification: true,
       timestampValidation: { enabled: true, windowSeconds: DEFAULT_TIMESTAMP_WINDOW_MS / 1000 },

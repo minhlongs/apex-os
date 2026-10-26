@@ -34,6 +34,8 @@ export interface SolanaAdapterConfig {
   solPriceUsd?: number;
   computeUnitLimit?: number;
   computeUnitPriceMicroLamports?: bigint;
+  includePriorityFee?: boolean;
+  useTransferChecked?: boolean;
   cluster?: 'mainnet-beta' | 'devnet';
 }
 
@@ -117,6 +119,8 @@ export class SolanaAdapter extends BasePayoutChainAdapter {
   private solPriceUsd: number;
   private computeUnitLimit: number;
   private computeUnitPriceMicroLamports: bigint;
+  private includePriorityFee: boolean;
+  private useTransferChecked: boolean;
   private cluster: 'mainnet-beta' | 'devnet';
 
   constructor(config?: SolanaAdapterConfig) {
@@ -150,6 +154,10 @@ export class SolanaAdapter extends BasePayoutChainAdapter {
       config?.computeUnitLimit ?? SOLANA_DEFAULTS.DEFAULT_COMPUTE_UNITS;
     this.computeUnitPriceMicroLamports =
       config?.computeUnitPriceMicroLamports ?? DEFAULT_MICRO_LAMPORTS_BIGINT;
+    this.includePriorityFee =
+      config?.includePriorityFee ?? process.env.SOLANA_INCLUDE_PRIORITY_FEE === 'true';
+    this.useTransferChecked =
+      config?.useTransferChecked ?? process.env.SOLANA_USE_TRANSFER_CHECKED === 'true';
   }
 
   /**
@@ -221,28 +229,79 @@ export class SolanaAdapter extends BasePayoutChainAdapter {
       }
 
       const recentBlockhashBytes = decodeBase58(blockhashRes.value.blockhash);
-      const recipientBytes = decodeBase58(params.recipientAddress);
+      const sourceTokenAccountBytes = this.hotWalletTokenAccount
+        ? decodeBase58(this.hotWalletTokenAccount)
+        : payerPubkeyBytes;
+      const recipientTokenAccountBytes = decodeBase58(params.recipientAddress);
       const tokenProgramBytes = decodeBase58(SOLANA_DEFAULTS.TOKEN_PROGRAM_ID);
 
       const amountUnits = BigInt(Math.round(params.amount * 10 ** SOLANA_DEFAULTS.USDC_DECIMALS));
-      const transferIxData = buildSPLTransferData(amountUnits);
+      const transferIxData = this.useTransferChecked
+        ? buildSPLTransferCheckedData(amountUnits, SOLANA_DEFAULTS.USDC_DECIMALS)
+        : buildSPLTransferData(amountUnits);
 
-      // Account keys: [payer/sourceTokenAccount, recipient, tokenProgram]
-      const accountKeys = [payerPubkeyBytes, recipientBytes, tokenProgramBytes];
+      // Writable accounts first (0 = signer/fee payer, followed by writable token accounts),
+      // then readonly unsigned accounts (mint if TransferChecked, TokenProgram, ComputeBudget if priority fee)
+      const isDistinctSourceTokenAccount =
+        this.hotWalletTokenAccount && this.hotWalletTokenAccount !== signer.publicKeyBase58;
+
+      const writableAccounts = isDistinctSourceTokenAccount
+        ? [payerPubkeyBytes, sourceTokenAccountBytes, recipientTokenAccountBytes]
+        : [payerPubkeyBytes, recipientTokenAccountBytes];
+
+      const sourceIdx = isDistinctSourceTokenAccount ? 1 : 0;
+      const destIdx = isDistinctSourceTokenAccount ? 2 : 1;
+
+      const readonlyUnsignedAccounts: Uint8Array[] = [];
+      let mintAccountIndex = -1;
+
+      if (this.useTransferChecked) {
+        mintAccountIndex = writableAccounts.length + readonlyUnsignedAccounts.length;
+        readonlyUnsignedAccounts.push(decodeBase58(this.usdcMintAddress));
+      }
+
+      const tokenProgramIndex = writableAccounts.length + readonlyUnsignedAccounts.length;
+      readonlyUnsignedAccounts.push(tokenProgramBytes);
+
+      let computeBudgetProgramIndex = -1;
+      if (this.includePriorityFee) {
+        computeBudgetProgramIndex = writableAccounts.length + readonlyUnsignedAccounts.length;
+        readonlyUnsignedAccounts.push(decodeBase58(SOLANA_DEFAULTS.COMPUTE_BUDGET_PROGRAM_ID));
+      }
+
+      const accountKeys = [...writableAccounts, ...readonlyUnsignedAccounts];
+
+      const transferAccountIndices = this.useTransferChecked
+        ? [sourceIdx, mintAccountIndex, destIdx, 0]
+        : [sourceIdx, destIdx, 0];
+
+      const instructions = [];
+      if (this.includePriorityFee && computeBudgetProgramIndex >= 0) {
+        instructions.push({
+          programIdIndex: computeBudgetProgramIndex,
+          accountIndices: [],
+          data: buildSetComputeUnitLimitData(this.computeUnitLimit),
+        });
+        instructions.push({
+          programIdIndex: computeBudgetProgramIndex,
+          accountIndices: [],
+          data: buildSetComputeUnitPriceData(this.computeUnitPriceMicroLamports),
+        });
+      }
+
+      instructions.push({
+        programIdIndex: tokenProgramIndex,
+        accountIndices: transferAccountIndices,
+        data: transferIxData,
+      });
 
       const serializedMsg = serializeSolanaMessage({
         numRequiredSignatures: 1,
         numReadonlySignedAccounts: 0,
-        numReadonlyUnsignedAccounts: 1,
+        numReadonlyUnsignedAccounts: readonlyUnsignedAccounts.length,
         accountKeys,
         recentBlockhash: recentBlockhashBytes,
-        instructions: [
-          {
-            programIdIndex: 2,
-            accountIndices: [0, 1],
-            data: transferIxData,
-          },
-        ],
+        instructions,
       });
 
       const signatureBytes = await signer.sign(serializedMsg);

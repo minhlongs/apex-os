@@ -115,11 +115,11 @@ export default function Table<T extends Record<string, unknown>>({
 
   const getSortIcon = (columnKey: string) => {
     if (localSortBy !== columnKey) {
-      return <ChevronUp className="w-4 h-4 text-gray-300" />;
+      return <ChevronUp className="w-4 h-4 text-stitch-muted" />;
     }
     return localSortOrder === 'asc'
-      ? <ChevronUp className="w-4 h-4 text-indigo-600" />
-      : <ChevronDown className="w-4 h-4 text-indigo-600" />;
+      ? <ChevronUp className="w-4 h-4 text-stitch-indigo" />
+      : <ChevronDown className="w-4 h-4 text-stitch-indigo" />;
   };
 
   const renderPaginationInfo = () => {
@@ -135,18 +135,18 @@ export default function Table<T extends Record<string, unknown>>({
         {searchable && onSearch && (
           <form onSubmit={handleSearch} className="flex gap-2 flex-1 max-w-md">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-stitch-muted" />
               <input
                 type="text"
                 placeholder={t('search.placeholder')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full pl-10 pr-4 py-2 bg-stitch-well border border-stitch-border rounded-lg text-sm text-stitch-primary outline-none transition focus:border-stitch-indigo"
               />
             </div>
             <button
               type="submit"
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+              className="px-4 py-2 bg-stitch-indigo text-white rounded-lg hover:bg-stitch-violet transition-colors"
             >
               {t('search.search')}
             </button>
@@ -157,7 +157,7 @@ export default function Table<T extends Record<string, unknown>>({
                   setSearchQuery('');
                   onSearch('');
                 }}
-                className="px-4 py-2 text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+                className="px-4 py-2 text-stitch-muted hover:text-stitch-primary border border-stitch-border rounded-lg hover:bg-stitch-well transition-colors"
               >
                 {t('search.clear')}
               </button>
@@ -169,7 +169,7 @@ export default function Table<T extends Record<string, unknown>>({
           <button
             onClick={handleExportCSV}
             disabled={data.length === 0 || isLoading}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-2 px-4 py-2 bg-stitch-emerald text-white rounded-lg hover:bg-stitch-emerald/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Download className="w-4 h-4" />
             {t('export.csv')}
@@ -178,27 +178,27 @@ export default function Table<T extends Record<string, unknown>>({
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-stitch-surface border border-stitch-border rounded-2xl overflow-hidden">
         {isLoading ? (
-          <div className="p-8 text-center text-gray-500">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
+          <div className="p-8 text-center text-stitch-muted">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-stitch-indigo mx-auto"></div>
             <p className="mt-2">{t('loading')}</p>
           </div>
         ) : data.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-8 text-center text-stitch-muted">
             <p className="text-lg font-medium">{emptyMessage}</p>
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y divide-stitch-border">
+                <thead className="bg-stitch-well">
                   <tr>
                     {columns.map((column) => (
                       <th
                         key={column.key}
-                        className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${
-                          column.sortable ? 'cursor-pointer hover:bg-gray-100 select-none' : ''
+                        className={`px-6 py-3 text-left text-xs font-medium text-stitch-muted uppercase tracking-wider ${
+                          column.sortable ? 'cursor-pointer hover:bg-stitch-canvas/50 select-none' : ''
                         }`}
                         style={{ width: column.width }}
                         onClick={() => column.sortable && handleSort(column.key)}
@@ -211,11 +211,11 @@ export default function Table<T extends Record<string, unknown>>({
                     ))}
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-stitch-surface divide-y divide-stitch-border">
                   {data.map((row, idx) => (
-                    <tr key={row.id as string} className="hover:bg-gray-50">
+                    <tr key={row.id as string} className="hover:bg-stitch-well/50 transition-colors">
                       {columns.map((column) => (
-                        <td key={`${idx}-${column.key}`} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        <td key={`${idx}-${column.key}`} className="px-6 py-4 whitespace-nowrap text-sm text-stitch-primary">
                           {column.render
                             ? column.render(row[column.key], row)
                             : String(row[column.key] ?? '-')}
@@ -229,14 +229,14 @@ export default function Table<T extends Record<string, unknown>>({
 
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="bg-white px-4 py-3 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="bg-stitch-surface px-4 py-3 border-t border-stitch-border flex flex-col sm:flex-row items-center justify-between gap-4">
                 {/* Page Size Selector */}
                 <div className="flex items-center gap-2">
-                  <span className="text-sm text-gray-700">{t('pagination.show')}</span>
+                  <span className="text-sm text-stitch-muted">{t('pagination.show')}</span>
                   <select
                     value={limit}
                     onChange={(e) => onLimitChange(parseInt(e.target.value))}
-                    className="px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-indigo-500"
+                    className="px-2 py-1 bg-stitch-well border border-stitch-border rounded text-sm text-stitch-primary outline-none focus:border-stitch-indigo"
                   >
                     {PAGE_SIZE_OPTIONS.map((size) => (
                       <option key={size} value={size}>
@@ -244,11 +244,11 @@ export default function Table<T extends Record<string, unknown>>({
                       </option>
                     ))}
                   </select>
-                  <span className="text-sm text-gray-700">{t('pagination.entries')}</span>
+                  <span className="text-sm text-stitch-muted">{t('pagination.entries')}</span>
                 </div>
 
                 {/* Pagination Info */}
-                <div className="text-sm text-gray-700">
+                <div className="text-sm text-stitch-muted">
                   {renderPaginationInfo()}
                 </div>
 
@@ -257,7 +257,7 @@ export default function Table<T extends Record<string, unknown>>({
                   <button
                     onClick={() => onPageChange(page - 1)}
                     disabled={page === 1}
-                    className="flex items-center gap-1 px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                    className="flex items-center gap-1 px-3 py-1 border border-stitch-border rounded-md text-sm text-stitch-primary disabled:opacity-50 disabled:cursor-not-allowed hover:bg-stitch-well"
                   >
                     <ChevronLeft className="w-4 h-4" />
                     {t('pagination.previous')}
@@ -270,14 +270,14 @@ export default function Table<T extends Record<string, unknown>>({
                       .map((p, idx, arr) => (
                         <span key={p}>
                           {idx > 0 && arr[idx - 1] !== p - 1 && (
-                            <span className="px-2 text-gray-400">...</span>
+                            <span className="px-2 text-stitch-muted">...</span>
                           )}
                           <button
                             onClick={() => onPageChange(p)}
                             className={`px-3 py-1 rounded-md text-sm ${
                               page === p
-                                ? 'bg-indigo-600 text-white'
-                                : 'border border-gray-300 hover:bg-gray-50'
+                                ? 'bg-stitch-indigo text-white'
+                                : 'border border-stitch-border text-stitch-primary hover:bg-stitch-well'
                             }`}
                           >
                             {p}
@@ -289,7 +289,7 @@ export default function Table<T extends Record<string, unknown>>({
                   <button
                     onClick={() => onPageChange(page + 1)}
                     disabled={page === totalPages}
-                    className="flex items-center gap-1 px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                    className="flex items-center gap-1 px-3 py-1 border border-stitch-border rounded-md text-sm text-stitch-primary disabled:opacity-50 disabled:cursor-not-allowed hover:bg-stitch-well"
                   >
                     {t('pagination.next')}
                     <ChevronRight className="w-4 h-4" />

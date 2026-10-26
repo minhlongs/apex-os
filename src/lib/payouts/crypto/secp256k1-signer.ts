@@ -82,24 +82,38 @@ export function createSecp256k1Signer(privateKey: string | Uint8Array): Secp256k
     const r = sigP1363.subarray(0, 32).toString('hex');
     let sBigInt = BigInt('0x' + sigP1363.subarray(32, 64).toString('hex'));
 
-    // Secp256k1 curve order N
+    // Secp256k1 curve order N and field prime P
     const N = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BB5BF5CA4BDB69541');
     const HALF_N = N >> BigInt(1);
 
     // Enforce canonical low-s (BIP 62 / EIP-2)
-    let recoveryParam = 0;
+    let sWasInverted = false;
     if (sBigInt > HALF_N) {
       sBigInt = N - sBigInt;
-      recoveryParam ^= 1;
+      sWasInverted = true;
     }
 
     const s = sBigInt.toString(16).padStart(64, '0');
 
+    // Derives correct yParity (recoveryParam) using secp256k1 ephemeral curve math
+    // For secp256k1: y^2 = x^3 + 7 (mod P)
+    // If ephemeral y is odd, initial yParity is 1; if even, 0. If s was inverted, toggle parity.
+    const P = BigInt('0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F');
+    const rBigInt = BigInt('0x' + r);
+    const alpha = (rBigInt ** BigInt(3) + BigInt(7)) % P;
+    // Modular square root for P % 4 === 3: y = alpha^((P + 1) / 4) mod P
+    const exp = (P + BigInt(1)) >> BigInt(2);
+    const y = modPow(alpha, exp, P);
+    let yParity = Number(y & BigInt(1));
+    if (sWasInverted) {
+      yParity ^= 1;
+    }
+
     return {
       r,
       s,
-      v: 27 + recoveryParam,
-      recoveryParam,
+      v: 27 + yParity,
+      recoveryParam: yParity,
     };
   };
 
@@ -107,4 +121,21 @@ export function createSecp256k1Signer(privateKey: string | Uint8Array): Secp256k
     address: checksumAddress,
     signHash,
   };
+}
+
+/**
+ * Modular exponentiation: (base^exp) % mod
+ */
+function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
+  let res = BigInt(1);
+  let b = base % mod;
+  let e = exp;
+  while (e > BigInt(0)) {
+    if (e & BigInt(1)) {
+      res = (res * b) % mod;
+    }
+    b = (b * b) % mod;
+    e >>= BigInt(1);
+  }
+  return res;
 }

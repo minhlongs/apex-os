@@ -7,6 +7,8 @@ import { DollarSign, Users, MousePointerClick, TrendingUp, AlertTriangle } from 
 import { useRateLimitStatus } from '@/lib/api/hooks';
 import { RateLimitAlert, RateLimitProgress } from '@/components/rate-limit/RateLimitAlert';
 import { useToast } from '@/components/toast/ToastProvider';
+import ExchangeKeysManager from '@/components/profile/ExchangeKeysManager';
+import { error as logError } from '@/lib/logger';
 import type { AffiliateStats } from '@/types/affiliate';
 
 interface DashboardOverviewProps {
@@ -60,7 +62,7 @@ export default function DashboardOverview({ locale }: DashboardOverviewProps) {
         const data = await response.json();
         setStats(data.stats);
       } catch (err) {
-        console.error('Failed to fetch dashboard stats:', err);
+        logError('Failed to fetch dashboard stats', { error: err instanceof Error ? err.message : String(err) });
         setError(err instanceof Error ? err.message : 'Failed to load data');
       } finally {
         setLoading(false);
@@ -93,9 +95,9 @@ export default function DashboardOverview({ locale }: DashboardOverviewProps) {
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="bg-white rounded-lg shadow p-6 animate-pulse">
-              <div className="h-4 bg-gray-200 rounded w-1/2 mb-4"></div>
-              <div className="h-8 bg-gray-200 rounded w-3/4"></div>
+            <div key={i} className="bg-stitch-surface border border-stitch-border rounded-2xl p-6 animate-pulse">
+              <div className="h-4 bg-stitch-well rounded w-1/2 mb-4"></div>
+              <div className="h-8 bg-stitch-well rounded w-3/4"></div>
             </div>
           ))}
         </div>
@@ -105,12 +107,12 @@ export default function DashboardOverview({ locale }: DashboardOverviewProps) {
 
   if (!user) {
     return (
-      <div className="bg-white rounded-lg shadow p-12 text-center">
-        <h3 className="text-lg font-medium text-gray-900 mb-2">{t('notAuthenticated.title')}</h3>
-        <p className="text-gray-600 mb-6">{t('notAuthenticated.description')}</p>
+      <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-12 text-center">
+        <h3 className="text-lg font-medium text-stitch-primary mb-2">{t('notAuthenticated.title')}</h3>
+        <p className="text-stitch-muted mb-6">{t('notAuthenticated.description')}</p>
         <a
           href={`/${locale}/login`}
-          className="inline-flex items-center justify-center bg-brand-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-brand-700 transition-colors"
+          className="inline-flex items-center justify-center bg-stitch-indigo text-white px-6 py-3 rounded-lg font-medium hover:bg-stitch-violet transition-colors"
         >
           {t('notAuthenticated.loginLink')}
         </a>
@@ -121,28 +123,31 @@ export default function DashboardOverview({ locale }: DashboardOverviewProps) {
   // User is logged in but not an affiliate yet
   if (user && (!stats || stats.total_clicks === 0 && stats.lifetime_earnings === 0)) {
     return (
-      <div className="bg-white rounded-lg shadow p-8">
-        <div className="text-center max-w-md mx-auto">
-          <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <TrendingUp className="w-8 h-8 text-brand-600" />
-          </div>
-          <h3 className="text-xl font-bold text-gray-900 mb-2">{t('welcome.title')}</h3>
-          <p className="text-gray-600 mb-6">{t('welcome.description')}</p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <a
-              href={`/${locale}/dashboard/affiliates`}
-              className="inline-flex items-center justify-center bg-brand-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-brand-700 transition-colors"
-            >
-              {t('welcome.becomeAffiliate')}
-            </a>
-            <a
-              href={`/${locale}/deals`}
-              className="inline-flex items-center justify-center border border-gray-300 text-gray-700 px-6 py-3 rounded-lg font-medium hover:bg-gray-50 transition-colors"
-            >
-              {t('welcome.browseDeals')}
-            </a>
+      <div className="space-y-6">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-8">
+          <div className="text-center max-w-md mx-auto">
+            <div className="w-16 h-16 bg-stitch-indigo/15 rounded-full flex items-center justify-center mx-auto mb-4">
+              <TrendingUp className="w-8 h-8 text-stitch-indigo" />
+            </div>
+            <h3 className="text-xl font-bold text-stitch-primary mb-2">{t('welcome.title')}</h3>
+            <p className="text-stitch-muted mb-6">{t('welcome.description')}</p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <a
+                href={`/${locale}/dashboard/affiliates`}
+                className="inline-flex items-center justify-center bg-stitch-indigo text-white px-6 py-3 rounded-lg font-medium hover:bg-stitch-violet transition-colors"
+              >
+                {t('welcome.becomeAffiliate')}
+              </a>
+              <a
+                href={`/${locale}/deals`}
+                className="inline-flex items-center justify-center border border-stitch-border text-stitch-primary px-6 py-3 rounded-lg font-medium hover:bg-stitch-well transition-colors"
+              >
+                {t('welcome.browseDeals')}
+              </a>
+            </div>
           </div>
         </div>
+        <ExchangeKeysManager locale={locale} />
       </div>
     );
   }
@@ -163,28 +168,28 @@ export default function DashboardOverview({ locale }: DashboardOverviewProps) {
       value: formatCurrency(stats?.lifetime_earnings || 0),
       change: stats?.pending_earnings ? `+${formatCurrency(stats.pending_earnings)} pending` : undefined,
       icon: DollarSign,
-      color: 'bg-green-50 text-green-600',
+      color: 'bg-stitch-emerald/15 text-stitch-emerald',
     },
     {
       title: t('stats.pendingEarnings'),
       value: formatCurrency(stats?.pending_earnings || 0),
       change: stats?.total_conversions ? `${stats.total_conversions} conversions` : undefined,
       icon: TrendingUp,
-      color: 'bg-blue-50 text-blue-600',
+      color: 'bg-stitch-cyan/15 text-stitch-cyan',
     },
     {
       title: t('stats.totalClicks'),
       value: (stats?.total_clicks || 0).toLocaleString(),
       change: stats?.conversion_rate ? `${(stats.conversion_rate * 100).toFixed(1)}% conversion` : undefined,
       icon: MousePointerClick,
-      color: 'bg-purple-50 text-purple-600',
+      color: 'bg-stitch-violet/15 text-stitch-violet',
     },
     {
       title: t('stats.referrals'),
       value: (stats?.total_referrals || 0).toLocaleString(),
       change: `${stats?.direct_referrals || 0} direct, ${stats?.indirect_referrals || 0} indirect`,
       icon: Users,
-      color: 'bg-orange-50 text-orange-600',
+      color: 'bg-stitch-amber/15 text-stitch-amber',
     },
   ];
 
@@ -192,12 +197,12 @@ export default function DashboardOverview({ locale }: DashboardOverviewProps) {
     <div className="space-y-6">
       {/* Rate Limit Status */}
       {limit > 0 && (
-        <div className="bg-white rounded-lg shadow p-4">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm text-gray-600">
+            <div className="flex items-center gap-2 text-sm text-stitch-muted">
               <span>API Rate Limit:</span>
               {isRateLimited && (
-                <span className="flex items-center gap-1 text-yellow-600">
+                <span className="flex items-center gap-1 text-stitch-amber">
                   <AlertTriangle className="w-4 h-4" />
                   Limited
                 </span>
@@ -211,16 +216,16 @@ export default function DashboardOverview({ locale }: DashboardOverviewProps) {
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {statCards.map((stat, index) => (
-          <div key={index} className="bg-white rounded-lg shadow p-6">
+          <div key={index} className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
             <div className="flex items-center justify-between mb-4">
               <div className={`p-2 rounded-lg ${stat.color}`}>
                 <stat.icon className="w-5 h-5" />
               </div>
             </div>
-            <div className="text-sm text-gray-500 mb-1">{stat.title}</div>
-            <div className="text-2xl font-bold text-gray-900">{stat.value}</div>
+            <div className="text-sm text-stitch-muted mb-1">{stat.title}</div>
+            <div className="text-2xl font-bold font-mono text-stitch-primary">{stat.value}</div>
             {stat.change && (
-              <div className="text-xs text-gray-500 mt-2">{stat.change}</div>
+              <div className="text-xs font-mono text-stitch-muted mt-2">{stat.change}</div>
             )}
           </div>
         ))}
@@ -229,32 +234,35 @@ export default function DashboardOverview({ locale }: DashboardOverviewProps) {
       {/* Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Share Link Card */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('quickActions.shareTitle')}</h3>
-          <p className="text-sm text-gray-600 mb-4">{t('quickActions.shareDescription')}</p>
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
+          <h3 className="text-lg font-semibold text-stitch-primary mb-4">{t('quickActions.shareTitle')}</h3>
+          <p className="text-sm text-stitch-muted mb-4">{t('quickActions.shareDescription')}</p>
           <a
             href={`/${locale}/dashboard/affiliates`}
-            className="text-brand-600 hover:text-brand-700 font-medium text-sm"
+            className="text-stitch-indigo hover:text-stitch-violet font-medium text-sm"
           >
             {t('quickActions.viewAffiliateDashboard')} →
           </a>
         </div>
 
         {/* Recent Conversions Preview */}
-        <div className="bg-white rounded-lg shadow p-6 lg:col-span-2">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('quickActions.recentActivity')}</h3>
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6 lg:col-span-2">
+          <h3 className="text-lg font-semibold text-stitch-primary mb-4">{t('quickActions.recentActivity')}</h3>
           {stats && stats.total_conversions > 0 ? (
             <a
               href={`/${locale}/dashboard/conversions`}
-              className="block text-brand-600 hover:text-brand-700"
+              className="block text-stitch-indigo hover:text-stitch-violet"
             >
               {t('quickActions.viewAllConversions')} →
             </a>
           ) : (
-            <p className="text-sm text-gray-500">{t('quickActions.noConversions')}</p>
+            <p className="text-sm text-stitch-muted">{t('quickActions.noConversions')}</p>
           )}
         </div>
       </div>
+
+      {/* Exchange API Keys Self-Service Linking */}
+      <ExchangeKeysManager locale={locale} />
     </div>
   );
 }
