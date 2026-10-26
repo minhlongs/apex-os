@@ -4,6 +4,7 @@ import { useState, useCallback, useTransition, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import Table, { Column } from '@/components/Table/DataTable';
+import { error as logError } from '@/lib/logger';
 
 type Conversion = {
   id: string;
@@ -94,6 +95,7 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
       setStats(data.stats);
       setError(null);
     } catch (err) {
+      logError('Failed to fetch conversions', { error: err instanceof Error ? err.message : String(err) });
       setError(err instanceof Error ? err.message : 'Failed to load conversions');
     }
   }, [limit]);
@@ -203,43 +205,43 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case 'approved':
-        return 'bg-green-100 text-green-800';
+        return 'bg-stitch-emerald/15 text-stitch-emerald border border-stitch-emerald/30';
       case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-stitch-amber/15 text-stitch-amber border border-stitch-amber/30';
       case 'rejected':
-        return 'bg-red-100 text-red-800';
+        return 'bg-stitch-crimson/15 text-stitch-crimson border border-stitch-crimson/30';
       case 'refunded':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-stitch-well text-stitch-muted border border-stitch-border';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-stitch-well text-stitch-muted border border-stitch-border';
     }
   };
 
   const getTypeBadgeClass = (type: string) => {
     switch (type) {
       case 'sale':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-stitch-cyan/15 text-stitch-cyan border border-stitch-cyan/30';
       case 'lead':
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-stitch-violet/15 text-stitch-violet border border-stitch-violet/30';
       case 'signup':
-        return 'bg-indigo-100 text-indigo-800';
+        return 'bg-stitch-indigo/15 text-stitch-indigo border border-stitch-indigo/30';
       case 'install':
-        return 'bg-orange-100 text-orange-800';
+        return 'bg-stitch-amber/15 text-stitch-amber border border-stitch-amber/30';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-stitch-well text-stitch-muted border border-stitch-border';
     }
   };
 
   const getLevelBadgeClass = (level: number) => {
     switch (level) {
       case 1:
-        return 'bg-green-100 text-green-800';
+        return 'bg-stitch-emerald/15 text-stitch-emerald border border-stitch-emerald/30';
       case 2:
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-stitch-cyan/15 text-stitch-cyan border border-stitch-cyan/30';
       case 3:
-        return 'bg-purple-100 text-purple-800';
+        return 'bg-stitch-violet/15 text-stitch-violet border border-stitch-violet/30';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-stitch-well text-stitch-muted border border-stitch-border';
     }
   };
 
@@ -258,7 +260,7 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
       label: t('columns.deal'),
       sortable: true,
       render: (_, row) => (
-        <div className="font-medium text-gray-900">{row.deal_name}</div>
+        <div className="font-medium text-stitch-primary">{row.deal_name}</div>
       ),
     },
     {
@@ -274,7 +276,7 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
       sortable: true,
       width: '120px',
       render: (value, row) => (
-        <span className="text-gray-900">{formatCurrency(value as number, row.currency)}</span>
+        <span className="text-stitch-primary font-mono">{formatCurrency(value as number, row.currency)}</span>
       ),
     },
     {
@@ -283,7 +285,7 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
       sortable: true,
       width: '120px',
       render: (value, row) => (
-        <span className="font-semibold text-green-600">{formatCurrency(value as number, row.currency)}</span>
+        <span className="font-semibold font-mono text-stitch-emerald">{formatCurrency(value as number, row.currency)}</span>
       ),
     },
     {
@@ -325,62 +327,62 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">{t('stats.totalConversions')}</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.total_conversions}</p>
+              <p className="text-sm text-stitch-muted">{t('stats.totalConversions')}</p>
+              <p className="text-2xl font-bold font-mono text-stitch-primary">{stats.total_conversions}</p>
             </div>
-            <div className="p-3 bg-blue-100 rounded-full">
-              <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="p-3 bg-stitch-cyan/15 rounded-xl">
+              <svg className="w-6 h-6 text-stitch-cyan" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
               </svg>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">{t('stats.totalEarnings')}</p>
-              <p className="text-2xl font-bold text-green-600">
+              <p className="text-sm text-stitch-muted">{t('stats.totalEarnings')}</p>
+              <p className="text-2xl font-bold font-mono text-stitch-emerald">
                 {formatCurrency(stats.total_earnings, 'USD')}
               </p>
             </div>
-            <div className="p-3 bg-green-100 rounded-full">
-              <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="p-3 bg-stitch-emerald/15 rounded-xl">
+              <svg className="w-6 h-6 text-stitch-emerald" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">{t('stats.totalRevenue')}</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm text-stitch-muted">{t('stats.totalRevenue')}</p>
+              <p className="text-2xl font-bold font-mono text-stitch-primary">
                 {formatCurrency(stats.total_revenue, 'USD')}
               </p>
             </div>
-            <div className="p-3 bg-purple-100 rounded-full">
-              <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="p-3 bg-stitch-violet/15 rounded-xl">
+              <svg className="w-6 h-6 text-stitch-violet" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
               </svg>
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">{t('stats.avgOrderValue')}</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm text-stitch-muted">{t('stats.avgOrderValue')}</p>
+              <p className="text-2xl font-bold font-mono text-stitch-primary">
                 {formatCurrency(stats.avg_order_value, 'USD')}
               </p>
             </div>
-            <div className="p-3 bg-orange-100 rounded-full">
-              <svg className="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="p-3 bg-stitch-amber/15 rounded-xl">
+              <svg className="w-6 h-6 text-stitch-amber" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>
@@ -389,11 +391,11 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
         <div className="flex flex-col lg:flex-row gap-4">
           {/* Search */}
           <div className="flex-1 relative">
-            <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-stitch-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
             <input
@@ -401,7 +403,7 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
               placeholder={t('filters.searchPlaceholder')}
               defaultValue={filters.search || ''}
               onChange={(e) => handleSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full pl-10 pr-4 py-2 bg-stitch-well border border-stitch-border rounded-lg text-sm text-stitch-primary outline-none transition focus:border-stitch-indigo"
             />
           </div>
 
@@ -410,7 +412,7 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
             <select
               value={filters.status || ''}
               onChange={(e) => handleStatusChange(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-4 py-2 bg-stitch-well border border-stitch-border rounded-lg text-sm text-stitch-primary outline-none transition focus:border-stitch-indigo"
             >
               {STATUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -425,7 +427,7 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
             <select
               value={filters.conversion_type || ''}
               onChange={(e) => handleTypeChange(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-4 py-2 bg-stitch-well border border-stitch-border rounded-lg text-sm text-stitch-primary outline-none transition focus:border-stitch-indigo"
             >
               {TYPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -439,7 +441,7 @@ export default function ConversionsClient({ initialApiUrl }: ConversionsClientPr
           {activeFilterCount > 0 && (
             <button
               onClick={clearFilters}
-              className="px-4 py-2 text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 text-stitch-muted hover:text-stitch-primary border border-stitch-border rounded-lg hover:bg-stitch-well transition-colors"
             >
               {t('filters.clear')}
             </button>

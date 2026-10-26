@@ -73,6 +73,8 @@ export interface ExchangeKeyLink {
   linked_at: string
 }
 
+export type LinkedExchangeBinding = ExchangeKeyLink
+
 /**
  * Map of linked exchange identifiers stored in profiles.external_ids
  */

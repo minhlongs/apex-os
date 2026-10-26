@@ -177,22 +177,22 @@ export default function PayoutsClient({ initialApiUrl }: PayoutsClientProps) {
   const getStatusBadgeClass = (status: string) => {
     switch (status) {
       case 'completed':
-        return 'bg-green-100 text-green-800';
+        return 'bg-stitch-emerald/15 text-stitch-emerald border border-stitch-emerald/30';
       case 'pending':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-stitch-amber/15 text-stitch-amber border border-stitch-amber/30';
       case 'processing':
-        return 'bg-blue-100 text-blue-800';
+        return 'bg-stitch-cyan/15 text-stitch-cyan border border-stitch-cyan/30';
       case 'failed':
-        return 'bg-red-100 text-red-800';
+        return 'bg-stitch-crimson/15 text-stitch-crimson border border-stitch-crimson/30';
       case 'cancelled':
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-stitch-well text-stitch-muted border border-stitch-border';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-stitch-well text-stitch-muted border border-stitch-border';
     }
   };
 
   const getMethodLabel = (method: string) => {
-    return t(`methods.${method}` as any) || method;
+    return t(`methods.${method}`) || method;
   };
 
   const truncateTxId = (txId: string | null) => {
@@ -222,7 +222,7 @@ export default function PayoutsClient({ initialApiUrl }: PayoutsClientProps) {
       sortable: true,
       width: '120px',
       render: (value, row) => (
-        <span className="text-gray-900 font-medium">{formatCurrency(value as number, row.currency)}</span>
+        <span className="text-stitch-primary font-mono font-medium">{formatCurrency(value as number, row.currency)}</span>
       ),
     },
     {
@@ -231,7 +231,7 @@ export default function PayoutsClient({ initialApiUrl }: PayoutsClientProps) {
       sortable: true,
       width: '120px',
       render: (value, row) => (
-        <span className="text-green-600 font-semibold">{formatCurrency(value as number, row.currency)}</span>
+        <span className="text-stitch-emerald font-mono font-semibold">{formatCurrency(value as number, row.currency)}</span>
       ),
     },
     {
@@ -240,7 +240,7 @@ export default function PayoutsClient({ initialApiUrl }: PayoutsClientProps) {
       sortable: true,
       width: '140px',
       render: (value) => (
-        <span className="text-gray-900">{getMethodLabel(value as string)}</span>
+        <span className="text-stitch-primary">{getMethodLabel(value as string)}</span>
       ),
     },
     {
@@ -252,7 +252,7 @@ export default function PayoutsClient({ initialApiUrl }: PayoutsClientProps) {
         const status = value as string;
         return (
           <span className={`inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusBadgeClass(status)}`}>
-            {t(`status.${status}` as any, { fallback: status })}
+            {t(`status.${status}`, { fallback: status })}
           </span>
         );
       },
@@ -263,7 +263,7 @@ export default function PayoutsClient({ initialApiUrl }: PayoutsClientProps) {
       sortable: true,
       width: '180px',
       render: (value) => (
-        <span className="font-mono text-sm text-gray-600">
+        <span className="font-mono text-sm text-stitch-muted">
           {value ? truncateTxId(value as string) : '-'}
         </span>
       ),
@@ -274,70 +274,70 @@ export default function PayoutsClient({ initialApiUrl }: PayoutsClientProps) {
     <div className="space-y-6">
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">{t('stats.totalPayouts')}</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.total_payouts}</p>
+              <p className="text-sm text-stitch-muted">{t('stats.totalPayouts')}</p>
+              <p className="text-2xl font-bold font-mono text-stitch-primary">{stats.total_payouts}</p>
             </div>
-            <div className="p-3 bg-indigo-100 rounded-full">
-              <Wallet className="w-6 h-6 text-indigo-600" />
+            <div className="p-3 bg-stitch-indigo/15 rounded-xl">
+              <Wallet className="w-6 h-6 text-stitch-indigo" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">{t('stats.totalPaid')}</p>
-              <p className="text-2xl font-bold text-green-600">
+              <p className="text-sm text-stitch-muted">{t('stats.totalPaid')}</p>
+              <p className="text-2xl font-bold font-mono text-stitch-emerald">
                 {formatCurrency(stats.total_paid, 'USD')}
               </p>
             </div>
-            <div className="p-3 bg-green-100 rounded-full">
-              <DollarSign className="w-6 h-6 text-green-600" />
+            <div className="p-3 bg-stitch-emerald/15 rounded-xl">
+              <DollarSign className="w-6 h-6 text-stitch-emerald" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">{t('stats.pendingAmount')}</p>
-              <p className="text-2xl font-bold text-yellow-600">
+              <p className="text-sm text-stitch-muted">{t('stats.pendingAmount')}</p>
+              <p className="text-2xl font-bold font-mono text-stitch-amber">
                 {formatCurrency(stats.pending_amount, 'USD')}
               </p>
             </div>
-            <div className="p-3 bg-yellow-100 rounded-full">
-              <TrendingUp className="w-6 h-6 text-yellow-600" />
+            <div className="p-3 bg-stitch-amber/15 rounded-xl">
+              <TrendingUp className="w-6 h-6 text-stitch-amber" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
+        <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">{t('stats.totalFees')}</p>
-              <p className="text-2xl font-bold text-gray-900">
+              <p className="text-sm text-stitch-muted">{t('stats.totalFees')}</p>
+              <p className="text-2xl font-bold font-mono text-stitch-primary">
                 {formatCurrency(stats.total_fees, 'USD')}
               </p>
             </div>
-            <div className="p-3 bg-purple-100 rounded-full">
-              <FileText className="w-6 h-6 text-purple-600" />
+            <div className="p-3 bg-stitch-violet/15 rounded-xl">
+              <FileText className="w-6 h-6 text-stitch-violet" />
             </div>
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-6">
+      <div className="bg-stitch-surface border border-stitch-border rounded-2xl p-6">
         <div className="flex flex-col lg:flex-row gap-4 items-center">
           {/* Status Filter */}
           <div className="lg:w-48">
             <select
               value={filters.status || ''}
               onChange={(e) => handleStatusChange(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+              className="w-full px-4 py-2 bg-stitch-well border border-stitch-border rounded-lg text-sm text-stitch-primary outline-none transition focus:border-stitch-indigo"
             >
               {STATUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -351,7 +351,7 @@ export default function PayoutsClient({ initialApiUrl }: PayoutsClientProps) {
           {activeFilterCount > 0 && (
             <button
               onClick={handleClearFilters}
-              className="px-4 py-2 text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50"
+              className="px-4 py-2 text-stitch-muted hover:text-stitch-primary border border-stitch-border rounded-lg hover:bg-stitch-well transition-colors"
             >
               {t('filters.clear')}
             </button>
