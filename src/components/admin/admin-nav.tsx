@@ -3,7 +3,7 @@
 import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart3, Package, Activity, DollarSign, Bell, Settings, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { BarChart3, Package, Activity, DollarSign, Bell, Settings, ShieldAlert, ShieldCheck, Wallet } from 'lucide-react';
 import NotificationBadge from '@/components/notifications/NotificationBadge';
 
 interface AdminNavProps {
@@ -15,6 +15,7 @@ const navItems = [
   { href: '/admin/analytics', labelKey: 'analytics', icon: BarChart3 },
   { href: '/admin/metrics', labelKey: 'metrics', icon: DollarSign },
   { href: '/admin/health', labelKey: 'health', icon: Activity },
+  { href: '/admin/treasury', labelKey: 'treasury', icon: Wallet, showBadge: false },
   { href: '/admin/alerts', labelKey: 'alerts', icon: Bell, showBadge: false },
   { href: '/admin/fraud', labelKey: 'fraud', icon: ShieldAlert, showBadge: true },
   { href: '/admin/compliance', labelKey: 'compliance', icon: ShieldCheck, showBadge: false },
@@ -53,7 +54,9 @@ export default function AdminNav({ locale }: AdminNavProps) {
                 <span>
                   {labelKey === 'compliance'
                     ? 'Compliance'
-                    : t(`nav.${labelKey}`) || labelKey}
+                    : labelKey === 'treasury'
+                      ? 'Treasury'
+                      : t(`nav.${labelKey}`) || labelKey}
                 </span>
               </Link>
             );
