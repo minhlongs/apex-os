@@ -12,7 +12,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
+    <div className="min-h-screen bg-stitch-canvas text-stitch-primary">
       <DashboardHeader onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
 
       <div className="flex">
@@ -28,3 +28,5 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     </div>
   )
 }
+
+export default DashboardLayout

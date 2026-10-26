@@ -81,19 +81,19 @@ interface StatsCardProps {
 
 function StatsCard({ title, value, subtitle, icon, trend, trendValue }: StatsCardProps) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-stitch-surface rounded-2xl border border-stitch-border p-6">
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className="mt-2 text-3xl font-bold text-gray-900">{value}</p>
-          {subtitle && <p className="mt-1 text-sm text-gray-400">{subtitle}</p>}
+          <p className="text-sm font-medium text-stitch-muted">{title}</p>
+          <p className="mt-2 text-3xl font-bold font-mono text-stitch-primary">{value}</p>
+          {subtitle && <p className="mt-1 text-sm text-stitch-muted">{subtitle}</p>}
           {trend && trendValue && (
-            <p className={`mt-2 text-sm ${trend === 'up' ? 'text-green-600' : trend === 'down' ? 'text-red-600' : 'text-gray-500'}`}>
+            <p className={`mt-2 text-sm ${trend === 'up' ? 'text-stitch-emerald' : trend === 'down' ? 'text-stitch-crimson' : 'text-stitch-muted'}`}>
               {trend === 'up' ? '↑' : trend === 'down' ? '↓' : '•'} {trendValue}
             </p>
           )}
         </div>
-        <div className="p-3 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg">
+        <div className="p-3 bg-stitch-well rounded-xl">
           {icon}
         </div>
       </div>
@@ -105,24 +105,24 @@ function CommissionTiers() {
   const t = useTranslations('affiliates.tiers');
 
   const tiers = [
-    { name: t('tier1.name'), desc: t('tier1.description'), rate: t('tier1.rate'), icon: '👥', color: 'from-green-400 to-green-600' },
-    { name: t('tier2.name'), desc: t('tier2.description'), rate: t('tier2.rate'), icon: '👤', color: 'from-blue-400 to-blue-600' },
-    { name: t('tier3.name'), desc: t('tier3.description'), rate: t('tier3.rate'), icon: '⭐', color: 'from-purple-400 to-purple-600' },
+    { name: t('tier1.name'), desc: t('tier1.description'), rate: t('tier1.rate'), icon: '👥', color: 'from-emerald-400 to-emerald-600' },
+    { name: t('tier2.name'), desc: t('tier2.description'), rate: t('tier2.rate'), icon: '👤', color: 'from-indigo-400 to-indigo-600' },
+    { name: t('tier3.name'), desc: t('tier3.description'), rate: t('tier3.rate'), icon: '⭐', color: 'from-violet-400 to-violet-600' },
   ];
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('title')}</h3>
-      <p className="text-sm text-gray-500 mb-4">{t('subtitle')}</p>
+    <div className="bg-stitch-surface rounded-2xl border border-stitch-border p-6">
+      <h3 className="text-lg font-semibold text-stitch-primary mb-2">{t('title')}</h3>
+      <p className="text-sm text-stitch-muted mb-4">{t('subtitle')}</p>
       <div className="space-y-3">
         {tiers.map((tier, idx) => (
-          <div key={idx} className="flex items-center gap-4 p-4 rounded-lg bg-gradient-to-r from-gray-50 to-gray-100 border border-gray-200">
+          <div key={idx} className="flex items-center gap-4 p-4 rounded-xl bg-stitch-canvas border border-stitch-border">
             <div className="text-3xl">{tier.icon}</div>
             <div className="flex-1">
-              <h4 className="font-semibold text-gray-900">{tier.name}</h4>
-              <p className="text-sm text-gray-500">{tier.desc}</p>
+              <h4 className="font-semibold text-stitch-primary">{tier.name}</h4>
+              <p className="text-sm text-stitch-muted">{tier.desc}</p>
             </div>
-            <div className={`text-2xl font-bold bg-gradient-to-r ${tier.color} bg-clip-text text-transparent`}>
+            <div className={`text-2xl font-bold font-mono bg-gradient-to-r ${tier.color} bg-clip-text text-transparent`}>
               {tier.rate}
             </div>
           </div>
@@ -145,32 +145,32 @@ function ReferralTreeNode({ node, onExpand, expandedNodes, depth = 0 }: Referral
   const isExpanded = expandedNodes.has(node.affiliate_id);
 
   const levelColors = [
-    'bg-indigo-50 border-indigo-200',
-    'bg-blue-50 border-blue-200',
-    'bg-purple-50 border-purple-200',
+    'bg-stitch-indigo/10 border-stitch-indigo/30',
+    'bg-stitch-cyan/10 border-stitch-cyan/30',
+    'bg-stitch-violet/10 border-stitch-violet/30',
   ];
 
   return (
     <div className="select-none">
       <div
-        className={`flex items-center gap-3 p-3 rounded-lg border ${levelColors[depth % 3]} mb-2 cursor-pointer hover:shadow-sm transition-shadow`}
+        className={`flex items-center gap-3 p-3 rounded-lg border ${levelColors[depth % 3]} mb-2 cursor-pointer hover:bg-stitch-well/50 transition-colors`}
         style={{ marginLeft: `${depth * 24}px` }}
         onClick={() => hasChildren && onExpand(node.affiliate_id)}
       >
         {hasChildren ? (
-          <ChevronRight className={`w-4 h-4 text-gray-600 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+          <ChevronRight className={`w-4 h-4 text-stitch-muted transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
         ) : (
-          <User className="w-4 h-4 text-gray-400" />
+          <User className="w-4 h-4 text-stitch-muted" />
         )}
         <div className="flex-1 min-w-0">
-          <p className="font-medium text-gray-900 truncate">
+          <p className="font-medium text-stitch-primary truncate">
             {node.full_name || node.email.split('@')[0]}
           </p>
-          <p className="text-xs text-gray-500 truncate">{node.email}</p>
+          <p className="text-xs text-stitch-muted truncate">{node.email}</p>
         </div>
         <div className="text-right">
-          <p className="font-semibold text-gray-900">${node.total_earnings.toFixed(2)}</p>
-          <p className="text-xs text-gray-500">{node.total_conversions} {t('conversions', { count: node.total_conversions })}</p>
+          <p className="font-semibold font-mono text-stitch-primary">${node.total_earnings.toFixed(2)}</p>
+          <p className="text-xs text-stitch-muted">{node.total_conversions} {t('conversions', { count: node.total_conversions })}</p>
         </div>
       </div>
       {hasChildren && isExpanded && (
@@ -227,42 +227,42 @@ function ReferralTree({ treeData }: ReferralTreeProps) {
 
   if (!treeData.root) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-        <Users className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-        <h3 className="text-lg font-medium text-gray-900 mb-2">{t('empty')}</h3>
-        <p className="text-gray-500">{t('subtitle')}</p>
+      <div className="bg-stitch-surface rounded-2xl border border-stitch-border p-12 text-center">
+        <Users className="w-16 h-16 text-stitch-muted mx-auto mb-4" />
+        <h3 className="text-lg font-medium text-stitch-primary mb-2">{t('empty')}</h3>
+        <p className="text-stitch-muted">{t('subtitle')}</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+    <div className="bg-stitch-surface rounded-2xl border border-stitch-border p-6">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">{t('title')}</h3>
-          <p className="text-sm text-gray-500">{t('subtitle')}</p>
+          <h3 className="text-lg font-semibold text-stitch-primary">{t('title')}</h3>
+          <p className="text-sm text-stitch-muted">{t('subtitle')}</p>
         </div>
         <button
           onClick={toggleAll}
-          className="px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+          className="px-3 py-2 text-sm font-medium text-stitch-primary bg-stitch-well rounded-lg hover:bg-stitch-well/80 transition-colors"
         >
           {expandedNodes.size > 0 ? t('collapseAll') : t('expandAll')}
         </button>
       </div>
 
       {/* Root Node */}
-      <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-4 mb-4 border border-indigo-200">
+      <div className="bg-stitch-canvas rounded-xl p-4 mb-4 border border-stitch-indigo/30">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-semibold">
+          <div className="w-10 h-10 rounded-full bg-stitch-indigo flex items-center justify-center text-white font-semibold">
             {treeData.root.full_name?.charAt(0) || treeData.root.email.charAt(0).toUpperCase()}
           </div>
           <div>
-            <p className="font-semibold text-gray-900">{treeData.root.full_name || 'You'}</p>
-            <p className="text-sm text-gray-500">{t('level', { level: 0 })} — {t('direct')}</p>
+            <p className="font-semibold text-stitch-primary">{treeData.root.full_name || 'You'}</p>
+            <p className="text-sm text-stitch-muted">{t('level', { level: 0 })} — {t('direct')}</p>
           </div>
           <div className="ml-auto text-right">
-            <p className="font-bold text-gray-900">${treeData.root.total_earnings.toFixed(2)}</p>
-            <p className="text-xs text-gray-500">{treeData.root.total_conversions} {t('conversions', { count: treeData.root.total_conversions })}</p>
+            <p className="font-bold font-mono text-stitch-primary">${treeData.root.total_earnings.toFixed(2)}</p>
+            <p className="text-xs text-stitch-muted">{treeData.root.total_conversions} {t('conversions', { count: treeData.root.total_conversions })}</p>
           </div>
         </div>
       </div>
@@ -280,7 +280,7 @@ function ReferralTree({ treeData }: ReferralTreeProps) {
         ))}
       </div>
 
-      <div className="mt-4 pt-4 border-t border-gray-200 text-center text-sm text-gray-500">
+      <div className="mt-4 pt-4 border-t border-stitch-border text-center text-sm text-stitch-muted">
         {t('totalReferrals', { count: treeData.total_nodes - 1 })}
       </div>
     </div>
@@ -301,26 +301,26 @@ function CopyAffiliateCode({ code, shareLink }: CopyAffiliateCodeProps) {
       await navigator.clipboard.writeText(text);
       setCopied(type);
       setTimeout(() => setCopied(null), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
+    } catch {
+      // Ignore clipboard write failures gracefully
     }
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-2">{t('title')}</h3>
-      <p className="text-sm text-gray-500 mb-6">{t('subtitle')}</p>
+    <div className="bg-stitch-surface rounded-2xl border border-stitch-border p-6">
+      <h3 className="text-lg font-semibold text-stitch-primary mb-2">{t('title')}</h3>
+      <p className="text-sm text-stitch-muted mb-6">{t('subtitle')}</p>
 
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">{t('yourCode')}</label>
+          <label className="block text-sm font-medium text-stitch-muted mb-2">{t('yourCode')}</label>
           <div className="flex gap-2">
-            <div className="flex-1 px-4 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border border-indigo-200 rounded-lg font-mono text-lg font-bold text-indigo-900 text-center">
+            <div className="flex-1 px-4 py-3 bg-stitch-well border border-stitch-indigo/30 rounded-lg font-mono text-lg font-bold text-stitch-indigo text-center">
               {code}
             </div>
             <button
               onClick={() => copyToClipboard(code, 'code')}
-              className="px-4 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium flex items-center gap-2"
+              className="px-4 py-3 bg-stitch-indigo text-white rounded-lg hover:bg-stitch-violet transition-colors font-medium flex items-center gap-2"
             >
               {copied === 'code' ? (
                 <>
@@ -338,14 +338,14 @@ function CopyAffiliateCode({ code, shareLink }: CopyAffiliateCodeProps) {
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">{t('shareLink')}</label>
+          <label className="block text-sm font-medium text-stitch-muted mb-2">{t('shareLink')}</label>
           <div className="flex gap-2">
-            <div className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-600 truncate">
+            <div className="flex-1 px-4 py-3 bg-stitch-canvas border border-stitch-border rounded-lg text-sm text-stitch-muted truncate font-mono">
               {shareLink}
             </div>
             <button
               onClick={() => copyToClipboard(shareLink, 'link')}
-              className="px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium"
+              className="px-4 py-3 bg-stitch-well text-stitch-primary rounded-lg hover:bg-stitch-well/80 transition-colors font-medium border border-stitch-border"
             >
               {copied === 'link' ? t('copied') : t('copy')}
             </button>
@@ -364,11 +364,11 @@ function RecentPayouts({ payouts }: RecentPayoutsProps) {
   const t = useTranslations('affiliates.payouts');
 
   const statusColors: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    processing: 'bg-blue-100 text-blue-800',
-    completed: 'bg-green-100 text-green-800',
-    failed: 'bg-red-100 text-red-800',
-    cancelled: 'bg-gray-100 text-gray-800',
+    pending: 'bg-stitch-amber/15 text-stitch-amber border border-stitch-amber/30',
+    processing: 'bg-stitch-cyan/15 text-stitch-cyan border border-stitch-cyan/30',
+    completed: 'bg-stitch-emerald/15 text-stitch-emerald border border-stitch-emerald/30',
+    failed: 'bg-stitch-crimson/15 text-stitch-crimson border border-stitch-crimson/30',
+    cancelled: 'bg-stitch-well text-stitch-muted border border-stitch-border',
   };
 
   const formatDate = (dateStr: string | null) => {
@@ -378,21 +378,21 @@ function RecentPayouts({ payouts }: RecentPayoutsProps) {
 
   if (payouts.length === 0) {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-12 text-center">
-        <DollarSign className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-        <p className="text-gray-500">{t('empty')}</p>
+      <div className="bg-stitch-surface rounded-2xl border border-stitch-border p-12 text-center">
+        <DollarSign className="w-16 h-16 text-stitch-muted mx-auto mb-4" />
+        <p className="text-stitch-muted">{t('empty')}</p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-6">{t('title')}</h3>
+    <div className="bg-stitch-surface rounded-2xl border border-stitch-border p-6">
+      <h3 className="text-lg font-semibold text-stitch-primary mb-6">{t('title')}</h3>
 
       <div className="overflow-x-auto">
         <table className="min-w-full">
           <thead>
-            <tr className="text-left text-sm font-medium text-gray-500 border-b border-gray-200">
+            <tr className="text-left text-sm font-medium text-stitch-muted border-b border-stitch-border">
               <th className="pb-3">{t('columns.date')}</th>
               <th className="pb-3 text-right">{t('columns.amount')}</th>
               <th className="pb-3 text-right">{t('columns.netAmount')}</th>
@@ -400,18 +400,18 @@ function RecentPayouts({ payouts }: RecentPayoutsProps) {
               <th className="pb-3">{t('columns.transactionId')}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-stitch-border">
             {payouts.map(payout => (
               <tr key={payout.id} className="text-sm">
-                <td className="py-4 text-gray-900">{formatDate(payout.paid_at || payout.scheduled_at)}</td>
-                <td className="py-4 font-medium text-gray-900 text-right">${payout.amount.toFixed(2)}</td>
-                <td className="py-4 text-gray-600 text-right">${payout.net_amount.toFixed(2)}</td>
+                <td className="py-4 text-stitch-primary">{formatDate(payout.paid_at || payout.scheduled_at)}</td>
+                <td className="py-4 font-mono font-medium text-stitch-primary text-right">${payout.amount.toFixed(2)}</td>
+                <td className="py-4 font-mono text-stitch-muted text-right">${payout.net_amount.toFixed(2)}</td>
                 <td className="py-4">
-                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payout.status] || 'bg-gray-100 text-gray-800'}`}>
+                  <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${statusColors[payout.status] || 'bg-stitch-well text-stitch-muted'}`}>
                     {t(`status.${payout.status}`, { fallback: payout.status })}
                   </span>
                 </td>
-                <td className="py-4 font-mono text-gray-600">
+                <td className="py-4 font-mono text-stitch-muted">
                   {payout.transaction_id ? (
                     <span className="truncate block max-w-[150px]" title={payout.transaction_id}>
                       {payout.transaction_id.slice(0, 12)}...
@@ -456,26 +456,26 @@ export default function AffiliatesClient({ initialData }: AffiliatesClientProps)
       key: 'lifetime_earnings',
       title: t('stats.lifetimeEarnings'),
       format: formatCurrency,
-      icon: <DollarSign className="w-6 h-6 text-green-600" />
+      icon: <DollarSign className="w-6 h-6 text-stitch-emerald" />
     },
     {
       key: 'pending_earnings',
       title: t('stats.pendingEarnings'),
       format: formatCurrency,
       subtitle: t('stats.thisMonth'),
-      icon: <TrendingUp className="w-6 h-6 text-blue-600" />
+      icon: <TrendingUp className="w-6 h-6 text-stitch-cyan" />
     },
     {
       key: 'total_referrals',
       title: t('stats.totalReferrals'),
       format: formatNumber,
-      icon: <Users className="w-6 h-6 text-purple-600" />
+      icon: <Users className="w-6 h-6 text-stitch-violet" />
     },
     {
       key: 'conversion_rate',
       title: t('stats.conversionRate'),
       format: formatPercent,
-      icon: <ShoppingCart className="w-6 h-6 text-orange-600" />
+      icon: <ShoppingCart className="w-6 h-6 text-stitch-amber" />
     },
   ];
 
@@ -485,8 +485,8 @@ export default function AffiliatesClient({ initialData }: AffiliatesClientProps)
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-3xl font-bold text-gray-900">{t('title')}</h1>
-        <p className="text-gray-500 mt-2">{t('subtitle')}</p>
+        <h1 className="text-3xl font-bold text-stitch-primary">{t('title')}</h1>
+        <p className="text-stitch-muted mt-2">{t('subtitle')}</p>
       </div>
 
       {/* Stats Grid */}
