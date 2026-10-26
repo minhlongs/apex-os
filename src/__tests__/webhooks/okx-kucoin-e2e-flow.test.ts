@@ -12,9 +12,15 @@ jest.mock('@/lib/auth/auth-factory', () => ({
   createAuth: jest.fn(),
 }));
 
+jest.mock('@/lib/auth/session-helper', () => ({
+  getAuthenticatedUser: jest.fn(),
+  resolveDatabase: jest.fn(() => null),
+}));
+
 import { NextRequest } from 'next/server';
 import { createHmac } from 'crypto';
 import { resetDB } from '@/lib/db';
+import { getAuthenticatedUser } from '@/lib/auth/session-helper';
 import { POST as handleOkxWebhook, GET as handleOkxGet } from '@/app/api/webhooks/exchange/okx/route';
 import { POST as handleKuCoinWebhook, GET as handleKuCoinGet } from '@/app/api/webhooks/exchange/kucoin/route';
 import {
@@ -42,6 +48,7 @@ describe('Exchange Keys Linking & OKX / KuCoin Webhook E2E Flow', () => {
 
   beforeEach(() => {
     resetDB();
+    (getAuthenticatedUser as jest.Mock).mockResolvedValue(null);
     process.env.OKX_WEBHOOK_SECRET = TEST_OKX_SECRET;
     process.env.KUCOIN_WEBHOOK_SECRET = TEST_KUCOIN_SECRET;
   });
@@ -84,6 +91,40 @@ describe('Exchange Keys Linking & OKX / KuCoin Webhook E2E Flow', () => {
     });
     const delRes = await handleExchangeKeysDelete(delReq);
     expect(delRes.status).toBe(401);
+  });
+
+  it('rejects linking an exchange api_key_id that is already claimed by another profile (409 Conflict)', async () => {
+    (getAuthenticatedUser as jest.Mock).mockResolvedValue({
+      id: 'attacker-user-id',
+      email: 'attacker@example.com',
+      role: 'shopper',
+    });
+
+    const mockDb = {
+      prepare: (sql: string) => ({
+        bind: (..._args: unknown[]) => ({
+          first: async <T>() => {
+            if (sql.includes('json_extract(external_ids')) {
+              return { id: 'victim-user-id' } as unknown as T;
+            }
+            return { external_ids: '{}' } as unknown as T;
+          },
+          all: async <T>() => ({ results: [] as T[] }),
+          run: async () => ({ success: true }),
+        }),
+      }),
+    };
+    (globalThis as unknown as { DB: unknown }).DB = mockDb;
+
+    const postReq = new NextRequest('http://localhost:3000/api/profile/exchange-keys', {
+      method: 'POST',
+      body: JSON.stringify({ exchange: 'okx', api_key_id: 'victim_key_12345' }),
+    });
+    const postRes = await handleExchangeKeysPost(postReq);
+    expect(postRes.status).toBe(409);
+    const json = (await postRes.json()) as { success: boolean; error: string };
+    expect(json.success).toBe(false);
+    expect(json.error).toContain('already linked');
   });
 
   it('executes OKX webhook flow and handles missing deal gracefully', async () => {
