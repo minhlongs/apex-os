@@ -167,6 +167,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
+    // Security guard: ensure no other profile has already linked this exchange api_key_id
+    const jsonPath = `$.${rawExchange}.api_key_id`;
+    const conflictingOwner = await db
+      .prepare(
+        'SELECT id FROM profiles WHERE json_extract(external_ids, ?) = ? AND id != ? LIMIT 1'
+      )
+      .bind(jsonPath, rawApiKeyId, user.id)
+      .first<{ id: string }>();
+
+    if (conflictingOwner) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'This exchange API key identifier is already linked to another account',
+        },
+        { status: 409 }
+      );
+    }
+
     const existing = await db
       .prepare('SELECT external_ids FROM profiles WHERE id = ?')
       .bind(user.id)
