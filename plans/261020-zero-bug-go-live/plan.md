@@ -1,7 +1,7 @@
 ---
 title: "Zero-Bug Go-Live — ApexOS"
 description: "Risk-first phased plan to take ApexOS from green-tests-but-unshipable to a verified, irreversible-safe production go-live."
-status: in_progress
+status: completed
 priority: P1
 effort: 48h
 branch: master

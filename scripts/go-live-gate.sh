@@ -211,10 +211,10 @@ fi
 # ------------------------------------------------------------------------------
 # G5: Operational Readiness
 # ------------------------------------------------------------------------------
-if [[ -f docs/rollback-runbook.md && -f docs/go-live-checklist.md ]]; then
-  pass "G5" "Rollback runbook and Go-Live checklist present"
+if [[ -f docs/rollback-runbook.md && -f docs/go-live-checklist.md && -f docs/cutover-runbook.md && -f docs/project-changelog.md ]]; then
+  pass "G5" "Rollback, Cutover runbooks, Go-Live checklist, and Changelog present"
 else
-  fail "G5" "Missing docs/rollback-runbook.md or docs/go-live-checklist.md"
+  fail "G5" "Missing docs/rollback-runbook.md, docs/go-live-checklist.md, docs/cutover-runbook.md, or docs/project-changelog.md"
 fi
 
 echo "============================================================"
