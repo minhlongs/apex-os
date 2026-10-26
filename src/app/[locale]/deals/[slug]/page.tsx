@@ -26,6 +26,10 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { locale: _locale, slug } = await params;
 
+<<<<<<< HEAD
+=======
+  // Skip DB access during build if no D1 binding available
+>>>>>>> origin/feature/sprint4-email-automation-complete
   if (typeof (globalThis as unknown as { DB?: D1Database }).DB === 'undefined') {
     return {
       title: 'Deal - ApexOS',
