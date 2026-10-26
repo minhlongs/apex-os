@@ -8,10 +8,13 @@
 
 import { JsonRpcClient } from '../rpc/json-rpc-client';
 import {
+  keccak256,
   toChecksumAddress,
   isValidChecksumAddress,
   isValidEthereumAddress,
 } from '../crypto/keccak';
+import { createSecp256k1Signer } from '../crypto/secp256k1-signer';
+import { encodeRlp } from '../crypto/rlp';
 import type {
   FeeEstimateParams,
   ChainFeeEstimate,
@@ -96,6 +99,14 @@ export class EthereumAdapter extends BasePayoutChainAdapter {
       process.env.ETHEREUM_HOT_WALLET ??
       ETHEREUM_DEFAULTS.HOT_WALLET;
     this.privateKey = config?.privateKey ?? process.env.ETHEREUM_PRIVATE_KEY;
+    if (this.privateKey) {
+      try {
+        const signer = createSecp256k1Signer(this.privateKey);
+        this.hotWalletAddress = signer.address;
+      } catch {
+        // preserve configured hotWalletAddress
+      }
+    }
     this.usdcContractAddress =
       config?.usdcContractAddress ??
       process.env.ETHEREUM_USDC_CONTRACT ??
@@ -256,38 +267,122 @@ export class EthereumAdapter extends BasePayoutChainAdapter {
     }
 
     // 2. Broadcast Transaction
-    //
-    // eth_sendTransaction requires the node to hold the hot-wallet key. Public
-    // RPC providers do not, so this fails without a locally signed transaction.
-    // When it fails there is no on-chain transaction to report, and the previous
-    // catch block fabricated a hash from payout metadata, which the settlement
-    // gate then verified against a chain that had never seen it. Report the
-    // failure instead: an unverifiable hash is worse than no hash.
     let transactionHash: string;
-    try {
-      const broadcastRes = await this.rpc.call<string>('eth_sendTransaction', [
-        {
-          from: this.hotWalletAddress,
-          to: tokenContract,
-          data: calldata,
-          gas: '0x186a0', // 100,000 gas units
-        },
-      ]);
+    let senderAddress = this.hotWalletAddress;
 
-      if (!broadcastRes || typeof broadcastRes !== 'string') {
+    if (this.privateKey) {
+      try {
+        const signer = createSecp256k1Signer(this.privateKey);
+        senderAddress = signer.address;
+
+        // Fetch nonce (eth_getTransactionCount)
+        const nonceHex = await this.rpc.call<string>('eth_getTransactionCount', [
+          senderAddress,
+          'pending',
+        ]);
+        const nonce = BigInt(nonceHex || '0x0');
+
+        // Estimate current gas fee parameters
+        const feeEst = await this.estimateFee({
+          chain: 'ethereum',
+          recipientAddress: params.recipientAddress,
+          amount: params.amount,
+          token: params.token,
+        });
+
+        const chainId = BigInt(this.chainId);
+        const maxPriorityFeePerGas = DEFAULT_PRIORITY_FEE_WEI;
+        const maxFeePerGas = DEFAULT_BASE_FEE_WEI + maxPriorityFeePerGas;
+        const gasLimit = BigInt(feeEst.gasUnitsOrLimit || 65000);
+
+        // EIP-1559 payload: [chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to, value, data, accessList]
+        const unsignedTx = [
+          chainId,
+          nonce,
+          maxPriorityFeePerGas,
+          maxFeePerGas,
+          gasLimit,
+          tokenContract,
+          BigInt(0),
+          calldata,
+          [],
+        ];
+
+        const rlpUnsigned = encodeRlp(unsignedTx);
+        // EIP-2718 Type 2: 0x02 || rlp(unsignedTx)
+        const type2Payload = new Uint8Array(1 + rlpUnsigned.length);
+        type2Payload[0] = 0x02;
+        type2Payload.set(rlpUnsigned, 1);
+
+        const txHashHex = keccak256(type2Payload);
+        const txHashBytes = Buffer.from(txHashHex.slice(2), 'hex');
+
+        const signature = signer.signHash(txHashBytes);
+
+        // Signed EIP-1559 payload: [chainId, nonce, maxPriorityFee, maxFee, gasLimit, to, value, data, accessList, yParity, r, s]
+        const signedTx = [
+          chainId,
+          nonce,
+          maxPriorityFeePerGas,
+          maxFeePerGas,
+          gasLimit,
+          tokenContract,
+          BigInt(0),
+          calldata,
+          [],
+          signature.recoveryParam,
+          BigInt('0x' + signature.r),
+          BigInt('0x' + signature.s),
+        ];
+
+        const rlpSigned = encodeRlp(signedTx);
+        const rawSignedTx = new Uint8Array(1 + rlpSigned.length);
+        rawSignedTx[0] = 0x02;
+        rawSignedTx.set(rlpSigned, 1);
+
+        const rawTxHex = '0x' + Buffer.from(rawSignedTx).toString('hex');
+
+        const broadcastRes = await this.rpc.call<string>('eth_sendRawTransaction', [rawTxHex]);
+        if (!broadcastRes || typeof broadcastRes !== 'string') {
+          return this.createFailedResult(
+            params,
+            'Ethereum broadcast returned no transaction hash'
+          );
+        }
+        transactionHash = broadcastRes;
+      } catch (signError: unknown) {
+        const msg = signError instanceof Error ? signError.message : String(signError);
         return this.createFailedResult(
           params,
-          'Ethereum broadcast returned no transaction hash'
+          `Ethereum signing/broadcast failed: ${msg}`
         );
       }
+    } else {
+      try {
+        const broadcastRes = await this.rpc.call<string>('eth_sendTransaction', [
+          {
+            from: this.hotWalletAddress,
+            to: tokenContract,
+            data: calldata,
+            gas: '0x186a0', // 100,000 gas units
+          },
+        ]);
 
-      transactionHash = broadcastRes;
-    } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
-      return this.createFailedResult(
-        params,
-        `Ethereum broadcast failed (no signing key available for this node): ${msg}`
-      );
+        if (!broadcastRes || typeof broadcastRes !== 'string') {
+          return this.createFailedResult(
+            params,
+            'Ethereum broadcast returned no transaction hash'
+          );
+        }
+
+        transactionHash = broadcastRes;
+      } catch (error: unknown) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return this.createFailedResult(
+          params,
+          `Ethereum broadcast failed (no signing key available for this node): ${msg}`
+        );
+      }
     }
 
     const feeEst = await this.estimateFee({
@@ -302,7 +397,7 @@ export class EthereumAdapter extends BasePayoutChainAdapter {
       payoutId: params.payoutId,
       chain: 'ethereum',
       transactionId: transactionHash,
-      fromAddress: this.hotWalletAddress,
+      fromAddress: senderAddress,
       toAddress: params.recipientAddress,
       amount: params.amount,
       token: params.token ?? 'USDC',
