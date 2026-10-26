@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import Database from 'better-sqlite3';
 import {
   classifyHistoricalPayoutRow,
   reconcileHistoricalPayouts,
@@ -175,6 +178,55 @@ describe('Historical Payout Reconciliation (Phase 07 Pre-Flight)', () => {
       expect(report.orphanedPaidEarningsCount).toBe(1);
       expect(report.orphanedPaidEarnings[0].id).toBe('e-orphan-1');
       expect(report.requiresFounderRemediation).toBe(true);
+    });
+  });
+
+  describe('scripts/reconcile-historical-payouts.sh SQL parity', () => {
+    it('executes ANOMALOUS_PAYOUTS_SQL on SQLite and flags malformed Stellar hex matching TypeScript behavior', () => {
+      const scriptPath = path.resolve(__dirname, '../../../../scripts/reconcile-historical-payouts.sh');
+      const scriptContent = fs.readFileSync(scriptPath, 'utf8');
+      const match = scriptContent.match(/ANOMALOUS_PAYOUTS_SQL="([^"]+)"/);
+      expect(match).not.toBeNull();
+      const sql = match![1];
+
+      const db = new Database(':memory:');
+      db.exec(`
+        CREATE TABLE payouts (
+          id TEXT PRIMARY KEY,
+          affiliate_id TEXT,
+          amount REAL,
+          net_amount REAL,
+          status TEXT,
+          chain TEXT,
+          transaction_id TEXT,
+          created_at TEXT
+        );
+      `);
+
+      const insert = db.prepare(`
+        INSERT INTO payouts (id, affiliate_id, amount, net_amount, status, chain, transaction_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      // 1. Clean Stellar payout
+      insert.run('p-clean', 'aff-1', 100, 100, 'completed', 'stellar', 'a'.repeat(64), '2026-10-20');
+      // 2. Malformed Stellar hex (non-hex char 'z')
+      insert.run('p-bad-hex', 'aff-2', 50, 50, 'completed', 'stellar', 'z'.repeat(64), '2026-10-20');
+      // 3. Short Stellar hash (not 64 chars)
+      insert.run('p-short-hash', 'aff-3', 75, 75, 'completed', 'stellar', 'abc123', '2026-10-20');
+      // 4. Solana payout with mock token
+      insert.run('p-mock', 'aff-4', 200, 200, 'completed', 'solana', `${LEGACY_MOCK_TOKEN}_xyz`, '2026-10-20');
+      // 5. Ethereum payout
+      insert.run('p-eth', 'aff-5', 300, 300, 'completed', 'ethereum', '0x' + 'f'.repeat(64), '2026-10-20');
+
+      const rows = db.prepare(sql).all() as any[];
+      const flaggedIds = rows.map((r) => r.id);
+
+      expect(flaggedIds).not.toContain('p-clean');
+      expect(flaggedIds).toContain('p-bad-hex');
+      expect(flaggedIds).toContain('p-short-hash');
+      expect(flaggedIds).toContain('p-mock');
+      expect(flaggedIds).toContain('p-eth');
     });
   });
 });

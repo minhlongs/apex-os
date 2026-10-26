@@ -27,5 +27,6 @@
 
 ### Bằng chứng Kiểm định (Verification Evidence)
 - **Merge Commit (Phase 04+05+06)**: `754984bd` ([PR #4](https://github.com/minhlongs/apex-os/pull/4), [Issue #3](https://github.com/minhlongs/apex-os/issues/3))
-- **Go-Live Gate (`npm run gate`)**: `21/21 PASS, 0 FAIL` (`G0`–`G5`)
-- **Test Suite (`CI=true npm test`)**: `143/143` suites green (`3,326` passed, `1` skipped) trên Node `v26.7.0`
+- **Merge Commit (Phase 07 Cutover & Reconciliation)**: `bb04eb60` ([PR #6](https://github.com/minhlongs/apex-os/pull/6), [Issue #5](https://github.com/minhlongs/apex-os/issues/5))
+- **Go-Live Gate (`npm run gate`)**: `22/22 PASS, 0 FAIL` (`G0`–`G5`, bao gồm kiểm định SQLite `GLOB` 64-char hex parity trên `scripts/reconcile-historical-payouts.sh`)
+- **Test Suite (`CI=true npm test`)**: `143/143` suites green (`3,327` passed, `1` skipped) trên Node `v26.7.0`

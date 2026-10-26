@@ -217,6 +217,12 @@ else
   fail "G5" "Missing docs/rollback-runbook.md, docs/go-live-checklist.md, docs/cutover-runbook.md, or docs/project-changelog.md"
 fi
 
+if [[ -f scripts/reconcile-historical-payouts.sh ]] && grep -q "GLOB '\*\[\^0-9a-fA-F\]\*'" scripts/reconcile-historical-payouts.sh; then
+  pass "G5" "Historical payout reconciliation script enforces SQLite GLOB 64-char hex parity"
+else
+  fail "G5" "Historical payout reconciliation script missing SQLite GLOB 64-char hex parity"
+fi
+
 echo "============================================================"
 echo " Gate Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed"
 echo "============================================================"
