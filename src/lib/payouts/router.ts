@@ -225,12 +225,46 @@ export class PayoutRouter {
   }
 
   /**
+   * Check whether V1 Stellar-only payout enforcement is active.
+   * Always enforced in production/staging or when V1_STELLAR_ONLY_PAYOUTS=true.
+   */
+  isStellarOnlyEnforced(): boolean {
+    if (process.env.V1_STELLAR_ONLY_PAYOUTS === 'false') {
+      return false;
+    }
+    return (
+      process.env.V1_STELLAR_ONLY_PAYOUTS === 'true' ||
+      process.env.NODE_ENV === 'production' ||
+      process.env.APP_ENV === 'production' ||
+      process.env.APP_ENV === 'staging'
+    );
+  }
+
+  /**
    * Send a payout to a recipient via the designated chain adapter with pre-flight sanctions screening
    */
   async sendPayout(
     chain: SupportedPayoutChain,
     params: PayoutExecutionParams
   ): Promise<PayoutExecutionResult> {
+    // V1 Release Gate: Only Stellar USDC is authorized for active payout execution.
+    // Non-Stellar rails fail closed until subsequent audited rollout phases.
+    if (chain !== 'stellar' && this.isStellarOnlyEnforced()) {
+      const railErrorMsg = `Payout execution on chain '${chain}' is disabled for V1 release. Only 'stellar' is enabled.`;
+      logger.error(`[PayoutRouter] [RAILS_GATE_BLOCK] ${railErrorMsg}`);
+      return {
+        success: false,
+        payoutId: params.payoutId,
+        chain,
+        toAddress: params.recipientAddress,
+        amount: params.amount,
+        token: params.token ?? 'USDC',
+        error: railErrorMsg,
+        status: 'failed',
+        timestamp: new Date().toISOString(),
+      };
+    }
+
     // 1. Synchronous pre-flight sanctions screening
     const screening = await this.sanctionsService.checkAddress(params.recipientAddress, chain);
     if (screening.isSanctioned) {

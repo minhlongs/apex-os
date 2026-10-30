@@ -424,7 +424,7 @@ export const AI_ARBITRAGE_AGENTS: readonly AiArbitrageAgentEntry[] = [
   {
     agentId: 'scanner-alpha',
     agentName: 'Scanner-Alpha (Fee & Spread Crawler)',
-    roleSummary: 'Polls Binance, Bybit, OKX, KuCoin orderbooks & VIP rebate tiers every 12ms',
+    roleSummary: 'Polls Binance, Bybit, OKX, KuCoin orderbooks & VIP rebate tiers on live WebSocket diff streams',
     minSpreadTriggerBps: 12.0,
     maxSlippageGuardBps: 15.0,
     captured24hUsdc: 642.8,

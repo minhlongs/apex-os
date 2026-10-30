@@ -165,7 +165,15 @@ export class ExchangeCrawlerService {
         const errMsg = err instanceof Error ? err.message : String(err);
 
         // Fall back to fixtures if an unexpected catastrophic failure occurred
-        const fallbackCards = adapter.getFallbackFixtures(options.marketType);
+        const fallbackCards = adapter.getFallbackFixtures(options.marketType).map((card) => ({
+          ...card,
+          metadata: {
+            ...card.metadata,
+            data_source: 'fallback_fixture',
+            is_synthetic: true,
+            fallback_applied_at: new Date().toISOString(),
+          },
+        }));
         let savedCount = 0;
         try {
           savedCount = await this.persistRateCards(fallbackCards, db);

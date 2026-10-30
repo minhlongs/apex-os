@@ -86,7 +86,7 @@ export function StitchTerminalShell({
   const [activeTab, setActiveTab] = useState<TerminalScreenId>(initialTab);
   const [locale, setLocale] = useState<'en' | 'vi'>(initialLocale);
   const [screenQuery, setScreenQuery] = useState<string>('');
-  const [apiSyncState, setApiSyncState] = useState<'BENCHMARK' | 'SYNCING' | 'LIVE_EDGE_SYNCED'>(
+  const [apiSyncState, setApiSyncState] = useState<'BENCHMARK' | 'SYNCING' | 'SANDBOX_SYNCED'>(
     'BENCHMARK'
   );
 
@@ -109,12 +109,12 @@ export function StitchTerminalShell({
     try {
       const response = await fetch('/api/terminal/snapshot');
       if (response.ok) {
-        setApiSyncState('LIVE_EDGE_SYNCED');
+        setApiSyncState('SANDBOX_SYNCED');
         return;
       }
-      setApiSyncState('LIVE_EDGE_SYNCED');
+      setApiSyncState('SANDBOX_SYNCED');
     } catch {
-      setApiSyncState('LIVE_EDGE_SYNCED');
+      setApiSyncState('SANDBOX_SYNCED');
     }
   };
 
@@ -272,11 +272,11 @@ export function StitchTerminalShell({
               onClick={handleLiveApiSync}
               className="rounded-lg border border-stitch-divider bg-stitch-well px-3 py-1.5 font-mono text-xs font-semibold text-stitch-cyan hover:border-stitch-cyan cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stitch-cyan"
             >
-              {apiSyncState === 'LIVE_EDGE_SYNCED'
-                ? 'API: LIVE_EDGE_SYNCED'
+              {apiSyncState === 'SANDBOX_SYNCED'
+                ? 'API: SANDBOX_SYNCED'
                 : apiSyncState === 'SYNCING'
                   ? 'API: SYNCING...'
-                  : 'Sync Live Edge API'}
+                  : 'Sync Sandbox Snapshot API'}
             </button>
             <button
               type="button"

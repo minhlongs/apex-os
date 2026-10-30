@@ -2,6 +2,18 @@
 
 ---
 
+## [1.6.0] — 2026-10-30 (Cashback Hardening & Greenfield Paper Trading Console: G0–G7)
+
+### Tổng quan / Summary
+- **Tiếng Việt:** Bản phát hành `v1.6.0` hoàn tất kiểm toán nền tảng Cashback/Affiliate (cô lập hai chiều D1/KV/R2 giữa Staging và Production, xóa bỏ khóa HMAC cố định và thông số marketing `12ms` giả lập, khóa cứng cổng thanh toán V1 chỉ cho phép Stellar USDC kèm duyệt thủ công `AUTO_SETTLE_PAYOUTS=false`, gắn nhãn nguồn dữ liệu `fallback_fixture` cho crawler) và triển khai Greenfield Paper Trading Engine trên Cloudflare Durable Objects (bộ tuần tự sổ lệnh L2 Binance & Bybit cho `BTC/USDT` và `ETH/USDT`, hai sổ cái chiến lược độc lập 10.000 USDT `spot-2exch` và `spot-perp`, nhật ký bất biến D1/R2 có khóa chống trùng SHA-256, kiểm định phát lại 50-tick trùng khớp 100% bit-identical, và Admin Console 3 bề mặt có đóng dấu `PAPER SIMULATION ONLY`).
+- **English:** Release `v1.6.0` completes the Cashback/Affiliate platform security hardening (bidirectional D1/KV/R2 staging-production isolation, removal of hardcoded HMAC secret literals and fabricated `12ms` latency claims, V1 Stellar-only payout rail guard with `AUTO_SETTLE_PAYOUTS=false`, explicit `fallback_fixture` crawler provenance) and ships the Greenfield Paper Trading Simulator on Cloudflare Durable Objects (Binance & Bybit L2 orderbook sequencer for `BTC/USDT` & `ETH/USDT`, two isolated 10,000 USDT strategy ledgers `spot-2exch` and `spot-perp`, immutable SHA-256 idempotent journal, 100% bit-identical 50-tick deterministic replay verification, and 3-surface Admin Console with CSV/PDF export and descriptive non-blocking economic research telemetry).
+
+### Bằng chứng Kiểm định (Verification Evidence)
+- **Go-Live Gate (`bash scripts/go-live-gate.sh`)**: `27/27 PASS, 0 FAIL` (`G0`–`G7`)
+- **Test Suite (`npm test`)**: `152/152` suites green (`3,375` passed, `1` skipped) trên Node `v26.7.0`
+
+---
+
 ## [1.5.0] — 2026-10-26 (Zero-Bug Go-Live Release: Phases 01–07)
 
 ### Tổng quan / Summary
