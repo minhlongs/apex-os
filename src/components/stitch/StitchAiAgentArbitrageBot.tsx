@@ -56,7 +56,7 @@ export function StitchAiAgentArbitrageBot({
             4 / 4 Armed
           </p>
           <p className="mt-1 font-mono text-xs text-stitch-cyan">
-            12ms Edge Execution Loop
+            Sub-second Edge Ingestion Loop
           </p>
         </article>
 

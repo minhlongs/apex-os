@@ -1,7 +1,7 @@
 {
 	// NOTE: D1 database_id is required by Wrangler CLI — not a secret.
 	// Staging Worker: binds DB strictly to apex-os-staging-db (be4ed659-c877-4820-ae6e-9747bc7ee316).
-	// Must NEVER bind or reference the production D1 database.
+	// Must NEVER bind or reference the production D1 database, production KV, or production R2.
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"main": "worker-wrapper.js",
 	"name": "apex-os-staging",
@@ -24,19 +24,20 @@
 	"kv_namespaces": [
 		{
 			"binding": "KV",
-			"id": "5628adf57f1548b5af615de4e9021893"
+			"id": "e8f7a6b5c4d3210987654321fedcba09"
 		}
 	],
 	"r2_buckets": [
 		{
 			"binding": "STORAGE",
-			"bucket_name": "apex-os-uploads"
+			"bucket_name": "apex-os-uploads-staging"
 		}
 	],
 	"vars": {
 		"APP_ENV": "staging",
 		"STELLAR_NETWORK": "testnet",
-		"AUTO_SETTLE_PAYOUTS": "false"
+		"AUTO_SETTLE_PAYOUTS": "false",
+		"V1_STELLAR_ONLY_PAYOUTS": "true"
 	},
 	"triggers": {
 		"crons": ["0 0 * * SUN", "*/30 * * * *", "*/5 * * * *"]

@@ -112,9 +112,9 @@ else
 fi
 
 if bash scripts/assert-staging-isolation.sh >/dev/null 2>&1; then
-  pass "G2" "Staging D1 isolation verified"
+  pass "G2" "Staging D1/KV/R2 bidirectional isolation verified"
 else
-  fail "G2" "Staging D1 isolation check failed"
+  fail "G2" "Staging D1/KV/R2 bidirectional isolation check failed"
 fi
 
 # ------------------------------------------------------------------------------
@@ -221,6 +221,61 @@ if [[ -f scripts/reconcile-historical-payouts.sh ]] && grep -q "GLOB '\*\[\^0-9a
   pass "G5" "Historical payout reconciliation script enforces SQLite GLOB 64-char hex parity"
 else
   fail "G5" "Historical payout reconciliation script missing SQLite GLOB 64-char hex parity"
+fi
+
+# ------------------------------------------------------------------------------
+# G6: Security, Cashback Launch Guard & Greenfield Paper Engine Replay
+# ------------------------------------------------------------------------------
+if grep -rq "apex_os_edge_hmac_secret" src/; then
+  fail "G6a" "Hardcoded HMAC secret literal found in src/"
+else
+  pass "G6a" "Zero hardcoded HMAC secret literals in src/"
+fi
+
+if grep -rq "12ms" src/; then
+  fail "G6b" "Fabricated 12ms latency claims found in src/"
+else
+  pass "G6b" "Zero fabricated 12ms marketing claims in src/"
+fi
+
+if grep -q "V1_STELLAR_ONLY_PAYOUTS" src/lib/payouts/router.ts && \
+   grep -q "V1_STELLAR_ONLY_PAYOUTS" wrangler.jsonc && \
+   grep -q "V1_STELLAR_ONLY_PAYOUTS" wrangler.staging.jsonc; then
+  pass "G6c" "V1 Stellar-only payout launch gate wired across router and wrangler configs"
+else
+  fail "G6c" "V1 Stellar-only payout launch gate missing from router or wrangler configs"
+fi
+
+if grep -q "fallback_fixture" src/lib/crawler/service.ts; then
+  pass "G6d" "Crawler fallback fixture explicit provenance metadata attached"
+else
+  fail "G6d" "Crawler fallback fixture provenance metadata missing"
+fi
+
+if npx jest src/lib/paper/__tests__/paper-engine-and-replay.test.ts src/lib/payouts/__tests__/v1-stellar-only-gate.test.ts >/dev/null 2>&1; then
+  pass "G6e" "Paper trading 50-tick deterministic replay (100% bit-identical) and V1 Stellar gate pass"
+else
+  fail "G6e" "Paper trading deterministic replay or V1 Stellar gate unit tests failed"
+fi
+
+# ------------------------------------------------------------------------------
+# G7: Paper Trading Admin Console Surfaces & CI/CD Deployment Hardening
+# ------------------------------------------------------------------------------
+if [[ -f src/components/admin/paper/PaperTradingConsole.tsx && \
+      -f src/app/api/admin/paper/overview/route.ts && \
+      -f src/app/api/admin/paper/export/route.ts && \
+      -f src/database/migrations/028_paper_trading_journal.sql ]] && \
+   grep -q "PAPER SIMULATION ONLY" src/components/admin/paper/PaperTradingConsole.tsx; then
+  pass "G7a" "All 3 Paper Trading Admin Console surfaces & immutable D1 schema present with PAPER watermark"
+else
+  fail "G7a" "Missing Paper Trading Admin Console surfaces or migration"
+fi
+
+if grep -q "assert-staging-isolation.sh" package.json && \
+   grep -q "assert-staging-isolation.sh" .github/workflows/deploy.yml; then
+  pass "G7b" "Production deployment gate enforces assert-staging-isolation.sh in package.json and deploy.yml"
+else
+  fail "G7b" "Production deployment gate missing assert-staging-isolation.sh enforcement"
 fi
 
 echo "============================================================"
