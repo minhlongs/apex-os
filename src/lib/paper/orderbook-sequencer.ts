@@ -27,9 +27,26 @@ export interface BinanceDepthMessage {
   s: string;
   U: number;
   u: number;
+  pu?: number;
   b: Array<[string, string]>;
   a: Array<[string, string]>;
 }
+
+export const REQUIRED_PAPER_STREAMS: ReadonlyArray<{
+  exchange: PaperExchange;
+  pair: PaperPair;
+  marketType: PaperMarketType;
+  streamKey: string;
+}> = [
+  { exchange: 'binance', pair: 'BTC/USDT', marketType: 'spot', streamKey: 'binance:spot:BTC/USDT' },
+  { exchange: 'binance', pair: 'BTC/USDT', marketType: 'linear_perp', streamKey: 'binance:linear_perp:BTC/USDT' },
+  { exchange: 'bybit', pair: 'BTC/USDT', marketType: 'spot', streamKey: 'bybit:spot:BTC/USDT' },
+  { exchange: 'bybit', pair: 'BTC/USDT', marketType: 'linear_perp', streamKey: 'bybit:linear_perp:BTC/USDT' },
+  { exchange: 'binance', pair: 'ETH/USDT', marketType: 'spot', streamKey: 'binance:spot:ETH/USDT' },
+  { exchange: 'binance', pair: 'ETH/USDT', marketType: 'linear_perp', streamKey: 'binance:linear_perp:ETH/USDT' },
+  { exchange: 'bybit', pair: 'ETH/USDT', marketType: 'spot', streamKey: 'bybit:spot:ETH/USDT' },
+  { exchange: 'bybit', pair: 'ETH/USDT', marketType: 'linear_perp', streamKey: 'bybit:linear_perp:ETH/USDT' },
+];
 
 export interface BybitOrderbookMessage {
   topic: string;
@@ -81,12 +98,17 @@ export class OrderbookSequencer {
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
       .sort((a, b) => a.price - b.price);
 
+    const prevSequenceId =
+      marketType === 'linear_perp' && typeof msg.pu === 'number'
+        ? msg.pu
+        : msg.U - 1;
+
     return {
       exchange: 'binance',
       pair,
       marketType,
       sequenceId: msg.u,
-      prevSequenceId: msg.U - 1,
+      prevSequenceId,
       exchangeTs: msg.E,
       receivedTs,
       isDelta: true,
@@ -231,6 +253,8 @@ export class OrderbookSequencer {
     // Sequence continuity check:
     // 1. Out-of-order / non-monotonic sequence ID (unless valid repeated snapshot)
     // 2. Explicit gap via prevSequenceId mismatch or jump > 1
+    //    - For Binance Futures (`pu`), `prevSequenceId` must equal `existing.lastSequenceId`
+    //    - For Binance Spot (`U - 1`), `expectedPrev` (`U - 1`) must be <= `existing.lastSequenceId`
     const expectedPrev =
       book.prevSequenceId !== undefined ? book.prevSequenceId : book.sequenceId - 1;
     const hasSequenceGap =
@@ -430,6 +454,43 @@ export class OrderbookSequencer {
 
   getAllStates(): SequencerStreamState[] {
     return Array.from(this.states.values());
+  }
+
+  /**
+   * Validate that all 8 required streams (Binance + Bybit × Spot + Linear Perp × BTC + ETH)
+   * are present, SYNCED, and fresh within maxFeedAgeMs at `nowTs`.
+   */
+  areAllRequiredStreamsSynced(nowTs: number): {
+    ok: boolean;
+    syncedCount: number;
+    requiredCount: number;
+    missingOrStaleKeys: string[];
+  } {
+    const missingOrStaleKeys: string[] = [];
+    let syncedCount = 0;
+
+    for (const req of REQUIRED_PAPER_STREAMS) {
+      const st = this.states.get(req.streamKey);
+      const book = this.books.get(req.streamKey);
+      if (!st || !book || st.status !== 'SYNCED') {
+        missingOrStaleKeys.push(req.streamKey);
+        continue;
+      }
+      const exchangeAgeMs = Math.max(0, nowTs - st.lastExchangeTs);
+      const receiveAgeMs = Math.max(0, nowTs - st.lastReceivedTs);
+      if (exchangeAgeMs > this.maxFeedAgeMs || receiveAgeMs > this.maxFeedAgeMs) {
+        missingOrStaleKeys.push(req.streamKey);
+        continue;
+      }
+      syncedCount += 1;
+    }
+
+    return {
+      ok: missingOrStaleKeys.length === 0 && syncedCount === REQUIRED_PAPER_STREAMS.length,
+      syncedCount,
+      requiredCount: REQUIRED_PAPER_STREAMS.length,
+      missingOrStaleKeys,
+    };
   }
 
   /**

@@ -4,8 +4,8 @@
  * Live Market Data Collector for ApexOS Greenfield Paper Trading.
  *
  * Streams are WebSocket-only per the confirmed runtime decision:
- *   - Binance `@depth@100ms` (combined + partial book depth streams)
- *   - Bybit v5 `orderbook.1.{spot,linear}` (snapshot + delta)
+ *   - Binance `@depth@100ms` (combined + partial book depth streams, with buffered snapshot bridging)
+ *   - Bybit v5 `orderbook.50.{spot,linear}` (snapshot + delta)
  * REST endpoints below exist ONLY for the initial snapshot bootstrap and for
  * post-desync `resyncSnapshot` recovery; they are not the primary feed.
  *
@@ -96,7 +96,20 @@ export class LiveMarketCollector {
   private readonly reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly statuses: CollectorStreamStatus[] = [];
   private readonly localBooks = new Map<string, NormalizedOrderbook>();
-  private readonly fundingByKey = new Map<string, { rateBps: number; fetchedTs: number }>();
+  private readonly fundingByKey = new Map<
+    string,
+    {
+      rateBps: number;
+      fetchedTs: number;
+      nextFundingTimeMs?: number;
+      lastSettledBoundaryMs?: number;
+      pendingSettlementEventId?: string;
+      pendingSettlementTs?: number;
+      pendingSettlementRateBps?: number;
+    }
+  >();
+  private readonly bootstrappingKeys = new Set<string>();
+  private readonly bufferedDeltas = new Map<string, NormalizedOrderbook[]>();
   private closed = false;
 
   constructor(config?: CollectorConfig) {
@@ -249,19 +262,162 @@ export class LiveMarketCollector {
   }
 
   /**
-   * Start real-time WebSocket subscriptions for Binance and Bybit after
-   * bootstrapping initial orderbook snapshots via REST.
+   * Start real-time WebSocket subscriptions for Binance and Bybit, buffering
+   * incoming WebSocket deltas while bootstrapping initial REST snapshots and
+   * replaying bridged deltas (`u > snapshot.sequenceId`) in sequence order.
    */
   async startWebSocketStreams(): Promise<void> {
     this.closed = false;
-    await this.bootstrapSnapshots();
 
     for (const pair of this.pairs) {
+      for (const exchange of ['binance', 'bybit'] as const) {
+        for (const marketType of ['spot', 'linear_perp'] as const) {
+          const key = OrderbookSequencer.makeStreamKey(exchange, pair, marketType);
+          this.bootstrappingKeys.add(key);
+          this.bufferedDeltas.set(key, []);
+        }
+      }
       this.connectBinanceWs(pair, 'spot');
       this.connectBinanceWs(pair, 'linear_perp');
       this.connectBybitWs(pair, 'spot');
       this.connectBybitWs(pair, 'linear_perp');
     }
+
+    const results = await this.pollAllPairs();
+    for (const res of results) {
+      const key = OrderbookSequencer.makeStreamKey(
+        res.exchange,
+        res.pair,
+        res.marketType
+      );
+      this.applySnapshotAndDrainBuffer(key, res.book);
+    }
+  }
+
+  beginBootstrapping(key: string): void {
+    this.bootstrappingKeys.add(key);
+    this.bufferedDeltas.set(key, []);
+  }
+
+  applySnapshotAndDrainBuffer(
+    key: string,
+    snapshotBook?: NormalizedOrderbook
+  ): NormalizedOrderbook[] {
+    this.bootstrappingKeys.delete(key);
+    const queued = this.bufferedDeltas.get(key) ?? [];
+    this.bufferedDeltas.delete(key);
+
+    if (snapshotBook) {
+      this.recordBookIngest(snapshotBook);
+    }
+    const minSeq = snapshotBook ? snapshotBook.sequenceId : -1;
+    let bridgedFirst = false;
+    const drained: NormalizedOrderbook[] = [];
+    for (const delta of queued) {
+      if (delta.sequenceId <= minSeq) {
+        continue;
+      }
+      if (!bridgedFirst && snapshotBook) {
+        // Bridge the first post-snapshot delta so its prevSequenceId aligns with the snapshot
+        bridgedFirst = true;
+        const bridged = {
+          ...delta,
+          prevSequenceId: snapshotBook.sequenceId,
+        };
+        drained.push(bridged);
+        this.recordBookIngest(bridged);
+      } else {
+        drained.push(delta);
+        this.recordBookIngest(delta);
+      }
+    }
+    return drained;
+  }
+
+  ingestOrBufferWsBook(book: NormalizedOrderbook): boolean {
+    const key = OrderbookSequencer.makeStreamKey(
+      book.exchange,
+      book.pair,
+      book.marketType
+    );
+    if (this.bootstrappingKeys.has(key)) {
+      const queue = this.bufferedDeltas.get(key) ?? [];
+      queue.push(book);
+      this.bufferedDeltas.set(key, queue);
+      return true;
+    }
+    this.recordBookIngest(book);
+    return false;
+  }
+
+  private updateFundingState(
+    key: string,
+    exchange: PaperExchange,
+    pair: PaperPair,
+    rateBps: number,
+    eventTs: number,
+    nextFundingTimeMs?: number
+  ): void {
+    const prev = this.fundingByKey.get(key);
+    let lastSettledBoundaryMs = prev?.lastSettledBoundaryMs;
+    let pendingSettlementEventId = prev?.pendingSettlementEventId;
+    let pendingSettlementTs = prev?.pendingSettlementTs;
+    let pendingSettlementRateBps = prev?.pendingSettlementRateBps;
+
+    if (
+      prev?.nextFundingTimeMs &&
+      nextFundingTimeMs &&
+      nextFundingTimeMs > prev.nextFundingTimeMs &&
+      eventTs >= prev.nextFundingTimeMs &&
+      lastSettledBoundaryMs !== prev.nextFundingTimeMs
+    ) {
+      // Verified exchange funding settlement transition: the stream crossed `prev.nextFundingTimeMs`
+      // and rolled `nextFundingTimeMs` forward. Settle using the rate active right before rollover.
+      lastSettledBoundaryMs = prev.nextFundingTimeMs;
+      pendingSettlementTs = prev.nextFundingTimeMs;
+      pendingSettlementRateBps = prev.rateBps;
+      pendingSettlementEventId = `${exchange}:${pair}:funding:${prev.nextFundingTimeMs}`;
+    }
+
+    this.fundingByKey.set(key, {
+      rateBps,
+      fetchedTs: eventTs,
+      nextFundingTimeMs: nextFundingTimeMs ?? prev?.nextFundingTimeMs,
+      lastSettledBoundaryMs,
+      pendingSettlementEventId,
+      pendingSettlementTs,
+      pendingSettlementRateBps,
+    });
+  }
+
+  private consumeFundingMetadata(key: string, now: number): {
+    fundingRateBps: number;
+    nextFundingTimeMs?: number;
+    fundingEventId?: string;
+    fundingSettlementTs?: number;
+  } {
+    const cached = this.fundingByKey.get(key);
+    if (!cached || now - cached.fetchedTs > FUNDING_STALE_MS) {
+      return { fundingRateBps: 0.0 };
+    }
+    if (cached.pendingSettlementEventId && cached.pendingSettlementTs) {
+      const eventId = cached.pendingSettlementEventId;
+      const settlementTs = cached.pendingSettlementTs;
+      const settledRate = cached.pendingSettlementRateBps ?? cached.rateBps;
+      cached.pendingSettlementEventId = undefined;
+      cached.pendingSettlementTs = undefined;
+      cached.pendingSettlementRateBps = undefined;
+      return {
+        fundingRateBps: settledRate,
+        nextFundingTimeMs: cached.nextFundingTimeMs,
+        fundingEventId: eventId,
+        fundingSettlementTs: settlementTs,
+      };
+    }
+    return {
+      fundingRateBps: cached.rateBps,
+      nextFundingTimeMs: cached.nextFundingTimeMs,
+    };
   }
 
   private createWebSocket(url: string): WebSocketLike {
@@ -313,29 +469,38 @@ export class LiveMarketCollector {
 
           if (payload.e === 'markPriceUpdate' && payload.r !== undefined) {
             const rateBps = Number(payload.r) * 10000;
+            const nextFundingTs =
+              typeof payload.T === 'number' && payload.T > 0 ? payload.T : undefined;
             if (Number.isFinite(rateBps)) {
-              this.fundingByKey.set(key, {
+              this.updateFundingState(
+                key,
+                'binance',
+                pair,
                 rateBps,
-                fetchedTs: payload.E || Date.now(),
-              });
+                payload.E || Date.now(),
+                nextFundingTs
+              );
             }
             return;
           }
 
           if (Array.isArray(payload.b) && Array.isArray(payload.a)) {
-            const cachedFunding = this.fundingByKey.get(key);
             const now = Date.now();
-            const fundingRateBps =
-              cachedFunding && now - cachedFunding.fetchedTs <= FUNDING_STALE_MS
-                ? cachedFunding.rateBps
-                : 0.0;
+            const fundingMeta = this.consumeFundingMetadata(key, now);
             const book = OrderbookSequencer.parseBinanceDepth(
               payload,
               marketType,
               now,
-              fundingRateBps
+              fundingMeta.fundingRateBps
             );
-            this.recordBookIngest(book);
+            if (fundingMeta.nextFundingTimeMs !== undefined) {
+              book.nextFundingTimeMs = fundingMeta.nextFundingTimeMs;
+            }
+            if (fundingMeta.fundingEventId) {
+              book.fundingEventId = fundingMeta.fundingEventId;
+              book.fundingSettlementTs = fundingMeta.fundingSettlementTs;
+            }
+            this.ingestOrBufferWsBook(book);
           }
         } catch (err) {
           console.error('[LiveMarketCollector] Binance WS parse error:', err);
@@ -398,11 +563,20 @@ export class LiveMarketCollector {
 
           if (parsed.topic.startsWith('tickers.') && parsed.data?.fundingRate !== undefined) {
             const rateBps = Number(parsed.data.fundingRate) * 10000;
+            const nextFundingTs = parsed.data.nextFundingTime
+              ? Number(parsed.data.nextFundingTime)
+              : undefined;
             if (Number.isFinite(rateBps)) {
-              this.fundingByKey.set(key, {
+              this.updateFundingState(
+                key,
+                'bybit',
+                pair,
                 rateBps,
-                fetchedTs: parsed.ts || Date.now(),
-              });
+                parsed.ts || Date.now(),
+                Number.isFinite(nextFundingTs) && (nextFundingTs ?? 0) > 0
+                  ? nextFundingTs
+                  : undefined
+              );
             }
             return;
           }
@@ -413,19 +587,22 @@ export class LiveMarketCollector {
             Array.isArray(parsed.data.b) &&
             Array.isArray(parsed.data.a)
           ) {
-            const cachedFunding = this.fundingByKey.get(key);
             const now = Date.now();
-            const fundingRateBps =
-              cachedFunding && now - cachedFunding.fetchedTs <= FUNDING_STALE_MS
-                ? cachedFunding.rateBps
-                : 0.0;
+            const fundingMeta = this.consumeFundingMetadata(key, now);
             const book = OrderbookSequencer.parseBybitDepth(
               parsed,
               marketType,
               now,
-              fundingRateBps
+              fundingMeta.fundingRateBps
             );
-            this.recordBookIngest(book);
+            if (fundingMeta.nextFundingTimeMs !== undefined) {
+              book.nextFundingTimeMs = fundingMeta.nextFundingTimeMs;
+            }
+            if (fundingMeta.fundingEventId) {
+              book.fundingEventId = fundingMeta.fundingEventId;
+              book.fundingSettlementTs = fundingMeta.fundingSettlementTs;
+            }
+            this.ingestOrBufferWsBook(book);
           }
         } catch (err) {
           console.error('[LiveMarketCollector] Bybit WS parse error:', err);
@@ -467,21 +644,24 @@ export class LiveMarketCollector {
     const timer = setTimeout(async () => {
       this.reconnectTimers.delete(key);
       if (this.closed) return;
-      // Bootstrap fresh REST snapshot before re-opening delta WebSocket stream
+      // Open WebSocket stream first with delta buffering enabled, then fetch REST snapshot
+      // and drain bridged deltas (`u > snapshot.sequenceId`) without missing in-flight updates.
+      this.bootstrappingKeys.add(key);
+      this.bufferedDeltas.set(key, []);
       if (exchange === 'binance') {
+        this.connectBinanceWs(pair, marketType);
         const snap =
           marketType === 'spot'
             ? await this.fetchBinanceSpotDepth(pair)
             : await this.fetchBinancePerpDepth(pair);
-        if (snap.book) this.recordBookIngest(snap.book);
-        this.connectBinanceWs(pair, marketType);
+        this.applySnapshotAndDrainBuffer(key, snap.book);
       } else {
+        this.connectBybitWs(pair, marketType);
         const snap = await this.fetchBybitDepth(
           pair,
           marketType === 'spot' ? 'spot' : 'linear'
         );
-        if (snap.book) this.recordBookIngest(snap.book);
-        this.connectBybitWs(pair, marketType);
+        this.applySnapshotAndDrainBuffer(key, snap.book);
       }
     }, delayMs);
 

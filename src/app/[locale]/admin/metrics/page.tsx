@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
   LineChart,
@@ -23,7 +24,9 @@ type DateRange = {
   end_date: string;
 };
 
-export default function BusinessMetricsPage({ locale }: { locale: string }) {
+export default function BusinessMetricsPage() {
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
   const t = useTranslations('admin.metrics');
   const [dateRange, setDateRange] = useState<DateRange>(() => {
     const end = new Date();

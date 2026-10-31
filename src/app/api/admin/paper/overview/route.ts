@@ -65,6 +65,9 @@ export async function GET(request: NextRequest) {
         if (doRes.ok) {
           const doData = (await doRes.json()) as {
             isLive?: boolean;
+            verifiedRealMarketDays?: number;
+            continuousCoverageMs?: number;
+            collectorDesiredRunning?: boolean;
             dataSource?: string;
             tickCounter?: number;
             runStartedAtMs?: number | null;
@@ -75,9 +78,10 @@ export async function GET(request: NextRequest) {
           };
 
           const isTrulyLive = Boolean(doData.isLive && (doData.tickCounter ?? 0) > 0);
+          // V2: Use DO's verified continuous coverage duration; never synthesize days from runStartedAtMs
           const verifiedRealMarketDays =
-            isTrulyLive && doData.runStartedAtMs
-              ? Math.max(0, (Date.now() - doData.runStartedAtMs) / (24 * 3600 * 1000))
+            isTrulyLive && typeof doData.verifiedRealMarketDays === 'number'
+              ? Math.max(0, doData.verifiedRealMarketDays)
               : 0;
 
           const ticks = buildCanonical50TickSequence();
@@ -170,6 +174,64 @@ export async function GET(request: NextRequest) {
       {
         executionMode: 'PAPER',
         error: `Failed to load paper trading overview: ${message}`,
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const env = resolveEnv(request);
+    const db = resolveDb(request);
+
+    // Strict Fail-Closed Admin RBAC guard
+    const adminAuthModule = await import('@/lib/payouts/admin-auth');
+    const authRes = await adminAuthModule.verifyAdminPayoutAccess(
+      request,
+      db ?? undefined
+    );
+    if (!authRes.authorized) {
+      return authRes.response;
+    }
+
+    const body = (await request.json().catch(() => ({}))) as {
+      action?: 'start-collector' | 'stop-collector';
+    };
+    const action = body.action;
+    if (action !== 'start-collector' && action !== 'stop-collector') {
+      return NextResponse.json(
+        {
+          executionMode: 'PAPER',
+          error: "Invalid action. Expected 'start-collector' or 'stop-collector'.",
+        },
+        { status: 400 }
+      );
+    }
+
+    if (!env?.PAPER_TRADING_DO) {
+      return NextResponse.json(
+        {
+          executionMode: 'PAPER',
+          error: 'PAPER_TRADING_DO binding is not configured in this environment.',
+        },
+        { status: 503 }
+      );
+    }
+
+    const doId = env.PAPER_TRADING_DO.idFromName('global-paper-engine');
+    const stub = env.PAPER_TRADING_DO.get(doId);
+    const doRes = await stub.fetch(
+      new Request(`http://internal/${action}`, { method: 'POST' })
+    );
+    const payload = await doRes.json();
+    return NextResponse.json(payload, { status: doRes.status });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json(
+      {
+        executionMode: 'PAPER',
+        error: `Failed to execute paper collector action: ${message}`,
       },
       { status: 500 }
     );

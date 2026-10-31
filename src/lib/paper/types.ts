@@ -29,6 +29,7 @@ export interface NormalizedOrderbook {
   fundingRateBps?: number;
   nextFundingTimeMs?: number;
   fundingEventId?: string;
+  fundingSettlementTs?: number;
 }
 
 export interface FundingSettlementEvent {
@@ -102,6 +103,8 @@ export interface PaperOpenCycle {
   appliedFundingEventIds?: string[];
   /** Last recorded unrealized P&L mark for this cycle, in USDT. */
   lastUnrealizedPnlUsdt?: number;
+  /** Net quote cash delta applied to free+allocated collateral upon opening this cycle. */
+  openCycleCashDeltaUsdt?: number;
 }
 
 export interface PaperClosedCycle {

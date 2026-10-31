@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
  * GET /api/monitoring/dispatcher/dead-letters
  * List dead letter queue entries
  */
-export async function GET_DEAD_LETTERS(request: NextRequest) {
+async function GET_DEAD_LETTERS(request: NextRequest) {
   try {
     // Check auth - admin only
     const authResult = await withAuth(request);
@@ -136,7 +136,7 @@ export async function GET_DEAD_LETTERS(request: NextRequest) {
  * POST /api/monitoring/dispatcher/retry
  * Retry a specific dead letter entry
  */
-export async function POST_RETRY(request: NextRequest) {
+async function POST_RETRY(request: NextRequest) {
   try {
     // Check auth - admin only
     const authResult = await withAuth(request);
@@ -216,7 +216,7 @@ export async function POST_RETRY(request: NextRequest) {
  * POST /api/monitoring/dispatcher/cleanup
  * Clean up old dead letter entries
  */
-export async function POST_CLEANUP(request: NextRequest) {
+async function POST_CLEANUP(request: NextRequest) {
   try {
     // Check auth - admin only
     const authResult = await withAuth(request);
@@ -273,7 +273,7 @@ export async function POST_CLEANUP(request: NextRequest) {
  * DELETE /api/monitoring/dispatcher/dead-letters/:id
  * Delete a specific dead letter entry
  */
-export async function DELETE_DEAD_LETTER(
+async function DELETE_DEAD_LETTER(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {

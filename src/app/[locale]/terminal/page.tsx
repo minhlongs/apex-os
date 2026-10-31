@@ -13,20 +13,22 @@ import {
 import { StitchTerminalShell } from '@/components/stitch/StitchTerminalShell';
 
 export interface TerminalPageProps {
-  readonly params: {
-    readonly locale: string;
-  };
-  readonly searchParams?: {
+  readonly params?: Promise<{
+    readonly locale?: string;
+  }>;
+  readonly searchParams?: Promise<{
     readonly tab?: string | readonly string[];
-  };
+  }>;
 }
 
-export default function StitchTerminalPage({
+export default async function StitchTerminalPage({
   params,
   searchParams,
 }: Readonly<TerminalPageProps>) {
-  const initialLocale = params?.locale === 'vi' ? 'vi' : 'en';
-  const initialTab = resolveTerminalTab(searchParams?.tab);
+  const resolvedParams = params ? await params : undefined;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+  const initialLocale = resolvedParams?.locale === 'vi' ? 'vi' : 'en';
+  const initialTab = resolveTerminalTab(resolvedSearchParams?.tab);
 
   return (
     <StitchTerminalShell

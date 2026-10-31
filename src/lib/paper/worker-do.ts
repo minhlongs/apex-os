@@ -7,14 +7,18 @@
  * and the Immutable PaperJournal (with D1 outbox, runs tracking, and R2 raw replay archive).
  */
 
-import { createHash } from 'node:crypto';
 import type { D1Database } from '../db';
 import { buildCanonical50TickSequence } from './fixtures';
 import { PaperJournal, type R2BucketLike } from './journal';
 import { LiveMarketCollector, type CollectorConfig } from './live-collector';
-import { OrderbookSequencer } from './orderbook-sequencer';
+import { OrderbookSequencer, REQUIRED_PAPER_STREAMS } from './orderbook-sequencer';
 import { PaperReplayEngine } from './replay';
-import { PaperStrategyEngine } from './strategy-engine';
+import {
+  PaperStrategyEngine,
+  PAPER_CANONICAL_CONFIG,
+  PAPER_FROZEN_CONFIG_HASH,
+  PAPER_MODEL_VERSION,
+} from './strategy-engine';
 import type {
   NormalizedOrderbook,
   PaperClosedCycle,
@@ -26,6 +30,7 @@ import type {
 export interface DurableObjectStorageLike {
   get<T = unknown>(key: string): Promise<T | undefined>;
   put<T = unknown>(key: string, value: T): Promise<void>;
+  delete?(key: string): Promise<boolean | void>;
   setAlarm?(scheduledTime: number | Date): Promise<void>;
   getAlarm?(): Promise<number | null>;
 }
@@ -42,22 +47,7 @@ export interface DurableObjectStateLike {
 const PAIRS: PaperPair[] = ['BTC/USDT', 'ETH/USDT'];
 const STRATEGY_IDS: PaperStrategyId[] = ['spot-2exch', 'spot-perp'];
 
-export const PAPER_MODEL_VERSION = 'paper-v1.1.0';
-export const PAPER_FROZEN_CONFIG_HASH = createHash('sha256')
-  .update(
-    JSON.stringify({
-      modelVersion: PAPER_MODEL_VERSION,
-      initialCapitalUsdt: 10000,
-      maxCycleNotionalUsdt: 1500,
-      minNetSpreadBps: 5,
-      closeSpreadThresholdBps: 3,
-      maxHoldDurationMs: 3600000,
-      maxDrawdownPct: 2.0,
-      executionLatencyBps: 1.5,
-      rebalanceFeeBps: 2.0,
-    })
-  )
-  .digest('hex');
+export { PAPER_MODEL_VERSION, PAPER_FROZEN_CONFIG_HASH };
 
 export class PaperTradingDurableObject {
   private readonly state: DurableObjectStateLike;
@@ -69,6 +59,15 @@ export class PaperTradingDurableObject {
   private tickCounter = 0;
   private runStartedAtMs: number | null = null;
   private lastLiveIngestTsMs: number | null = null;
+  private continuousCoverageMs = 0;
+  private lastCoverageCheckTsMs: number | null = null;
+  private collectorDesiredRunning = false;
+  private ingestQueue: Promise<unknown> = Promise.resolve();
+  private readonly sessionTicks: Array<{
+    tickIndex: number;
+    nowTs: number;
+    book: NormalizedOrderbook;
+  }> = [];
   private readonly modelVersion = PAPER_MODEL_VERSION;
   private readonly configHash = PAPER_FROZEN_CONFIG_HASH;
   private initialized = false;
@@ -87,7 +86,13 @@ export class PaperTradingDurableObject {
         new PaperStrategyEngine({
           strategyId: sid,
           modelVersion: this.modelVersion,
-          initialCapitalUsdt: 10000,
+          initialCapitalUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
+          maxCycleNotionalUsdt: PAPER_CANONICAL_CONFIG.maxCycleNotionalUsdt,
+          maxOpenCycles: PAPER_CANONICAL_CONFIG.maxOpenCycles,
+          singleLegTakerFeeRate: PAPER_CANONICAL_CONFIG.singleLegTakerFeeRate,
+          minEntryNetSpreadBps: PAPER_CANONICAL_CONFIG.minEntryNetSpreadBps,
+          exitConvergenceSpreadBps: PAPER_CANONICAL_CONFIG.exitConvergenceSpreadBps,
+          maxDrawdownLimitPct: PAPER_CANONICAL_CONFIG.maxDrawdownLimitPct,
         })
       );
     }
@@ -108,6 +113,18 @@ export class PaperTradingDurableObject {
     if (storedLastIngest !== undefined) {
       this.lastLiveIngestTsMs = storedLastIngest;
     }
+    const storedCoverage = await this.state.storage.get<number>('continuous_coverage_ms');
+    if (storedCoverage !== undefined) {
+      this.continuousCoverageMs = storedCoverage;
+    }
+    const storedLastCoverageCheck = await this.state.storage.get<number>('last_coverage_check_ts_ms');
+    if (storedLastCoverageCheck !== undefined) {
+      this.lastCoverageCheckTsMs = storedLastCoverageCheck;
+    }
+    const storedDesiredRunning = await this.state.storage.get<boolean>('collector_desired_running');
+    if (storedDesiredRunning !== undefined) {
+      this.collectorDesiredRunning = storedDesiredRunning;
+    }
 
     const storedCycles = await this.state.storage.get<PaperClosedCycle[]>('paper_closed_cycles');
     if (storedCycles && Array.isArray(storedCycles)) {
@@ -126,7 +143,27 @@ export class PaperTradingDurableObject {
         this.strategies.get(sid)?.restoreState(savedStrategyState);
       }
     }
+
     this.initialized = true;
+
+    // V3: If collector was desired running before restart and is not currently present,
+    // automatically recreate and start it.
+    if (this.collectorDesiredRunning && !this.collector) {
+      void this.startLiveCollector();
+    }
+  }
+
+  /**
+   * Queue async tasks to run strictly sequentially, preserving chronological
+   * order across all book ingestions and resyncs.
+   */
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const next = this.ingestQueue.then(task, task);
+    this.ingestQueue = next.then(
+      () => undefined,
+      () => undefined
+    );
+    return next;
   }
 
   /**
@@ -138,6 +175,9 @@ export class PaperTradingDurableObject {
   }> {
     await this.ensureRestored();
 
+    this.collectorDesiredRunning = true;
+    await this.state.storage.put('collector_desired_running', true);
+
     if (!this.runStartedAtMs) {
       this.runStartedAtMs = Date.now();
       await this.state.storage.put('run_started_at_ms', this.runStartedAtMs);
@@ -147,8 +187,13 @@ export class PaperTradingDurableObject {
       this.collector = new LiveMarketCollector({
         ...options,
         pairs: PAIRS,
+        onDisconnect: (exchange, pair, marketType, reason) => {
+          this.sequencer.markDisconnected(exchange, pair, marketType, reason);
+          // Invalidate continuous coverage when a stream drops
+          this.updateCoverage(Date.now(), false);
+        },
         onBook: (book: NormalizedOrderbook) => {
-          void (async () => {
+          void this.enqueue(async () => {
             if (book.isDelta === false) {
               await this.resyncStream(book, book.receivedTs);
             } else {
@@ -168,14 +213,13 @@ export class PaperTradingDurableObject {
                 }
               }
             }
-          })();
+          });
         },
       });
     }
 
-    // Bootstrap fresh L2 REST snapshots before applying deltas
-    await this.collector.bootstrapSnapshots();
-    this.collector.startWebSocketStreams();
+    // Bootstrap fresh L2 REST snapshots and subscribe WebSocket streams
+    await this.collector.startWebSocketStreams();
 
     // Schedule next DO alarm in 15s for health monitoring & outbox reconciliation
     if (this.state.storage.setAlarm) {
@@ -189,6 +233,8 @@ export class PaperTradingDurableObject {
   }
 
   async stopLiveCollector(): Promise<void> {
+    this.collectorDesiredRunning = false;
+    await this.state.storage.put('collector_desired_running', false);
     if (this.collector) {
       this.collector.close();
       this.collector = null;
@@ -197,13 +243,24 @@ export class PaperTradingDurableObject {
 
   /**
    * Cloudflare Durable Object alarm handler:
+   * - Restores collector if collectorDesiredRunning === true
    * - Verifies collector stream health and triggers snapshot resync if stale
    * - Reconciles D1/R2 outbox
-   * - Updates paper_trading_runs heartbeat
+   * - Updates paper_trading_runs heartbeat and coverage
+   * - Schedules next alarm if collector is desired running or present
    */
   async alarm(): Promise<void> {
     await this.ensureRestored();
     const now = Date.now();
+
+    // Recreate collector if desired running but missing
+    if (this.collectorDesiredRunning && !this.collector) {
+      try {
+        await this.startLiveCollector();
+      } catch (err) {
+        console.error('[PaperTradingDO] Alarm failed to restore collector:', err);
+      }
+    }
 
     if (this.collector) {
       if (!this.collector.isHealthy(10000)) {
@@ -211,25 +268,70 @@ export class PaperTradingDurableObject {
       }
     }
 
+    const isLive = this.isCollectorLive(now);
+    await this.updateCoverage(now, isLive);
+
     if (this.env?.DB) {
       await this.journal.reconcileOutbox(this.env.DB, this.env.STORAGE);
       await this.syncRunsInD1(now);
     }
 
-    if (this.collector && this.state.storage.setAlarm) {
+    // Reschedule next alarm if collector is active or desired running
+    if ((this.collector || this.collectorDesiredRunning) && this.state.storage.setAlarm) {
       await this.state.storage.setAlarm(Date.now() + 15000);
+    }
+  }
+
+  /**
+   * Track continuous verified market coverage.
+   * If a feed gap occurs (not live for > 15s) that cannot be continuously recovered,
+   * reset the 30-day window per the user's explicit rule: never pause and accumulate
+   * across unrecoverable gaps; restart the window.
+   */
+  private async updateCoverage(nowMs: number, isLive: boolean): Promise<void> {
+    if (!this.lastCoverageCheckTsMs) {
+      this.lastCoverageCheckTsMs = nowMs;
+      if (isLive) {
+        await this.state.storage.put('last_coverage_check_ts_ms', nowMs);
+      }
+      return;
+    }
+
+    const elapsed = Math.max(0, nowMs - this.lastCoverageCheckTsMs);
+    this.lastCoverageCheckTsMs = nowMs;
+    await this.state.storage.put('last_coverage_check_ts_ms', nowMs);
+
+    if (isLive) {
+      this.continuousCoverageMs += elapsed;
+      await this.state.storage.put('continuous_coverage_ms', this.continuousCoverageMs);
+    } else if (elapsed > 15000) {
+      // Unrecoverable gap: reset continuous coverage and start a new run window
+      this.continuousCoverageMs = 0;
+      this.runStartedAtMs = nowMs;
+      await this.state.storage.put('continuous_coverage_ms', 0);
+      await this.state.storage.put('run_started_at_ms', nowMs);
+      if (this.env?.DB) {
+        for (const sid of STRATEGY_IDS) {
+          await this.journal.deactivatePriorRuns(
+            sid,
+            `run_${sid}_${nowMs}`,
+            this.env.DB
+          );
+        }
+      }
     }
   }
 
   private async syncRunsInD1(nowMs: number): Promise<void> {
     if (!this.env?.DB || !this.runStartedAtMs) return;
 
-    const elapsedDays = Math.max(0, (nowMs - this.runStartedAtMs) / (24 * 3600 * 1000));
     const isTrulyLive = this.isCollectorLive(nowMs);
+    const verifiedDays = isTrulyLive
+      ? Number((this.continuousCoverageMs / (24 * 3600 * 1000)).toFixed(6))
+      : 0;
 
     for (const sid of STRATEGY_IDS) {
       const snap = this.strategies.get(sid)!.getSnapshot();
-      const verifiedDays = isTrulyLive ? elapsedDays : 0;
       const verdict: 'GO' | 'NO_GO' =
         verifiedDays >= 30 &&
         snap.closedCyclesCount >= 100 &&
@@ -239,14 +341,16 @@ export class PaperTradingDurableObject {
           ? 'GO'
           : 'NO_GO';
 
+      const runId = `run_${sid}_${this.runStartedAtMs}`;
+      await this.journal.deactivatePriorRuns(sid, runId, this.env.DB);
       await this.journal.syncPaperRun(
-        `run_${sid}_${this.runStartedAtMs}`,
+        runId,
         sid,
         this.modelVersion,
         this.configHash,
         this.env.DB,
         {
-          verifiedRealMarketDays: Number(verifiedDays.toFixed(4)),
+          verifiedRealMarketDays: verifiedDays,
           closedCyclesCount: snap.closedCyclesCount,
           realizedNetPnlUsdt: snap.realizedNetPnlUsdt,
           maxDrawdownPct: snap.maxDrawdownPct,
@@ -259,22 +363,19 @@ export class PaperTradingDurableObject {
 
   /**
    * Truthful live check: returns true ONLY when:
+   * - collector is present and healthy
    * - tickCounter > 0
-   * - all required sequencer streams for BTC/USDT and ETH/USDT are SYNCED and fresh
-   * - lastLiveIngestTsMs is within maxFeedAgeMs
+   * - all 8 required streams are present, SYNCED, and within 1000ms maxFeedAge
+   * - lastLiveIngestTsMs is within 1000ms maxFeedAge
    */
   isCollectorLive(nowMs: number = Date.now()): boolean {
     if (this.tickCounter <= 0 || !this.lastLiveIngestTsMs) {
       return false;
     }
-    if (nowMs - this.lastLiveIngestTsMs > 5000) {
+    if (nowMs - this.lastLiveIngestTsMs > 1000) {
       return false;
     }
-    const states = this.sequencer.getAllStates();
-    if (states.length === 0) {
-      return false;
-    }
-    return states.every((s) => s.status === 'SYNCED' && nowMs - s.lastReceivedTs <= 5000);
+    return this.sequencer.areAllRequiredStreamsSynced(nowMs).ok;
   }
 
   async ingestOrderbook(
@@ -293,6 +394,18 @@ export class PaperTradingDurableObject {
     }
 
     const streamState = this.sequencer.ingest(book, nowTs);
+    this.sessionTicks.push({
+      tickIndex: this.tickCounter,
+      nowTs,
+      book,
+    });
+    if (this.sessionTicks.length > 500) {
+      this.sessionTicks.shift();
+    }
+
+    const isLive = this.isCollectorLive(nowTs);
+    await this.updateCoverage(nowTs, isLive);
+
     const replayObjectKey = `r2://apex-os-paper/live/tick-${this.tickCounter}-${book.exchange}-${book.pair.replace('/', '')}.json`;
 
     for (const engine of this.strategies.values()) {
@@ -311,12 +424,18 @@ export class PaperTradingDurableObject {
           if (!prevClosedKeys.has(c.idempotencyKey)) {
             await this.journal.recordClosedCycle(c, this.env?.DB, this.env?.STORAGE);
             if (this.env?.STORAGE) {
+              const cycleTicks = this.sessionTicks.filter(
+                (t) => t.nowTs >= c.entryTs && t.nowTs <= c.exitTs
+              );
               await this.journal.archiveReplayData(
                 `${c.replayObjectKey}.raw.json`,
                 {
                   cycle: c,
                   triggerBook: book,
                   decision,
+                  cycleTicks,
+                  decisions: engine.getDecisions().slice(-50),
+                  fundingLedger: engine.getSnapshot().fundingLedger ?? [],
                   sequencerStates: this.sequencer.getAllStates(),
                 },
                 this.env.STORAGE
@@ -353,7 +472,24 @@ export class PaperTradingDurableObject {
     await this.ensureRestored();
     this.lastLiveIngestTsMs = nowTs;
     await this.state.storage.put('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
-    return this.sequencer.resyncSnapshot(book, nowTs);
+    const result = this.sequencer.resyncSnapshot(book, nowTs);
+
+    const isLive = this.isCollectorLive(nowTs);
+    await this.updateCoverage(nowTs, isLive);
+
+    // Evaluate strategy state after resync as well
+    const replayObjectKey = `r2://apex-os-paper/live/resync-${book.exchange}-${book.pair.replace('/', '')}-${book.sequenceId}.json`;
+    for (const engine of this.strategies.values()) {
+      engine.evaluatePair(
+        this.sequencer,
+        book.pair,
+        this.tickCounter,
+        nowTs,
+        replayObjectKey
+      );
+    }
+
+    return result;
   }
 
   getStrategySnapshots(): Record<PaperStrategyId, PaperStrategySnapshot> {
@@ -420,10 +556,17 @@ export class PaperTradingDurableObject {
     await this.ensureRestored();
     const now = Date.now();
     const isLive = this.isCollectorLive(now);
+    const verifiedRealMarketDays = isLive
+      ? Number((this.continuousCoverageMs / (24 * 3600 * 1000)).toFixed(6))
+      : 0;
     const snapshots = this.getStrategySnapshots();
     return Response.json({
       executionMode: 'PAPER',
       isLive,
+      verifiedRealMarketDays,
+      continuousCoverageMs: this.continuousCoverageMs,
+      collectorDesiredRunning: this.collectorDesiredRunning,
+      requiredStreamCount: REQUIRED_PAPER_STREAMS.length,
       dataSource: isLive ? 'LIVE_DURABLE_OBJECT_STREAM' : 'DURABLE_OBJECT_IDLE_OR_STALE',
       modelVersion: this.modelVersion,
       configHash: this.configHash,

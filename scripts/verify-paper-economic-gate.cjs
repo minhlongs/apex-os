@@ -10,34 +10,86 @@
  *   - realized_net_pnl_usdt > 0
  *   - max_drawdown_pct <= 2.0
  *   - verdict === 'GO'
+ *   - single active run per strategy (no duplicate active rows)
+ *   - model_version === expectedModelVersion ('paper-v1.1.0')
+ *   - config_hash === expectedConfigHash (canonical frozen SHA-256) and identical across strategies
+ *   - recent last_heartbeat_at within maxHeartbeatAgeMs (default 15 minutes)
+ *   - both strategies share the same active run window timestamp
  *
  * Usage:
  *   node scripts/verify-paper-economic-gate.cjs [--runs-json <path_or_json>]
  */
 
 const fs = require('node:fs');
+const crypto = require('node:crypto');
 
 const REQUIRED_STRATEGIES = ['spot-2exch', 'spot-perp'];
 const TARGET_DAYS = 30;
 const TARGET_CYCLES = 100;
 const MAX_DRAWDOWN_PCT = 2.0;
+const EXPECTED_MODEL_VERSION = 'paper-v1.1.0';
+const MAX_HEARTBEAT_AGE_MS = 15 * 60 * 1000;
 
-function evaluateRuns(runs) {
+const CANONICAL_PAPER_CONFIG = Object.freeze({
+  modelVersion: EXPECTED_MODEL_VERSION,
+  initialCapitalUsdt: 10000,
+  maxCycleNotionalUsdt: 500,
+  maxOpenCycles: 4,
+  singleLegTakerFeeRate: 0.0005,
+  minEntryNetSpreadBps: 2.0,
+  exitConvergenceSpreadBps: 3.0,
+  maxDrawdownLimitPct: 2.0,
+});
+
+const EXPECTED_CONFIG_HASH = crypto
+  .createHash('sha256')
+  .update(JSON.stringify(CANONICAL_PAPER_CONFIG))
+  .digest('hex');
+
+function extractRunWindowId(runId, strategyId) {
+  if (typeof runId !== 'string') return '';
+  const prefix = `run_${strategyId}_`;
+  return runId.startsWith(prefix) ? runId.slice(prefix.length) : runId;
+}
+
+function evaluateRuns(runs, options = {}) {
   if (!Array.isArray(runs) || runs.length === 0) {
     return {
       passed: false,
       verdict: 'NO_GO',
-      reason: 'No active paper_trading_runs records found. 30-day real-market paper window has not completed.',
+      reason:
+        'No active paper_trading_runs records found. 30-day real-market paper window has not completed.',
       details: [],
     };
   }
 
+  const expectedModelVersion =
+    options.expectedModelVersion ||
+    process.env.EXPECTED_PAPER_MODEL_VERSION ||
+    EXPECTED_MODEL_VERSION;
+  const expectedConfigHash =
+    options.expectedConfigHash ||
+    process.env.EXPECTED_PAPER_CONFIG_HASH ||
+    EXPECTED_CONFIG_HASH;
+  const nowMs =
+    typeof options.nowMs === 'number' && Number.isFinite(options.nowMs)
+      ? options.nowMs
+      : Date.now();
+  const maxHeartbeatAgeMs =
+    typeof options.maxHeartbeatAgeMs === 'number' && Number.isFinite(options.maxHeartbeatAgeMs)
+      ? options.maxHeartbeatAgeMs
+      : MAX_HEARTBEAT_AGE_MS;
+
   const details = [];
   let allPassed = true;
+  const activeRunsByStrategy = new Map();
 
   for (const strategyId of REQUIRED_STRATEGIES) {
-    const run = runs.find((r) => r.strategy_id === strategyId && Number(r.is_active) === 1);
-    if (!run) {
+    const activeMatching = runs.filter(
+      (r) => r && r.strategy_id === strategyId && Number(r.is_active) === 1
+    );
+
+    if (activeMatching.length === 0) {
       allPassed = false;
       details.push({
         strategyId,
@@ -47,21 +99,56 @@ function evaluateRuns(runs) {
       continue;
     }
 
+    if (activeMatching.length > 1) {
+      allPassed = false;
+      details.push({
+        strategyId,
+        passed: false,
+        reason: `Multiple active paper_trading_runs records (${activeMatching.length}) found for strategy '${strategyId}'`,
+      });
+      continue;
+    }
+
+    const run = activeMatching[0];
+    activeRunsByStrategy.set(strategyId, run);
+
     const days = Number(run.verified_real_market_days ?? 0);
     const cycles = Number(run.closed_cycles_count ?? 0);
     const netPnl = Number(run.realized_net_pnl_usdt ?? 0);
     const maxDd = Number(run.max_drawdown_pct ?? 999);
     const verdict = String(run.verdict ?? 'NO_GO');
     const configHash = String(run.config_hash ?? '');
+    const modelVersion = String(run.model_version ?? '');
+    const heartbeatRaw = run.last_heartbeat_at ? String(run.last_heartbeat_at) : '';
+    const normalizedHb =
+      heartbeatRaw && !heartbeatRaw.endsWith('Z') && !heartbeatRaw.includes('+')
+        ? `${heartbeatRaw.replace(' ', 'T')}Z`
+        : heartbeatRaw;
+    const heartbeatTs = normalizedHb ? Date.parse(normalizedHb) : NaN;
+    const heartbeatAgeMs = Number.isFinite(heartbeatTs) ? nowMs - heartbeatTs : Infinity;
 
     const daysOk = Number.isFinite(days) && days >= TARGET_DAYS;
     const cyclesOk = Number.isFinite(cycles) && cycles >= TARGET_CYCLES;
     const pnlOk = Number.isFinite(netPnl) && netPnl > 0;
     const ddOk = Number.isFinite(maxDd) && maxDd >= 0 && maxDd <= MAX_DRAWDOWN_PCT;
-    const hashOk = configHash.length >= 32;
+    const hashOk = configHash === expectedConfigHash;
+    const modelOk = modelVersion === expectedModelVersion;
+    const heartbeatOk =
+      Number.isFinite(heartbeatTs) &&
+      heartbeatAgeMs >= -60000 &&
+      heartbeatAgeMs <= maxHeartbeatAgeMs;
     const verdictOk = verdict === 'GO';
 
-    const strategyPassed = daysOk && cyclesOk && pnlOk && ddOk && hashOk && verdictOk;
+    const strategyPassed =
+      daysOk &&
+      cyclesOk &&
+      pnlOk &&
+      ddOk &&
+      hashOk &&
+      modelOk &&
+      heartbeatOk &&
+      verdictOk;
+
     if (!strategyPassed) {
       allPassed = false;
     }
@@ -69,22 +156,62 @@ function evaluateRuns(runs) {
     details.push({
       strategyId,
       passed: strategyPassed,
+      runId: run.run_id,
+      modelVersion,
+      expectedModelVersion,
       verifiedRealMarketDays: days,
       closedCyclesCount: cycles,
       realizedNetPnlUsdt: netPnl,
       maxDrawdownPct: maxDd,
       configHash,
+      expectedConfigHash,
+      lastHeartbeatAt: heartbeatRaw || null,
+      heartbeatAgeMs: Number.isFinite(heartbeatAgeMs) ? heartbeatAgeMs : null,
       verdict,
-      checks: { daysOk, cyclesOk, pnlOk, ddOk, hashOk, verdictOk },
+      checks: {
+        daysOk,
+        cyclesOk,
+        pnlOk,
+        ddOk,
+        hashOk,
+        modelOk,
+        heartbeatOk,
+        verdictOk,
+      },
     });
+  }
+
+  // Cross-strategy provenance check: both strategies must share the same config_hash
+  // and belong to the same run window if run_id encodes the window timestamp.
+  if (activeRunsByStrategy.size === REQUIRED_STRATEGIES.length) {
+    const runA = activeRunsByStrategy.get('spot-2exch');
+    const runB = activeRunsByStrategy.get('spot-perp');
+    const sameConfigHash = String(runA.config_hash ?? '') === String(runB.config_hash ?? '');
+    const windowA = extractRunWindowId(runA.run_id, 'spot-2exch');
+    const windowB = extractRunWindowId(runB.run_id, 'spot-perp');
+    const sameWindow = !windowA || !windowB ? false : windowA === windowB;
+
+    if (!sameConfigHash || !sameWindow) {
+      allPassed = false;
+      for (const d of details) {
+        d.passed = false;
+        d.checks = {
+          ...d.checks,
+          sameConfigHash,
+          sameWindow,
+        };
+      }
+    }
   }
 
   return {
     passed: allPassed,
     verdict: allPassed ? 'GO' : 'NO_GO',
+    expectedModelVersion,
+    expectedConfigHash,
     reason: allPassed
-      ? 'Both strategies passed all 30-day real-market economic gate criteria.'
-      : 'One or more strategies have not met the mandatory 30-day / 100-cycle / >0 PnL / <=2% DD gate.',
+      ? 'Both strategies passed all 30-day real-market economic gate and provenance criteria.'
+      : 'One or more strategies failed the mandatory 30-day / 100-cycle / >0 PnL / <=2% DD / configHash / modelVersion / heartbeat freshness / window provenance gate.',
     details,
   };
 }
@@ -118,7 +245,9 @@ if (require.main === module) {
   console.log(JSON.stringify(result, null, 2));
 
   if (!result.passed) {
-    console.error(`[BLOCKED] Production Go-Live Economic Verdict: ${result.verdict} — ${result.reason}`);
+    console.error(
+      `[BLOCKED] Production Go-Live Economic Verdict: ${result.verdict} — ${result.reason}`
+    );
     process.exit(1);
   }
 
@@ -126,4 +255,9 @@ if (require.main === module) {
   process.exit(0);
 }
 
-module.exports = { evaluateRuns };
+module.exports = {
+  evaluateRuns,
+  CANONICAL_PAPER_CONFIG,
+  EXPECTED_CONFIG_HASH,
+  EXPECTED_MODEL_VERSION,
+};

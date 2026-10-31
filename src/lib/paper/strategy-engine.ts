@@ -47,6 +47,40 @@ export interface StrategyEngineConfig {
   maxDrawdownLimitPct?: number;
 }
 
+export const PAPER_MODEL_VERSION = 'paper-v1.1.0';
+
+export const PAPER_CANONICAL_CONFIG = Object.freeze({
+  modelVersion: PAPER_MODEL_VERSION,
+  initialCapitalUsdt: 10000,
+  maxCycleNotionalUsdt: 500,
+  maxOpenCycles: 4,
+  singleLegTakerFeeRate: 0.0005,
+  minEntryNetSpreadBps: 2.0,
+  exitConvergenceSpreadBps: 3.0,
+  maxDrawdownLimitPct: 2.0,
+});
+
+export function computePaperConfigHash(config?: Partial<typeof PAPER_CANONICAL_CONFIG>): string {
+  const merged = {
+    modelVersion: config?.modelVersion ?? PAPER_CANONICAL_CONFIG.modelVersion,
+    initialCapitalUsdt: config?.initialCapitalUsdt ?? PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
+    maxCycleNotionalUsdt:
+      config?.maxCycleNotionalUsdt ?? PAPER_CANONICAL_CONFIG.maxCycleNotionalUsdt,
+    maxOpenCycles: config?.maxOpenCycles ?? PAPER_CANONICAL_CONFIG.maxOpenCycles,
+    singleLegTakerFeeRate:
+      config?.singleLegTakerFeeRate ?? PAPER_CANONICAL_CONFIG.singleLegTakerFeeRate,
+    minEntryNetSpreadBps:
+      config?.minEntryNetSpreadBps ?? PAPER_CANONICAL_CONFIG.minEntryNetSpreadBps,
+    exitConvergenceSpreadBps:
+      config?.exitConvergenceSpreadBps ?? PAPER_CANONICAL_CONFIG.exitConvergenceSpreadBps,
+    maxDrawdownLimitPct:
+      config?.maxDrawdownLimitPct ?? PAPER_CANONICAL_CONFIG.maxDrawdownLimitPct,
+  };
+  return createHash('sha256').update(JSON.stringify(merged)).digest('hex');
+}
+
+export const PAPER_FROZEN_CONFIG_HASH = computePaperConfigHash(PAPER_CANONICAL_CONFIG);
+
 const round4 = (n: number): number => Number(n.toFixed(4));
 const round6 = (n: number): number => Number(n.toFixed(6));
 const round8 = (n: number): number => Number(n.toFixed(8));
@@ -101,6 +135,11 @@ export class PaperStrategyEngine {
     'BTC/USDT': 0,
     'ETH/USDT': 0,
   };
+  /** Latest mark prices per pair used to mark standing base inventory to market. */
+  private lastMarkPrices: Record<PaperPair, number> = {
+    'BTC/USDT': SEED_INVENTORY_REFERENCE['BTC/USDT'],
+    'ETH/USDT': SEED_INVENTORY_REFERENCE['ETH/USDT'],
+  };
 
   private lastUnrealizedPnlUsdt = 0;
   private openCycles = new Map<string, PaperOpenCycle>();
@@ -114,15 +153,21 @@ export class PaperStrategyEngine {
       config.strategyId === 'spot-2exch'
         ? 'Cross-Exchange Spot (Binance vs Bybit)'
         : 'Spot-Perp Delta-Neutral Basis (1x USDT)';
-    this.modelVersion = config.modelVersion ?? 'paper-v1.0.0';
-    this.initialCapitalUsdt = config.initialCapitalUsdt ?? 10000;
-    this.maxCycleNotionalUsdt = config.maxCycleNotionalUsdt ?? 500;
-    this.maxOpenCycles = config.maxOpenCycles ?? 4;
+    this.modelVersion = config.modelVersion ?? PAPER_CANONICAL_CONFIG.modelVersion;
+    this.initialCapitalUsdt =
+      config.initialCapitalUsdt ?? PAPER_CANONICAL_CONFIG.initialCapitalUsdt;
+    this.maxCycleNotionalUsdt =
+      config.maxCycleNotionalUsdt ?? PAPER_CANONICAL_CONFIG.maxCycleNotionalUsdt;
+    this.maxOpenCycles = config.maxOpenCycles ?? PAPER_CANONICAL_CONFIG.maxOpenCycles;
     // 5 bps per leg * 4 legs (2 entry + 2 exit) = 20 bps (0.20% round-trip fee)
-    this.singleLegTakerFeeRate = config.singleLegTakerFeeRate ?? 0.0005;
-    this.minEntryNetSpreadBps = config.minEntryNetSpreadBps ?? 2.0;
-    this.exitConvergenceSpreadBps = config.exitConvergenceSpreadBps ?? 3.0;
-    this.maxDrawdownLimitPct = config.maxDrawdownLimitPct ?? 2.0;
+    this.singleLegTakerFeeRate =
+      config.singleLegTakerFeeRate ?? PAPER_CANONICAL_CONFIG.singleLegTakerFeeRate;
+    this.minEntryNetSpreadBps =
+      config.minEntryNetSpreadBps ?? PAPER_CANONICAL_CONFIG.minEntryNetSpreadBps;
+    this.exitConvergenceSpreadBps =
+      config.exitConvergenceSpreadBps ?? PAPER_CANONICAL_CONFIG.exitConvergenceSpreadBps;
+    this.maxDrawdownLimitPct =
+      config.maxDrawdownLimitPct ?? PAPER_CANONICAL_CONFIG.maxDrawdownLimitPct;
 
     // ── Initial capital conservation ────────────────────────────────────────
     // Every base unit held at t=0 is bought with USDT from this strategy's own
@@ -210,28 +255,57 @@ export class PaperStrategyEngine {
   }
 
   /**
-   * Mark-to-market value of held base inventory at the supplied indicative
-   * prices. Falls back to recorded cost basis for any held asset whose mark
-   * price is missing so NAV never silently drops held value.
+   * Mark-to-market value of standing initial base inventory at the supplied
+   * indicative prices. When mark price equals the seed reference price (or has
+   * not been updated yet), returns the exact initial cost basis for that pair
+   * so rounding of 8-decimal base quantities never creates phantom t=0 drift.
    */
-  private inventoryMarkToMarketUsdt(prices?: {
+  private standingInventoryMarkToMarketUsdt(prices?: {
     'BTC/USDT'?: number;
     'ETH/USDT'?: number;
   }): number {
+    const pairCostBasis = round4(
+      this.initialInventoryCostBasisUsdt / SUPPORTED_PAIRS.length
+    );
     let total = 0;
-    for (const venue of ['binance', 'bybit'] as const) {
-      for (const pair of ['BTC/USDT', 'ETH/USDT'] as const) {
-        const qty = this.venueBalances[venue].baseInventory[pair];
-        if (qty <= 0) continue;
-        const markPrice = prices?.[pair];
-        if (markPrice === undefined || markPrice <= 0) {
-          total += this.venueBalances[venue].baseInventoryCostBasisUsdt[pair];
-        } else {
-          total += qty * markPrice;
-        }
+    for (const pair of SUPPORTED_PAIRS) {
+      const seedQty = this.initialInventoryQuantityBasisUsdt[pair];
+      if (seedQty <= 0) continue;
+      const markPrice =
+        prices?.[pair] ?? this.lastMarkPrices[pair] ?? SEED_INVENTORY_REFERENCE[pair];
+      const refPrice = SEED_INVENTORY_REFERENCE[pair];
+      if (Math.abs(markPrice - refPrice) < 1e-6) {
+        total += pairCostBasis;
+      } else {
+        total += seedQty * markPrice;
       }
     }
     return round4(total);
+  }
+
+  /**
+   * Update latest pair mark prices from available orderbooks on the sequencer.
+   */
+  private refreshMarkPricesFromSequencer(sequencer: OrderbookSequencer): void {
+    for (const pair of SUPPORTED_PAIRS) {
+      const mids: number[] = [];
+      for (const venue of ['binance', 'bybit'] as const) {
+        const book =
+          sequencer.getBook(venue, pair, 'spot') ??
+          sequencer.getBook(venue, pair, 'linear_perp');
+        if (book && book.bids.length > 0 && book.asks.length > 0) {
+          const bid = book.bids[0].price;
+          const ask = book.asks[0].price;
+          if (bid > 0 && ask > 0) {
+            mids.push((bid + ask) / 2);
+          }
+        }
+      }
+      if (mids.length > 0) {
+        const avgMid = mids.reduce((sum, p) => sum + p, 0) / mids.length;
+        this.lastMarkPrices[pair] = round6(avgMid);
+      }
+    }
   }
 
   static computeIdempotencyKey(parts: Array<string | number>): string {
@@ -540,8 +614,10 @@ export class PaperStrategyEngine {
       // When funding rate is missing, default to 0 bps (never assume positive profit)
       const fundingBps = perpBook.fundingRateBps ?? 0.0;
 
-      // Funding settlement occurs strictly at discrete 8-hour UTC boundaries (00:00, 08:00, 16:00 UTC)
-      // or explicit exchange fundingEventId settlements. Never accumulate per tick evaluation.
+      // Funding settlement occurs strictly on verified settlement events:
+      // either an explicit `fundingEventId` from the exchange feed or a single
+      // verified 8-hour UTC boundary crossing with fresh book timestamp near the boundary.
+      // Never synthesize multi-boundary historical catch-up loops using the current rate.
       const FUNDING_INTERVAL_MS = 8 * 60 * 60 * 1000;
       const lastAccrualTs = existingOpen.lastFundingAccrualTs ?? existingOpen.entryTs;
       const lastBoundary = Math.floor(lastAccrualTs / FUNDING_INTERVAL_MS);
@@ -549,14 +625,20 @@ export class PaperStrategyEngine {
       const appliedIds = existingOpen.appliedFundingEventIds ?? [];
 
       if (currentBoundary > lastBoundary) {
-        for (let b = lastBoundary + 1; b <= currentBoundary; b++) {
-          const settlementTs = b * FUNDING_INTERVAL_MS;
+        const settlementTs =
+          perpBook.fundingSettlementTs ?? currentBoundary * FUNDING_INTERVAL_MS;
+        const isSingleStepCrossing = currentBoundary === lastBoundary + 1;
+        const hasExplicitEvent = Boolean(perpBook.fundingEventId);
+        // Settle only if this is a single-interval boundary crossing on a live stream
+        // or carries an explicit exchange settlement event ID, with a non-zero rate.
+        if ((hasExplicitEvent || isSingleStepCrossing) && fundingBps !== 0) {
           const eventId =
             perpBook.fundingEventId ??
             `${openVenue}:${pair}:funding:${settlementTs}`;
           if (!appliedIds.includes(eventId)) {
+            const positionNotionalUsdt = existingOpen.notionalUsdt;
             const fundingStepUsdt = round4(
-              existingOpen.notionalUsdt * (fundingBps / 10000)
+              positionNotionalUsdt * (fundingBps / 10000)
             );
             existingOpen.accruedFundingUsdt = round4(
               existingOpen.accruedFundingUsdt + fundingStepUsdt
@@ -568,7 +650,7 @@ export class PaperStrategyEngine {
               pair,
               settlementTs,
               fundingRateBps: fundingBps,
-              notionalUsdt: existingOpen.notionalUsdt,
+              notionalUsdt: positionNotionalUsdt,
               fundingDeltaUsdt: fundingStepUsdt,
             });
           }
@@ -803,40 +885,61 @@ export class PaperStrategyEngine {
   }): PaperOpenCycle {
     const notionalUsdt = this.maxCycleNotionalUsdt;
     const quantityBase = round8(notionalUsdt / params.entryLegAPrice);
-    // 2 entry legs * singleLegTakerFeeRate
-    const entryFeesUsdt = round4(notionalUsdt * this.singleLegTakerFeeRate * 2);
+    const legAQuoteUsdt = round4(quantityBase * params.entryLegAPrice);
+    const legBQuoteUsdt = round4(quantityBase * params.entryLegBPrice);
+    const legAEntryFeeUsdt = round4(legAQuoteUsdt * this.singleLegTakerFeeRate);
+    const legBEntryFeeUsdt = round4(legBQuoteUsdt * this.singleLegTakerFeeRate);
+    const entryFeesUsdt = round4(legAEntryFeeUsdt + legBEntryFeeUsdt);
     const cycleId = `${this.strategyId}-${params.pair.replace('/', '')}-${params.seqA}-${params.seqB}`;
 
-    // Each leg books its own quote cashflow at its own fill price. The full
-    // notional is reserved out of free collateral on each side, and the base
-    // asset moves between venues, so venue cash and inventory both stay exact.
+    // Leg A is always a physical spot buy:
+    // debit legAQuoteUsdt from freeCollateralUsdt, reserve in allocatedCollateralUsdt,
+    // and add physical quantityBase to baseInventory.
     const legA = this.venueBalances[params.legAExchange];
     const legB = this.venueBalances[params.legBExchange];
-    const legACostUsdt = round4(quantityBase * params.entryLegAPrice);
-    const legBCostUsdt = round4(quantityBase * params.entryLegBPrice);
 
     legA.freeCollateralUsdt = round4(
-      legA.freeCollateralUsdt - legACostUsdt
+      legA.freeCollateralUsdt - legAQuoteUsdt
     );
     legA.allocatedCollateralUsdt = round4(
-      legA.allocatedCollateralUsdt + legACostUsdt
+      legA.allocatedCollateralUsdt + legAQuoteUsdt
     );
-    legA.baseInventory[params.pair] = round8(
-      legA.baseInventory[params.pair] + quantityBase
-    );
-    legA.baseInventoryCostBasisUsdt[params.pair] = round4(
-      legA.baseInventoryCostBasisUsdt[params.pair] + legACostUsdt
-    );
+    if (params.legAMarket === 'spot') {
+      legA.baseInventory[params.pair] = round8(
+        legA.baseInventory[params.pair] + quantityBase
+      );
+      legA.baseInventoryCostBasisUsdt[params.pair] = round4(
+        legA.baseInventoryCostBasisUsdt[params.pair] + legAQuoteUsdt
+      );
+    }
 
-    legB.freeCollateralUsdt = round4(
-      legB.freeCollateralUsdt - legBCostUsdt
-    );
-    legB.allocatedCollateralUsdt = round4(
-      legB.allocatedCollateralUsdt + legBCostUsdt
-    );
-    legB.baseInventory[params.pair] = round8(
-      legB.baseInventory[params.pair] - quantityBase
-    );
+    // Leg B depends on marketType:
+    // - Physical 'spot' sell: delivers `quantityBase` from `baseInventory` and credits
+    //   `legBQuoteUsdt` sale proceeds to `freeCollateralUsdt`, while reducing
+    //   `baseInventoryCostBasisUsdt` by `legBQuoteUsdt` so `free + costBasis` stays conserved.
+    // - Derivative 'linear_perp' short: reserves 1x margin (`legBQuoteUsdt`) from
+    //   `freeCollateralUsdt` into `allocatedCollateralUsdt` without touching physical `baseInventory`.
+    if (params.legBMarket === 'spot') {
+      legB.freeCollateralUsdt = round4(
+        legB.freeCollateralUsdt + legBQuoteUsdt
+      );
+      legB.baseInventory[params.pair] = round8(
+        legB.baseInventory[params.pair] - quantityBase
+      );
+      legB.baseInventoryCostBasisUsdt[params.pair] = round4(
+        legB.baseInventoryCostBasisUsdt[params.pair] - legBQuoteUsdt
+      );
+    } else {
+      legB.freeCollateralUsdt = round4(
+        legB.freeCollateralUsdt - legBQuoteUsdt
+      );
+      legB.allocatedCollateralUsdt = round4(
+        legB.allocatedCollateralUsdt + legBQuoteUsdt
+      );
+    }
+
+    const openCycleCashDeltaUsdt =
+      params.legBMarket === 'spot' ? legBQuoteUsdt : 0;
 
     const openCycle: PaperOpenCycle = {
       cycleId,
@@ -857,6 +960,7 @@ export class PaperStrategyEngine {
       entryFeesUsdt,
       accruedFundingUsdt: 0,
       appliedFundingEventIds: [],
+      openCycleCashDeltaUsdt,
     };
 
     this.openCycles.set(params.pair, openCycle);
@@ -879,7 +983,11 @@ export class PaperStrategyEngine {
     const legBPnl = (open.entryLegBPrice - exitLegBPrice) * open.quantityBase;
 
     const grossPnlUsdt = round4(legAPnl + legBPnl);
-    const exitFeesUsdt = round4(open.notionalUsdt * this.singleLegTakerFeeRate * 2);
+    const exitLegAQuoteUsdt = round4(open.quantityBase * exitLegAPrice);
+    const exitLegBQuoteUsdt = round4(open.quantityBase * exitLegBPrice);
+    const exitLegAFeeUsdt = round4(exitLegAQuoteUsdt * this.singleLegTakerFeeRate);
+    const exitLegBFeeUsdt = round4(exitLegBQuoteUsdt * this.singleLegTakerFeeRate);
+    const exitFeesUsdt = round4(exitLegAFeeUsdt + exitLegBFeeUsdt);
     const totalFeesUsdt = round4(open.entryFeesUsdt + exitFeesUsdt);
     const netPnlUsdt = round4(grossPnlUsdt + fundingDeltaUsdt - totalFeesUsdt);
 
@@ -931,45 +1039,62 @@ export class PaperStrategyEngine {
     this.openCycles.delete(open.pair);
     this.closedCycles.push(closed);
 
-    // Release the reservation and move the base asset back, mirroring entry.
-    // Leg A (which bought at entryLegAPrice and sold at exitLegAPrice) receives
-    // its reserved principal plus legAPnl minus its share of total fees.
-    // Leg B (which sold at entryLegBPrice and bought back at exitLegBPrice)
-    // receives its reserved principal plus legBPnl plus fundingDeltaUsdt minus
-    // its share of total fees.
     const legA = this.venueBalances[open.legAExchange];
     const legB = this.venueBalances[open.legBExchange];
-    const legAReservedUsdt = round4(open.quantityBase * open.entryLegAPrice);
-    const legBReservedUsdt = round4(open.quantityBase * open.entryLegBPrice);
-    const legAFeesUsdt = round4(totalFeesUsdt / 2);
+    const legAEntryQuoteUsdt = round4(open.quantityBase * open.entryLegAPrice);
+    const legBEntryQuoteUsdt = round4(open.quantityBase * open.entryLegBPrice);
+    const entryLegAFeeUsdt = round4(legAEntryQuoteUsdt * this.singleLegTakerFeeRate);
+    const entryLegBFeeUsdt = round4(open.entryFeesUsdt - entryLegAFeeUsdt);
+    const legAFeesUsdt = round4(entryLegAFeeUsdt + exitLegAFeeUsdt);
     const legBFeesUsdt = round4(totalFeesUsdt - legAFeesUsdt);
-    const legANetReturnUsdt = round4(legAReservedUsdt + legAPnl - legAFeesUsdt);
-    const legBNetReturnUsdt = round4(
-      legBReservedUsdt + legBPnl + fundingDeltaUsdt - legBFeesUsdt
-    );
+    const legANetReturnUsdt = round4(legAEntryQuoteUsdt + legAPnl - legAFeesUsdt);
 
+    // Unwind Leg A (physical spot sell)
     legA.allocatedCollateralUsdt = round4(
-      legA.allocatedCollateralUsdt - legAReservedUsdt
+      legA.allocatedCollateralUsdt - legAEntryQuoteUsdt
     );
     legA.freeCollateralUsdt = round4(
       legA.freeCollateralUsdt + legANetReturnUsdt
     );
-    legA.baseInventory[open.pair] = round8(
-      legA.baseInventory[open.pair] - open.quantityBase
-    );
-    legA.baseInventoryCostBasisUsdt[open.pair] = round4(
-      legA.baseInventoryCostBasisUsdt[open.pair] - legAReservedUsdt
-    );
+    if (open.legAMarket === 'spot') {
+      legA.baseInventory[open.pair] = round8(
+        legA.baseInventory[open.pair] - open.quantityBase
+      );
+      legA.baseInventoryCostBasisUsdt[open.pair] = round4(
+        legA.baseInventoryCostBasisUsdt[open.pair] - legAEntryQuoteUsdt
+      );
+    }
 
-    legB.allocatedCollateralUsdt = round4(
-      legB.allocatedCollateralUsdt - legBReservedUsdt
-    );
-    legB.freeCollateralUsdt = round4(
-      legB.freeCollateralUsdt + legBNetReturnUsdt
-    );
-    legB.baseInventory[open.pair] = round8(
-      legB.baseInventory[open.pair] + open.quantityBase
-    );
+    // Unwind Leg B:
+    // - If physical 'spot': buy back `quantityBase` at `exitLegBPrice`, paying
+    //   `exitLegBQuoteUsdt + legBFeesUsdt` from `freeCollateralUsdt` and restoring
+    //   `baseInventoryCostBasisUsdt` by `legBEntryQuoteUsdt`.
+    // - If 'linear_perp': release `legBEntryQuoteUsdt` margin from `allocatedCollateralUsdt`
+    //   and settle `legBPnl + fundingDeltaUsdt - legBFeesUsdt` into `freeCollateralUsdt`.
+    if (open.legBMarket === 'spot') {
+      const legBExitOutflowUsdt = round4(
+        legBEntryQuoteUsdt - legBPnl + legBFeesUsdt - fundingDeltaUsdt
+      );
+      legB.freeCollateralUsdt = round4(
+        legB.freeCollateralUsdt - legBExitOutflowUsdt
+      );
+      legB.baseInventory[open.pair] = round8(
+        legB.baseInventory[open.pair] + open.quantityBase
+      );
+      legB.baseInventoryCostBasisUsdt[open.pair] = round4(
+        legB.baseInventoryCostBasisUsdt[open.pair] + legBEntryQuoteUsdt
+      );
+    } else {
+      const legBNetReturnUsdt = round4(
+        legBEntryQuoteUsdt + legBPnl + fundingDeltaUsdt - legBFeesUsdt
+      );
+      legB.allocatedCollateralUsdt = round4(
+        legB.allocatedCollateralUsdt - legBEntryQuoteUsdt
+      );
+      legB.freeCollateralUsdt = round4(
+        legB.freeCollateralUsdt + legBNetReturnUsdt
+      );
+    }
 
     // Realized P&L lands in the pools below and in the venue collateral above;
     // there is no separate cash ledger to update.
@@ -1011,6 +1136,8 @@ export class PaperStrategyEngine {
     let unrealizedPnlUsdt = 0;
 
     if (sequencer) {
+      this.refreshMarkPricesFromSequencer(sequencer);
+
       for (const open of this.openCycles.values()) {
         const keyA = OrderbookSequencer.makeStreamKey(
           open.legAExchange,
@@ -1043,7 +1170,11 @@ export class PaperStrategyEngine {
         if (exitA?.filled && exitB?.filled) {
           const pnlA = (exitA.vwapPrice - open.entryLegAPrice) * open.quantityBase;
           const pnlB = (open.entryLegBPrice - exitB.vwapPrice) * open.quantityBase;
-          const estExitFees = open.notionalUsdt * this.singleLegTakerFeeRate * 2;
+          const estExitFees = round4(
+            (exitA.vwapPrice + exitB.vwapPrice) *
+              open.quantityBase *
+              this.singleLegTakerFeeRate
+          );
           const cycleMark = round4(
             pnlA +
               pnlB +
@@ -1120,24 +1251,29 @@ export class PaperStrategyEngine {
 
   /**
    * Single source of truth for NAV:
-   *   free quote collateral across venues
-   * + quote reserved by open legs (returns on close)
-   * + cost basis of the standing base inventory bought out of initial capital
-   * + unrealized P&L of open legs
-   * At t=0 this equals `initialCapitalUsdt` exactly, and no asset is ever
-   * counted twice.
+   *   (freeCollateralUsdt + allocatedCollateralUsdt - openCycleCashDeltaUsdt)
+   * + standingInventoryMarkToMarketUsdt
+   * + lastUnrealizedPnlUsdt (unrealized mark of open legs)
+   * At t=0 this equals `initialCapitalUsdt` (10,000 USDT) exactly, and any
+   * move in live BTC/ETH prices or venue collateral marks total equity to
+   * market even when zero cycles are open.
    */
   getCurrentEquityUsdt(): number {
-    let freeCollateralUsdt = 0;
-    let allocatedUsdt = 0;
+    let totalVenueQuoteUsdt = 0;
     for (const venue of ['binance', 'bybit'] as const) {
-      freeCollateralUsdt += this.venueBalances[venue].freeCollateralUsdt;
-      allocatedUsdt += this.venueBalances[venue].allocatedCollateralUsdt;
+      totalVenueQuoteUsdt +=
+        this.venueBalances[venue].freeCollateralUsdt +
+        this.venueBalances[venue].allocatedCollateralUsdt;
     }
+    let openCashDeltaUsdt = 0;
+    for (const open of this.openCycles.values()) {
+      openCashDeltaUsdt += open.openCycleCashDeltaUsdt ?? 0;
+    }
+    const standingInventoryMarkUsdt = this.standingInventoryMarkToMarketUsdt();
     return round4(
-      freeCollateralUsdt +
-        allocatedUsdt +
-        this.initialInventoryCostBasisUsdt +
+      totalVenueQuoteUsdt -
+        openCashDeltaUsdt +
+        standingInventoryMarkUsdt +
         this.lastUnrealizedPnlUsdt
     );
   }
@@ -1174,6 +1310,8 @@ export class PaperStrategyEngine {
       },
     };
 
+    const standingInventoryMarkUsdt = this.standingInventoryMarkToMarketUsdt();
+
     return {
       strategyId: this.strategyId,
       strategyName: this.strategyName,
@@ -1185,7 +1323,7 @@ export class PaperStrategyEngine {
           venueBalances.bybit.freeCollateralUsdt
       ),
       allocatedNotionalUsdt: round4(allocated),
-      inventoryValueUsdt: this.inventoryCostBasisUsdt(),
+      inventoryValueUsdt: standingInventoryMarkUsdt,
       unrealizedPnlUsdt: this.lastUnrealizedPnlUsdt,
       equityUsdt: this.getCurrentEquityUsdt(),
       peakEquityUsdt: this.peakEquityUsdt,
@@ -1230,6 +1368,7 @@ export class PaperStrategyEngine {
     desyncHaltCount: number;
     lastUnrealizedPnlUsdt: number;
     initialInventoryCostBasisUsdt: number;
+    lastMarkPrices?: Record<PaperPair, number>;
     venueBalances: Record<'binance' | 'bybit', {
       freeCollateralUsdt: number;
       allocatedCollateralUsdt: number;
@@ -1253,6 +1392,7 @@ export class PaperStrategyEngine {
       desyncHaltCount: this.desyncHaltCount,
       lastUnrealizedPnlUsdt: this.lastUnrealizedPnlUsdt,
       initialInventoryCostBasisUsdt: this.initialInventoryCostBasisUsdt,
+      lastMarkPrices: { ...this.lastMarkPrices },
       venueBalances: {
         binance: {
           freeCollateralUsdt: this.venueBalances.binance.freeCollateralUsdt,
@@ -1289,6 +1429,12 @@ export class PaperStrategyEngine {
     this.desyncHaltCount = saved.desyncHaltCount;
     if (saved.initialInventoryCostBasisUsdt !== undefined) {
       this.initialInventoryCostBasisUsdt = saved.initialInventoryCostBasisUsdt;
+    }
+    if (saved.lastMarkPrices) {
+      this.lastMarkPrices = {
+        'BTC/USDT': saved.lastMarkPrices['BTC/USDT'] ?? SEED_INVENTORY_REFERENCE['BTC/USDT'],
+        'ETH/USDT': saved.lastMarkPrices['ETH/USDT'] ?? SEED_INVENTORY_REFERENCE['ETH/USDT'],
+      };
     }
     if (saved.venueBalances) {
       for (const venue of ['binance', 'bybit'] as const) {

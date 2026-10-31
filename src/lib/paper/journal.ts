@@ -97,26 +97,24 @@ export class PaperJournal {
 
       d1Success = true;
 
-      // 2. Insert into paper_trading_outbox for guaranteed persistence/reconciliation tracking
-      try {
-        await db
-          .prepare(
-            `INSERT OR IGNORE INTO paper_trading_outbox (
-              outbox_id, idempotency_key, payload_json, d1_persisted, r2_persisted, attempts
-            ) VALUES (?, ?, ?, 1, 0, 1)`
-          )
-          .bind(
-            `outbox_${cycle.idempotencyKey}`,
-            cycle.idempotencyKey,
-            JSON.stringify(cycle)
-          )
-          .run();
-      } catch (outboxErr) {
-        console.warn('[PaperJournal] Outbox initial insert failed:', outboxErr);
-      }
+      // 2. Insert into paper_trading_outbox for guaranteed persistence/reconciliation tracking.
+      // Do NOT swallow outbox insert failures — if outbox persistence fails, let the caller retry
+      // before marking memoryByIdempotency.
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO paper_trading_outbox (
+            outbox_id, idempotency_key, payload_json, d1_persisted, r2_persisted, attempts
+          ) VALUES (?, ?, ?, 1, 0, 1)`
+        )
+        .bind(
+          `outbox_${cycle.idempotencyKey}`,
+          cycle.idempotencyKey,
+          JSON.stringify(cycle)
+        )
+        .run();
     }
 
-    // Mark as recorded in memory only after D1 write succeeds (or if no DB is provided in mock tests)
+    // Mark as recorded in memory only after BOTH journal and outbox D1 writes succeed
     this.memoryByIdempotency.set(cycle.idempotencyKey, cycle);
 
     let r2Success = false;
@@ -261,6 +259,25 @@ export class PaperJournal {
     }
 
     return { processed: rows.length, retriedR2, errors };
+  }
+
+  /**
+   * Deactivate all prior active paper_trading_runs records for a strategy when
+   * a new run window starts (e.g., after an unrecoverable feed gap or config reset).
+   */
+  async deactivatePriorRuns(
+    strategyId: PaperStrategyId,
+    activeRunId: string,
+    db: D1Database
+  ): Promise<void> {
+    await db
+      .prepare(
+        `UPDATE paper_trading_runs
+         SET is_active = 0, verdict = 'NO_GO', ended_at = datetime('now'), last_heartbeat_at = datetime('now')
+         WHERE strategy_id = ? AND run_id != ? AND is_active = 1`
+      )
+      .bind(strategyId, activeRunId)
+      .run();
   }
 
   /**

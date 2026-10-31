@@ -944,8 +944,9 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
       expect(snap.fundingLedger?.[0].fundingDeltaUsdt).toBeCloseTo(500 * 0.00025, 4);
     });
 
-    it('P23-03 & P23-04: PaperTradingDurableObject reports truthful isLive status only when all feeds are fresh and synced', async () => {
+    it('P23-03 & P23-04: PaperTradingDurableObject reports truthful isLive status only when all 8 required feeds are fresh and synced', async () => {
       const { PaperTradingDurableObject } = await import('../worker-do');
+      const { REQUIRED_PAPER_STREAMS } = await import('../orderbook-sequencer');
       const store = new Map<string, unknown>();
       const doInstance = new PaperTradingDurableObject({
         storage: {
@@ -962,7 +963,7 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
       expect(idleJson.isLive).toBe(false);
       expect(idleJson.dataSource).toBe('DURABLE_OBJECT_IDLE_OR_STALE');
 
-      // Ingest fresh synced books
+      // Ingest only 1 stream -> still NOT live because 7 streams are missing
       const now = Date.now();
       await doInstance.ingestOrderbook(
         {
@@ -977,6 +978,25 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         },
         now
       );
+      expect(doInstance.isCollectorLive(now)).toBe(false);
+
+      // Ingest all 8 required streams -> now isCollectorLive is true
+      for (const s of REQUIRED_PAPER_STREAMS) {
+        const mid = s.pair === 'BTC/USDT' ? 68000 : 2600;
+        await doInstance.ingestOrderbook(
+          {
+            exchange: s.exchange,
+            pair: s.pair,
+            marketType: s.marketType,
+            sequenceId: 101,
+            exchangeTs: now - 5,
+            receivedTs: now,
+            bids: [{ price: mid, quantity: 2 }],
+            asks: [{ price: mid + 5, quantity: 2 }],
+          },
+          now
+        );
+      }
 
       expect(doInstance.isCollectorLive(now)).toBe(true);
       // 10 seconds later without new messages -> stale -> isCollectorLive must be false
@@ -1090,21 +1110,26 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
 
     it('P23-07: verify-paper-economic-gate.cjs blocks when runs are missing or incomplete and passes only when both strategies meet 30d/100cycles/>0PnL/<=2%DD', () => {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { evaluateRuns } = require('../../../../scripts/verify-paper-economic-gate.cjs');
+      const { evaluateRuns, EXPECTED_CONFIG_HASH, EXPECTED_MODEL_VERSION } = require('../../../../scripts/verify-paper-economic-gate.cjs');
 
       const emptyRes = evaluateRuns([]);
       expect(emptyRes.passed).toBe(false);
       expect(emptyRes.verdict).toBe('NO_GO');
 
+      const nowIso = new Date().toISOString();
+
       const partialRes = evaluateRuns([
         {
+          run_id: 'run_spot-2exch_1761840000000',
           strategy_id: 'spot-2exch',
+          model_version: EXPECTED_MODEL_VERSION,
           is_active: 1,
           verified_real_market_days: 12.5,
           closed_cycles_count: 110,
           realized_net_pnl_usdt: 45.2,
           max_drawdown_pct: 0.8,
-          config_hash: 'a'.repeat(64),
+          config_hash: EXPECTED_CONFIG_HASH,
+          last_heartbeat_at: nowIso,
           verdict: 'NO_GO',
         },
       ]);
@@ -1112,28 +1137,515 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
 
       const passingRes = evaluateRuns([
         {
+          run_id: 'run_spot-2exch_1761840000000',
           strategy_id: 'spot-2exch',
+          model_version: EXPECTED_MODEL_VERSION,
           is_active: 1,
           verified_real_market_days: 30.5,
           closed_cycles_count: 142,
           realized_net_pnl_usdt: 128.4,
           max_drawdown_pct: 1.15,
-          config_hash: 'a'.repeat(64),
+          config_hash: EXPECTED_CONFIG_HASH,
+          last_heartbeat_at: nowIso,
           verdict: 'GO',
         },
         {
+          run_id: 'run_spot-perp_1761840000000',
           strategy_id: 'spot-perp',
+          model_version: EXPECTED_MODEL_VERSION,
           is_active: 1,
           verified_real_market_days: 30.5,
           closed_cycles_count: 118,
           realized_net_pnl_usdt: 94.7,
           max_drawdown_pct: 0.92,
-          config_hash: 'a'.repeat(64),
+          config_hash: EXPECTED_CONFIG_HASH,
+          last_heartbeat_at: nowIso,
           verdict: 'GO',
         },
       ]);
       expect(passingRes.passed).toBe(true);
       expect(passingRes.verdict).toBe('GO');
+    });
+
+    describe('7. Adversarial Remediation Verification (V1 through V7)', () => {
+      it('V1: values standing base inventory at live orderbook prices and halts strategy when 50% market drop triggers >=2% drawdown even with 0 open cycles', () => {
+        const engine = new PaperStrategyEngine({
+          strategyId: 'spot-2exch',
+          initialCapitalUsdt: 10000,
+          maxDrawdownLimitPct: 2.0,
+        });
+        const sequencer = new OrderbookSequencer();
+        const now = 1761840000000;
+
+        // At t=0, standing inventory has reference cost basis 4,000 USDT (2,000 BTC + 2,000 ETH)
+        // Cash is 6,000 USDT -> total NAV = 10,000 USDT exactly, drawdown = 0%
+        expect(engine.getCurrentEquityUsdt()).toBe(10000);
+        expect(engine.isHalted()).toBe(false);
+
+        // Adversarial market crash: BTC drops 50% (68,000 -> 34,000), ETH drops 50% (2,600 -> 1,300)
+        // No open cycles exist!
+        sequencer.ingest({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 10,
+          exchangeTs: now,
+          receivedTs: now + 5,
+          bids: [{ price: 34000, quantity: 1 }],
+          asks: [{ price: 34005, quantity: 1 }],
+        });
+        sequencer.ingest({
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 10,
+          exchangeTs: now,
+          receivedTs: now + 5,
+          bids: [{ price: 34000, quantity: 1 }],
+          asks: [{ price: 34005, quantity: 1 }],
+        });
+        sequencer.ingest({
+          exchange: 'binance',
+          pair: 'ETH/USDT',
+          marketType: 'spot',
+          sequenceId: 10,
+          exchangeTs: now,
+          receivedTs: now + 5,
+          bids: [{ price: 1300, quantity: 10 }],
+          asks: [{ price: 1301, quantity: 10 }],
+        });
+        sequencer.ingest({
+          exchange: 'bybit',
+          pair: 'ETH/USDT',
+          marketType: 'spot',
+          sequenceId: 10,
+          exchangeTs: now,
+          receivedTs: now + 5,
+          bids: [{ price: 1300, quantity: 10 }],
+          asks: [{ price: 1301, quantity: 10 }],
+        });
+
+        // Trigger mark-to-market update
+        const mtm = engine.updateMarkToMarketDrawdown(sequencer, now + 10);
+
+        // Standing inventory 4,000 USDT drops to ~2,000 USDT -> total equity ~8,000 USDT (20% drawdown)
+        expect(mtm.equityUsdt).toBeLessThan(8010);
+        expect(mtm.equityUsdt).toBeGreaterThan(7990);
+        expect(mtm.drawdownPct).toBeGreaterThanOrEqual(19.9);
+        expect(mtm.halted).toBe(true);
+        expect(engine.isHalted()).toBe(true);
+
+        // Strategy must refuse to open new cycles and return HALTED_DRAWDOWN
+        const dec = engine.evaluatePair(sequencer, 'BTC/USDT', 1, now + 15);
+        expect(dec.decision).toBe('HALTED_DRAWDOWN');
+        expect(dec.reason).toContain('halted from opening new cycles');
+      });
+
+      it('V2: requires all 8 streams synced, refuses to synthesize 31 market days from single stream or downtime, and resets on unrecoverable gap', async () => {
+        const { PaperTradingDurableObject } = await import('../worker-do');
+        const { REQUIRED_PAPER_STREAMS } = await import('../orderbook-sequencer');
+        const store = new Map<string, unknown>();
+        // Simulate a past run started 31 days ago in storage without verified continuous coverage
+        const pastStartMs = Date.now() - 31 * 86400 * 1000;
+        store.set('run_started_at_ms', pastStartMs);
+        store.set('continuous_coverage_ms', 0); // No continuous coverage accrued!
+
+        const doInstance = new PaperTradingDurableObject({
+          storage: {
+            get: async (k) => store.get(k) as any,
+            put: async (k, v) => {
+              store.set(k, v);
+            },
+          },
+        });
+        await doInstance.ensureRestored();
+
+        const now = Date.now();
+        // Ingest only 1 stream
+        await doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 1,
+            exchangeTs: now - 5,
+            receivedTs: now,
+            bids: [{ price: 68000, quantity: 1 }],
+            asks: [{ price: 68005, quantity: 1 }],
+          },
+          now
+        );
+
+        // DO must NOT be live, and verified days must be 0 (never synthesized from run_started_at_ms!)
+        expect(doInstance.isCollectorLive(now)).toBe(false);
+        const statusRes = await doInstance.fetch(new Request('http://internal/status'));
+        const statusJson = (await statusRes.json()) as any;
+        expect(statusJson.verifiedRealMarketDays).toBe(0);
+        expect(statusJson.isLive).toBe(false);
+
+        // Now ingest all 8 streams to start continuous coverage
+        for (const s of REQUIRED_PAPER_STREAMS) {
+          const mid = s.pair === 'BTC/USDT' ? 68000 : 2600;
+          await doInstance.ingestOrderbook(
+            {
+              exchange: s.exchange,
+              pair: s.pair,
+              marketType: s.marketType,
+              sequenceId: 2,
+              exchangeTs: now - 2,
+              receivedTs: now,
+              bids: [{ price: mid, quantity: 1 }],
+              asks: [{ price: mid + 5, quantity: 1 }],
+            },
+            now
+          );
+        }
+        expect(doInstance.isCollectorLive(now)).toBe(true);
+
+        // Advance 600ms with all 8 streams still fresh (< 1000ms) to accrue continuous coverage
+        const nextTickTs = now + 600;
+        for (const s of REQUIRED_PAPER_STREAMS) {
+          const mid = s.pair === 'BTC/USDT' ? 68000 : 2600;
+          await doInstance.ingestOrderbook(
+            {
+              exchange: s.exchange,
+              pair: s.pair,
+              marketType: s.marketType,
+              sequenceId: 3,
+              exchangeTs: nextTickTs - 2,
+              receivedTs: nextTickTs,
+              bids: [{ price: mid, quantity: 1 }],
+              asks: [{ price: mid + 5, quantity: 1 }],
+            },
+            nextTickTs
+          );
+        }
+        const liveRes = await doInstance.fetch(new Request('http://internal/status'));
+        const liveJson = (await liveRes.json()) as any;
+        expect(liveJson.continuousCoverageMs).toBeGreaterThanOrEqual(600);
+        expect(liveJson.verifiedRealMarketDays).toBeGreaterThan(0);
+
+        // Simulate an unrecoverable feed gap (> 15 seconds of silence) followed by new tick
+        const afterGapTs = nextTickTs + 60000; // 60s silence (> 15s gap limit)
+        await doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 4,
+            exchangeTs: afterGapTs - 2,
+            receivedTs: afterGapTs,
+            bids: [{ price: 68000, quantity: 1 }],
+            asks: [{ price: 68005, quantity: 1 }],
+          },
+          afterGapTs
+        );
+
+        // The unrecoverable gap must reset continuous coverage to 0
+        const resetRes = await doInstance.fetch(new Request('http://internal/status'));
+        const resetJson = (await resetRes.json()) as any;
+        expect(resetJson.continuousCoverageMs).toBe(0);
+        expect(resetJson.verifiedRealMarketDays).toBe(0);
+      });
+
+      it('V3: restores collector and reschedules alarm after DO restart, while respecting stop-collector', async () => {
+        const { PaperTradingDurableObject } = await import('../worker-do');
+        const store = new Map<string, unknown>();
+        let scheduledAlarmTime: number | null = null;
+
+        const mockState: any = {
+          storage: {
+            get: async (k: string) => store.get(k),
+            put: async (k: string, v: unknown) => {
+              store.set(k, v);
+            },
+            getAlarm: async () => scheduledAlarmTime,
+            setAlarm: async (time: number) => {
+              scheduledAlarmTime = time;
+            },
+            deleteAlarm: async () => {
+              scheduledAlarmTime = null;
+            },
+          },
+        };
+
+        const doInstance = new PaperTradingDurableObject(mockState);
+        // Start collector via POST
+        const startRes = await doInstance.fetch(
+          new Request('http://internal/start-collector', { method: 'POST' })
+        );
+        expect(startRes.status).toBe(200);
+        expect(store.get('collector_desired_running')).toBe(true);
+        expect(scheduledAlarmTime).toBeGreaterThan(Date.now());
+
+        // Simulate crash and restart DO
+        const restartedDO = new PaperTradingDurableObject(mockState);
+        await restartedDO.ensureRestored();
+        await new Promise((r) => setTimeout(r, 20));
+        expect((restartedDO as any).collector).not.toBeNull();
+
+        // Simulate alarm firing on restarted DO
+        await restartedDO.alarm();
+        expect(scheduledAlarmTime).toBeGreaterThan(Date.now());
+
+        // Stop collector via POST
+        const stopRes = await restartedDO.fetch(
+          new Request('http://internal/stop-collector', { method: 'POST' })
+        );
+        expect(stopRes.status).toBe(200);
+        expect(store.get('collector_desired_running')).toBe(false);
+
+        // Crash and restart again: collector must NOT be auto-started when desired_running is false
+        const stoppedDO = new PaperTradingDurableObject(mockState);
+        await stoppedDO.ensureRestored();
+        expect((stoppedDO as any).collector).toBeNull();
+      });
+
+      it('V4 & V5: enforces frozen canonical config hash and hardened economic verifier', () => {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { evaluateRuns, EXPECTED_CONFIG_HASH, EXPECTED_MODEL_VERSION } = require('../../../../scripts/verify-paper-economic-gate.cjs');
+        const { PAPER_CANONICAL_CONFIG, PAPER_FROZEN_CONFIG_HASH } = require('../strategy-engine');
+
+        // Engine and verifier must agree 100% on the canonical config hash and model version
+        expect(PAPER_FROZEN_CONFIG_HASH).toBe(EXPECTED_CONFIG_HASH);
+        expect(PAPER_CANONICAL_CONFIG.modelVersion).toBe(EXPECTED_MODEL_VERSION);
+
+        const nowIso = new Date().toISOString();
+
+        // 1. Rejects wrong config_hash
+        const badHash = evaluateRuns([
+          {
+            run_id: 'run_spot-2exch_1',
+            strategy_id: 'spot-2exch',
+            model_version: EXPECTED_MODEL_VERSION,
+            is_active: 1,
+            verified_real_market_days: 31,
+            closed_cycles_count: 120,
+            realized_net_pnl_usdt: 100,
+            max_drawdown_pct: 1.0,
+            config_hash: 'bad_hash_123',
+            last_heartbeat_at: nowIso,
+            verdict: 'GO',
+          },
+          {
+            run_id: 'run_spot-perp_1',
+            strategy_id: 'spot-perp',
+            model_version: EXPECTED_MODEL_VERSION,
+            is_active: 1,
+            verified_real_market_days: 31,
+            closed_cycles_count: 120,
+            realized_net_pnl_usdt: 100,
+            max_drawdown_pct: 1.0,
+            config_hash: 'bad_hash_123',
+            last_heartbeat_at: nowIso,
+            verdict: 'GO',
+          },
+        ]);
+        expect(badHash.passed).toBe(false);
+        expect(badHash.reason).toContain('failed the mandatory');
+
+        // 2. Rejects stale heartbeat (> 15 minutes old)
+        const staleIso = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+        const staleHb = evaluateRuns([
+          {
+            run_id: 'run_spot-2exch_1',
+            strategy_id: 'spot-2exch',
+            model_version: EXPECTED_MODEL_VERSION,
+            is_active: 1,
+            verified_real_market_days: 31,
+            closed_cycles_count: 120,
+            realized_net_pnl_usdt: 100,
+            max_drawdown_pct: 1.0,
+            config_hash: EXPECTED_CONFIG_HASH,
+            last_heartbeat_at: staleIso,
+            verdict: 'GO',
+          },
+          {
+            run_id: 'run_spot-perp_1',
+            strategy_id: 'spot-perp',
+            model_version: EXPECTED_MODEL_VERSION,
+            is_active: 1,
+            verified_real_market_days: 31,
+            closed_cycles_count: 120,
+            realized_net_pnl_usdt: 100,
+            max_drawdown_pct: 1.0,
+            config_hash: EXPECTED_CONFIG_HASH,
+            last_heartbeat_at: staleIso,
+            verdict: 'GO',
+          },
+        ]);
+        expect(staleHb.passed).toBe(false);
+
+        // 3. Rejects duplicate active rows for a single strategy
+        const dupRows = evaluateRuns([
+          {
+            run_id: 'run_spot-2exch_1',
+            strategy_id: 'spot-2exch',
+            model_version: EXPECTED_MODEL_VERSION,
+            is_active: 1,
+            verified_real_market_days: 31,
+            closed_cycles_count: 120,
+            realized_net_pnl_usdt: 100,
+            max_drawdown_pct: 1.0,
+            config_hash: EXPECTED_CONFIG_HASH,
+            last_heartbeat_at: nowIso,
+            verdict: 'GO',
+          },
+          {
+            run_id: 'run_spot-2exch_2',
+            strategy_id: 'spot-2exch',
+            model_version: EXPECTED_MODEL_VERSION,
+            is_active: 1,
+            verified_real_market_days: 31,
+            closed_cycles_count: 120,
+            realized_net_pnl_usdt: 100,
+            max_drawdown_pct: 1.0,
+            config_hash: EXPECTED_CONFIG_HASH,
+            last_heartbeat_at: nowIso,
+            verdict: 'GO',
+          },
+          {
+            run_id: 'run_spot-perp_1',
+            strategy_id: 'spot-perp',
+            model_version: EXPECTED_MODEL_VERSION,
+            is_active: 1,
+            verified_real_market_days: 31,
+            closed_cycles_count: 120,
+            realized_net_pnl_usdt: 100,
+            max_drawdown_pct: 1.0,
+            config_hash: EXPECTED_CONFIG_HASH,
+            last_heartbeat_at: nowIso,
+            verdict: 'GO',
+          },
+        ]);
+        expect(dupRows.passed).toBe(false);
+        expect(dupRows.details.some((d: any) => d.reason?.includes('Multiple active'))).toBe(true);
+
+        // 4. Rejects mismatched run window timestamps
+        const mismatchedWindow = evaluateRuns([
+          {
+            run_id: 'run_spot-2exch_1761840000000',
+            strategy_id: 'spot-2exch',
+            model_version: EXPECTED_MODEL_VERSION,
+            is_active: 1,
+            verified_real_market_days: 31,
+            closed_cycles_count: 120,
+            realized_net_pnl_usdt: 100,
+            max_drawdown_pct: 1.0,
+            config_hash: EXPECTED_CONFIG_HASH,
+            last_heartbeat_at: nowIso,
+            verdict: 'GO',
+          },
+          {
+            run_id: 'run_spot-perp_1761850000000',
+            strategy_id: 'spot-perp',
+            model_version: EXPECTED_MODEL_VERSION,
+            is_active: 1,
+            verified_real_market_days: 31,
+            closed_cycles_count: 120,
+            realized_net_pnl_usdt: 100,
+            max_drawdown_pct: 1.0,
+            config_hash: EXPECTED_CONFIG_HASH,
+            last_heartbeat_at: nowIso,
+            verdict: 'GO',
+          },
+        ]);
+        expect(mismatchedWindow.passed).toBe(false);
+      });
+
+      it('V6: buffers and bridges WebSocket deltas during REST snapshot resync', () => {
+        const { LiveMarketCollector } = require('../live-collector');
+        const collector = new LiveMarketCollector(new OrderbookSequencer());
+
+        const streamKey = OrderbookSequencer.makeStreamKey('binance', 'BTC/USDT', 'spot');
+        collector.beginBootstrapping(streamKey);
+
+        // Ingest WS delta while snapshot is in flight -> must be buffered
+        const buffered = collector.ingestOrBufferWsBook({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 105,
+          exchangeTs: 1000,
+          receivedTs: 1005,
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68005, quantity: 1 }],
+        });
+        expect(buffered).toBe(true);
+
+        // Deliver REST snapshot with sequenceId 100
+        const drained = collector.applySnapshotAndDrainBuffer(streamKey, {
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 100,
+          exchangeTs: 990,
+          receivedTs: 995,
+          bids: [{ price: 67990, quantity: 2 }],
+          asks: [{ price: 68010, quantity: 2 }],
+        });
+        expect(drained.length).toBe(1);
+        expect(drained[0].sequenceId).toBe(105);
+
+        // Subsequent WS delta must be ingested directly
+        const direct = collector.ingestOrBufferWsBook({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 106,
+          exchangeTs: 1010,
+          receivedTs: 1015,
+          bids: [{ price: 68001, quantity: 1 }],
+          asks: [{ price: 68006, quantity: 1 }],
+        });
+        expect(direct).toBe(false);
+      });
+
+      it('V7: separates physical spot cashflow from linear perp short margin in spot-perp strategy', () => {
+        const engine = new PaperStrategyEngine({
+          strategyId: 'spot-perp',
+          initialCapitalUsdt: 10000,
+        });
+        const sequencer = new OrderbookSequencer();
+        const now = 1761840000000;
+
+        const initVenue = engine.getSnapshot().venueBalances;
+        const binanceInitBtc = initVenue?.binance.baseInventory['BTC/USDT'] ?? 0;
+        expect(binanceInitBtc).toBeGreaterThan(0);
+
+        // Feed wide spread on Binance spot vs linear perp to open cycle
+        sequencer.ingest({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 1,
+          exchangeTs: now,
+          receivedTs: now + 5,
+          bids: [{ price: 68000, quantity: 2 }],
+          asks: [{ price: 68005, quantity: 2 }],
+        });
+        sequencer.ingest({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: 1,
+          exchangeTs: now,
+          receivedTs: now + 5,
+          bids: [{ price: 68300, quantity: 2 }],
+          asks: [{ price: 68305, quantity: 2 }],
+          fundingRateBps: 2.0,
+        });
+
+        const openDec = engine.evaluatePair(sequencer, 'BTC/USDT', 1, now + 10);
+        expect(openDec.decision).toBe('OPEN_CYCLE');
+
+        const postOpenVenue = engine.getSnapshot().venueBalances;
+        // In spot-perp, Leg A is physical spot buy -> adds to baseInventory
+        // Leg B is linear perp short -> reserves margin in allocatedCollateral, NEVER mutates or depletes baseInventory
+        const expectedBtc = binanceInitBtc + (500 / 68005);
+        expect(postOpenVenue?.binance.baseInventory['BTC/USDT']).toBeCloseTo(expectedBtc, 4);
+        expect(postOpenVenue?.binance.allocatedCollateralUsdt).toBeGreaterThanOrEqual(1000); // 500 spot buy + 500 perp margin
+      });
     });
   });
 });

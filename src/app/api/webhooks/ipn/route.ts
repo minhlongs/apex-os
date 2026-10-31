@@ -17,9 +17,9 @@ import * as crypto from 'crypto';
 import { error as logError, warn as logWarn, info as logInfo } from '@/lib/logger';
 import { resolveDatabase } from '@/lib/auth/session-helper';
 
-export type SubscriptionTier = 'BASIC' | 'PREMIUM' | 'ENTERPRISE' | 'MASTER';
+type SubscriptionTier = 'BASIC' | 'PREMIUM' | 'ENTERPRISE' | 'MASTER';
 
-export const IpnEventSchema = z.object({
+const IpnEventSchema = z.object({
   payment_id: z.union([z.number(), z.string()]).optional(),
   payment_status: z.string().optional(),
   order_id: z.string().optional(),
@@ -39,7 +39,7 @@ export const IpnEventSchema = z.object({
  * Recursively sort JSON object keys alphabetically to produce canonical payload string.
  * Required by NOWPayments IPN HMAC-SHA512 verification specification.
  */
-export function sortObjectKeys(obj: unknown): unknown {
+function sortObjectKeys(obj: unknown): unknown {
   if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
     return obj;
   }
@@ -56,7 +56,7 @@ export function sortObjectKeys(obj: unknown): unknown {
  * Normalizes any plan string or composite label (e.g. 'enterprise-plan', 'master', 'pro')
  * to standard SubscriptionTier enum ('BASIC' | 'PREMIUM' | 'ENTERPRISE' | 'MASTER').
  */
-export function normalizeTier(plan?: string | null): SubscriptionTier {
+function normalizeTier(plan?: string | null): SubscriptionTier {
   if (!plan) return 'BASIC';
   const p = plan.toUpperCase().trim();
   if (p.includes('MASTER')) return 'MASTER';
@@ -69,7 +69,7 @@ export function normalizeTier(plan?: string | null): SubscriptionTier {
 /**
  * Verifies NOWPayments HMAC-SHA512 signature in constant time.
  */
-export function verifyIpnSignature(
+function verifyIpnSignature(
   rawBody: string,
   sigHeader: string | null | undefined,
   secret: string
