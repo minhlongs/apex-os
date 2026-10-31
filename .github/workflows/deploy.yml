@@ -103,13 +103,9 @@ jobs:
           echo "Auditing Paper Trading economic go-live criteria..."
           # Running go-live-gate script with strict release verification
           bash scripts/go-live-gate.sh
-          # Check economic research summary overallVerdict
-          node -e '
-            const { PaperReplayEngine } = require("./.build/paper-check/replay.js");
-          ' || true
           if [ "${ALLOW_PRODUCTION_OVERRIDE}" != "true" ]; then
             echo "Production release requires completed 30-day paper window. Enforcing NO-GO guard."
-            # Fail closed unless durable authorization is proven
+            exit 1
           fi
 
       - name: Build Worker bundle
