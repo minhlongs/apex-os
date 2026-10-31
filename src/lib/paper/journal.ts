@@ -10,10 +10,22 @@ import type { D1Database } from '../db';
 import type {
   EconomicResearchSummary,
   PaperClosedCycle,
+  PaperExchange,
+  PaperMarketType,
+  PaperPair,
   PaperStrategyId,
   PaperStrategySnapshot,
   SequencerStreamState,
 } from './types';
+
+export interface R2BucketLike {
+  put(
+    key: string,
+    value: string | ArrayBuffer | ArrayBufferView | ReadableStream,
+    options?: { customMetadata?: Record<string, string>; httpMetadata?: Record<string, string> }
+  ): Promise<unknown>;
+  get(key: string): Promise<{ text(): Promise<string>; json<T>(): Promise<T> } | null>;
+}
 
 export class PaperJournal {
   private readonly memoryByIdempotency = new Map<string, PaperClosedCycle>();
@@ -22,15 +34,18 @@ export class PaperJournal {
   /**
    * Append a closed paper cycle idempotently.
    * Returns true if newly inserted, false if duplicate idempotencyKey.
+   * Persists to D1 and archives to R2 bucket if provided.
+   * Critical: memory deduplication is only updated AFTER successful D1 write,
+   * ensuring transient D1 failures can be retried without being swallowed (Bug 3 / R5).
    */
   async recordClosedCycle(
     cycle: PaperClosedCycle,
-    db?: D1Database | null
+    db?: D1Database | null,
+    r2Bucket?: R2BucketLike | null
   ): Promise<boolean> {
     if (this.memoryByIdempotency.has(cycle.idempotencyKey)) {
       return false;
     }
-    this.memoryByIdempotency.set(cycle.idempotencyKey, cycle);
 
     if (db) {
       await db
@@ -77,6 +92,27 @@ export class PaperJournal {
           cycle.replayObjectKey
         )
         .run();
+    }
+
+    // Mark as recorded in memory only after persistence completes without throwing
+    this.memoryByIdempotency.set(cycle.idempotencyKey, cycle);
+
+    if (r2Bucket && cycle.replayObjectKey) {
+      try {
+        const objectPath = cycle.replayObjectKey.replace(/^r2:\/\/[^/]+\//, '');
+        await r2Bucket.put(objectPath, JSON.stringify(cycle), {
+          customMetadata: {
+            idempotency_key: cycle.idempotencyKey,
+            model_version: cycle.modelVersion,
+            execution_mode: 'PAPER',
+          },
+          httpMetadata: {
+            contentType: 'application/json',
+          },
+        });
+      } catch (err) {
+        console.error('[PaperJournal] R2 archive write failed:', err);
+      }
     }
 
     return true;
@@ -139,6 +175,51 @@ export class PaperJournal {
     return Array.from(this.memoryByIdempotency.values());
   }
 
+  async loadFromD1(db: D1Database): Promise<number> {
+    const res = await db
+      .prepare('SELECT * FROM paper_trade_journal ORDER BY exit_ts ASC')
+      .all<Record<string, unknown>>();
+    const rows = Array.isArray(res) ? res : (res?.results || []);
+    let restored = 0;
+    for (const r of rows) {
+      const cycle: PaperClosedCycle = {
+        cycleId: String(r.cycle_id),
+        idempotencyKey: String(r.idempotency_key),
+        strategyId: r.strategy_id as PaperStrategyId,
+        pair: r.pair as PaperPair,
+        entryTs: Number(r.entry_ts),
+        exitTs: Number(r.exit_ts),
+        entrySeqA: Number(r.entry_seq_a),
+        entrySeqB: Number(r.entry_seq_b),
+        exitSeqA: Number(r.exit_seq_a),
+        exitSeqB: Number(r.exit_seq_b),
+        notionalUsdt: Number(r.notional_usdt),
+        quantityBase: Number(r.quantity_base),
+        legAExchange: r.leg_a_exchange as PaperExchange,
+        legAMarket: r.leg_a_market as PaperMarketType,
+        legBExchange: r.leg_b_exchange as PaperExchange,
+        legBMarket: r.leg_b_market as PaperMarketType,
+        entryLegAPrice: Number(r.entry_leg_a_price),
+        entryLegBPrice: Number(r.entry_leg_b_price),
+        exitLegAPrice: Number(r.exit_leg_a_price),
+        exitLegBPrice: Number(r.exit_leg_b_price),
+        rawSpreadBps: Number(r.raw_spread_bps),
+        netSpreadBps: Number(r.net_spread_bps),
+        grossPnlUsdt: Number(r.gross_pnl_usdt),
+        totalFeesUsdt: Number(r.total_fees_usdt),
+        fundingDeltaUsdt: Number(r.funding_delta_usdt),
+        netPnlUsdt: Number(r.net_pnl_usdt),
+        modelVersion: String(r.model_version),
+        replayObjectKey: String(r.replay_object_key),
+        executionMode: 'PAPER',
+      };
+      if (await this.recordClosedCycle(cycle)) {
+        restored += 1;
+      }
+    }
+    return restored;
+  }
+
   /**
    * Export closed cycles as a CSV document explicitly stamped with PAPER,
    * model_version, and feed_age_ms.
@@ -151,6 +232,7 @@ export class PaperJournal {
   }): string {
     const headerComments = [
       `# EXECUTION_MODE: PAPER (SIMULATION ONLY - NO LIVE CEX ORDERS OR WITHDRAWALS)`,
+      `# DATA_SOURCE: FIXTURE_REPLAY (DETERMINISTIC SIMULATION - NOT REAL-TIME LIVE CEX)`,
       `# MODEL_VERSION: ${params.modelVersion}`,
       `# MAX_FEED_AGE_MS: ${params.maxFeedAgeMs}`,
       `# REPLAY_DIGEST_SHA256: ${params.replayDigest}`,

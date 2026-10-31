@@ -23,6 +23,7 @@ export interface NormalizedOrderbook {
   prevSequenceId?: number;
   exchangeTs: number;
   receivedTs: number;
+  isDelta?: boolean;
   bids: OrderbookLevel[];
   asks: OrderbookLevel[];
   fundingRateBps?: number;
@@ -33,6 +34,7 @@ export type SequencerStatus =
   | 'FEED_DESYNC'
   | 'STALE_FEED'
   | 'CLOCK_SKEW'
+  | 'DISCONNECTED'
   | 'UNINITIALIZED';
 
 export interface SequencerStreamState {
@@ -84,6 +86,7 @@ export interface PaperOpenCycle {
   entrySpreadBps: number;
   entryFeesUsdt: number;
   accruedFundingUsdt: number;
+  lastFundingAccrualTs?: number;
 }
 
 export interface PaperClosedCycle {
@@ -129,6 +132,13 @@ export interface PaperDecisionLog {
   reason: string;
 }
 
+export interface VenueCollateralBalance {
+  exchange: PaperExchange;
+  freeCollateralUsdt: number;
+  allocatedCollateralUsdt: number;
+  baseInventory: Record<PaperPair, number>;
+}
+
 export interface PaperStrategySnapshot {
   strategyId: PaperStrategyId;
   strategyName: string;
@@ -137,10 +147,12 @@ export interface PaperStrategySnapshot {
   initialCapitalUsdt: number;
   cashBalanceUsdt: number;
   allocatedNotionalUsdt: number;
+  unrealizedPnlUsdt?: number;
   equityUsdt: number;
   peakEquityUsdt: number;
   realizedNetPnlUsdt: number;
   totalFeesPaidUsdt: number;
+  totalRebalanceFeesUsdt?: number;
   totalFundingUsdt: number;
   maxDrawdownPct: number;
   haltedByDrawdown: boolean;
@@ -149,6 +161,7 @@ export interface PaperStrategySnapshot {
   noTradeCount: number;
   desyncHaltCount: number;
   winRatePct: number;
+  venueBalances?: Record<PaperExchange, VenueCollateralBalance>;
 }
 
 export interface ReplayTick {
@@ -167,20 +180,29 @@ export interface ReplayExecutionResult {
   sequencerStates: SequencerStreamState[];
 }
 
+export interface StrategyEconomicAudit {
+  strategyId: PaperStrategyId;
+  observedContinuousDays: number;
+  targetBenchmarkDays: number;
+  daysPassed: boolean;
+  closedCyclesCount: number;
+  targetBenchmarkCycles: number;
+  cyclesPassed: boolean;
+  netPnlUsdt: number;
+  pnlPassed: boolean;
+  maxDrawdownPct: number;
+  maxDrawdownLimitPct: number;
+  drawdownPassed: boolean;
+  isReadyForLive: boolean;
+  verdict: 'GO' | 'NO_GO';
+  researchFinding: string;
+}
+
 export interface EconomicResearchSummary {
-  reportType: 'DESCRIPTIVE_RESEARCH_ONLY';
-  isReleaseBlocker: false;
+  reportType: 'STRICT_ECONOMIC_AUDIT';
+  isReleaseBlocker: true;
+  overallVerdict: 'GO' | 'NO_GO';
   generatedAt: string;
   modelVersion: string;
-  strategies: Array<{
-    strategyId: PaperStrategyId;
-    observedContinuousDays: number;
-    targetBenchmarkDays: number;
-    closedCyclesCount: number;
-    targetBenchmarkCycles: number;
-    netPnlUsdt: number;
-    maxDrawdownPct: number;
-    maxDrawdownLimitPct: number;
-    researchFinding: string;
-  }>;
+  strategies: StrategyEconomicAudit[];
 }

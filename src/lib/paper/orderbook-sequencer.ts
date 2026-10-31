@@ -73,13 +73,12 @@ export class OrderbookSequencer {
     fundingRateBps?: number
   ): NormalizedOrderbook {
     const pair: PaperPair = msg.s.toUpperCase() === 'ETHUSDT' ? 'ETH/USDT' : 'BTC/USDT';
+    // Preserve level deletions (quantity === 0) for L2 delta assembly
     const bids: OrderbookLevel[] = msg.b
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-      .filter((l) => l.quantity > 0)
       .sort((a, b) => b.price - a.price);
     const asks: OrderbookLevel[] = msg.a
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-      .filter((l) => l.quantity > 0)
       .sort((a, b) => a.price - b.price);
 
     return {
@@ -90,6 +89,7 @@ export class OrderbookSequencer {
       prevSequenceId: msg.U - 1,
       exchangeTs: msg.E,
       receivedTs,
+      isDelta: true,
       bids,
       asks,
       fundingRateBps,
@@ -107,13 +107,12 @@ export class OrderbookSequencer {
   ): NormalizedOrderbook {
     const pair: PaperPair =
       msg.data.s.toUpperCase() === 'ETHUSDT' ? 'ETH/USDT' : 'BTC/USDT';
+    // Preserve level deletions (quantity === 0) for L2 delta assembly
     const bids: OrderbookLevel[] = msg.data.b
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-      .filter((l) => l.quantity > 0)
       .sort((a, b) => b.price - a.price);
     const asks: OrderbookLevel[] = msg.data.a
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-      .filter((l) => l.quantity > 0)
       .sort((a, b) => a.price - b.price);
 
     return {
@@ -124,9 +123,55 @@ export class OrderbookSequencer {
       prevSequenceId: msg.type === 'snapshot' ? undefined : msg.data.u - 1,
       exchangeTs: msg.ts,
       receivedTs,
+      isDelta: msg.type === 'delta',
       bids,
       asks,
       fundingRateBps,
+    };
+  }
+
+  /**
+   * Merge incoming L2 delta levels into an existing orderbook.
+   * Levels with quantity <= 0 are removed.
+   */
+  static applyL2Delta(
+    existing: NormalizedOrderbook,
+    delta: NormalizedOrderbook
+  ): NormalizedOrderbook {
+    const mergeLevels = (
+      current: OrderbookLevel[],
+      updates: OrderbookLevel[],
+      isBid: boolean
+    ): OrderbookLevel[] => {
+      const levelMap = new Map<number, number>();
+      for (const l of current) {
+        if (l.quantity > 0) levelMap.set(l.price, l.quantity);
+      }
+      for (const u of updates) {
+        if (u.quantity <= 0) {
+          levelMap.delete(u.price);
+        } else {
+          levelMap.set(u.price, u.quantity);
+        }
+      }
+      const merged: OrderbookLevel[] = Array.from(levelMap.entries()).map(
+        ([price, quantity]) => ({ price, quantity })
+      );
+      return merged.sort((a, b) => (isBid ? b.price - a.price : a.price - b.price));
+    };
+
+    return {
+      exchange: delta.exchange,
+      pair: delta.pair,
+      marketType: delta.marketType,
+      sequenceId: delta.sequenceId,
+      prevSequenceId: delta.prevSequenceId,
+      exchangeTs: delta.exchangeTs,
+      receivedTs: delta.receivedTs,
+      isDelta: false,
+      bids: mergeLevels(existing.bids, delta.bids, true),
+      asks: mergeLevels(existing.asks, delta.asks, false),
+      fundingRateBps: delta.fundingRateBps ?? existing.fundingRateBps,
     };
   }
 
@@ -166,8 +211,8 @@ export class OrderbookSequencer {
       return nextState;
     }
 
-    // If already in FEED_DESYNC, remain halted until explicit resyncSnapshot()
-    if (existing.status === 'FEED_DESYNC') {
+    // If already in FEED_DESYNC or DISCONNECTED, remain halted until explicit resyncSnapshot()
+    if (existing.status === 'FEED_DESYNC' || existing.status === 'DISCONNECTED') {
       const haltedState: SequencerStreamState = {
         ...existing,
         feedAgeMs,
@@ -177,14 +222,21 @@ export class OrderbookSequencer {
       return haltedState;
     }
 
+    // Valid repeated snapshot check (e.g., Bybit L1/L2 snapshot where u repeats when book is unchanged)
+    const isRepeatedValidSnapshot =
+      !book.isDelta &&
+      book.prevSequenceId === undefined &&
+      book.sequenceId === existing.lastSequenceId;
+
     // Sequence continuity check:
-    // 1. Out-of-order / non-monotonic sequence ID
+    // 1. Out-of-order / non-monotonic sequence ID (unless valid repeated snapshot)
     // 2. Explicit gap via prevSequenceId mismatch or jump > 1
     const expectedPrev =
       book.prevSequenceId !== undefined ? book.prevSequenceId : book.sequenceId - 1;
     const hasSequenceGap =
-      book.sequenceId <= existing.lastSequenceId ||
-      expectedPrev > existing.lastSequenceId;
+      !isRepeatedValidSnapshot &&
+      (book.sequenceId <= existing.lastSequenceId ||
+        (book.isDelta !== false && expectedPrev > existing.lastSequenceId));
 
     if (hasSequenceGap) {
       const desyncState: SequencerStreamState = {
@@ -199,6 +251,13 @@ export class OrderbookSequencer {
       return desyncState;
     }
 
+    // Apply L2 delta if incoming book is an incremental update
+    const existingBook = this.books.get(key);
+    const finalBook =
+      book.isDelta && existingBook
+        ? OrderbookSequencer.applyL2Delta(existingBook, book)
+        : book;
+
     if (feedAgeMs > this.maxFeedAgeMs) {
       const staleState: SequencerStreamState = {
         ...existing,
@@ -210,7 +269,7 @@ export class OrderbookSequencer {
         staleCount: existing.staleCount + 1,
         lastErrorReason: `Feed age ${feedAgeMs}ms exceeds limit ${this.maxFeedAgeMs}ms`,
       };
-      this.books.set(key, book);
+      this.books.set(key, finalBook);
       this.states.set(key, staleState);
       return staleState;
     }
@@ -224,7 +283,7 @@ export class OrderbookSequencer {
       feedAgeMs,
       lastErrorReason: undefined,
     };
-    this.books.set(key, book);
+    this.books.set(key, finalBook);
     this.states.set(key, syncedState);
     return syncedState;
   }
@@ -286,6 +345,14 @@ export class OrderbookSequencer {
       };
     }
 
+    if (stateA.status === 'DISCONNECTED' || stateB.status === 'DISCONNECTED') {
+      return {
+        ok: false,
+        status: 'DISCONNECTED',
+        reason: stateA.lastErrorReason || stateB.lastErrorReason || 'Feed disconnected',
+      };
+    }
+
     if (stateA.status === 'FEED_DESYNC' || stateB.status === 'FEED_DESYNC') {
       return {
         ok: false,
@@ -314,6 +381,35 @@ export class OrderbookSequencer {
     }
 
     return { ok: true, status: 'SYNCED' };
+  }
+
+  /**
+   * Mark a stream as DISCONNECTED when WebSocket drops, halting trading until resyncSnapshot.
+   */
+  markDisconnected(
+    exchange: PaperExchange,
+    pair: PaperPair,
+    marketType: PaperMarketType,
+    reason = 'WebSocket connection closed'
+  ): SequencerStreamState {
+    const key = OrderbookSequencer.makeStreamKey(exchange, pair, marketType);
+    const existing = this.states.get(key);
+    const nextState: SequencerStreamState = {
+      streamKey: key,
+      exchange,
+      pair,
+      marketType,
+      status: 'DISCONNECTED',
+      lastSequenceId: existing?.lastSequenceId ?? 0,
+      lastExchangeTs: existing?.lastExchangeTs ?? 0,
+      lastReceivedTs: existing?.lastReceivedTs ?? 0,
+      feedAgeMs: existing?.feedAgeMs ?? 0,
+      gapCount: existing?.gapCount ?? 0,
+      staleCount: existing?.staleCount ?? 0,
+      lastErrorReason: reason,
+    };
+    this.states.set(key, nextState);
+    return nextState;
   }
 
   getBook(

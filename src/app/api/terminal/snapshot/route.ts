@@ -36,7 +36,13 @@ export async function GET() {
     '0xd90e2f925da726b50c4ed8d0fb90ad053324f31b',
     'ethereum'
   );
-  const hmacSecret = process.env.TERMINAL_HMAC_SECRET || 'paper_sandbox_secret';
+  const hmacSecret = process.env.TERMINAL_HMAC_SECRET;
+  if (!hmacSecret) {
+    return NextResponse.json(
+      { error: 'TERMINAL_HMAC_SECRET not configured on server' },
+      { status: 500 }
+    );
+  }
   const sampleHmacDigest = await WebhookCrypto.computeSignature(
     WEBHOOK_SANDBOX_PRESETS[0].samplePayload,
     hmacSecret

@@ -9,11 +9,40 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getDB, type D1Database } from '@/lib/db';
 import { buildCanonical50TickSequence } from '@/lib/paper/fixtures';
 import { PaperJournal } from '@/lib/paper/journal';
 import { PaperReplayEngine } from '@/lib/paper/replay';
 
+function resolveDb(request?: NextRequest): D1Database | null {
+  const reqAny = request as unknown as { env?: { DB?: D1Database } };
+  if (reqAny?.env?.DB) {
+    return reqAny.env.DB;
+  }
+  const globalAny = globalThis as unknown as { DB?: D1Database };
+  if (globalAny.DB) {
+    return globalAny.DB;
+  }
+  try {
+    return getDB();
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: NextRequest) {
+  const db = resolveDb(request);
+
+  // Strict Fail-Closed Admin RBAC guard
+  const adminAuthModule = await import('@/lib/payouts/admin-auth');
+  const authRes = await adminAuthModule.verifyAdminPayoutAccess(
+    request,
+    db ?? undefined
+  );
+  if (!authRes.authorized) {
+    return authRes.response;
+  }
+
   const { searchParams } = new URL(request.url);
   const format = (searchParams.get('format') || 'csv').toLowerCase();
 
@@ -44,6 +73,7 @@ export async function GET(request: NextRequest) {
         'Content-Type': 'application/pdf',
         'Content-Disposition': 'attachment; filename="apexos-paper-trading-report.pdf"',
         'X-Execution-Mode': 'PAPER',
+        'X-Data-Source': 'FIXTURE_REPLAY',
         'X-Model-Version': replay.modelVersion,
         'X-Replay-Digest': replay.digest,
       },
@@ -63,6 +93,7 @@ export async function GET(request: NextRequest) {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': 'attachment; filename="apexos-paper-trading-journal.csv"',
       'X-Execution-Mode': 'PAPER',
+      'X-Data-Source': 'FIXTURE_REPLAY',
       'X-Model-Version': replay.modelVersion,
       'X-Replay-Digest': replay.digest,
     },

@@ -6,13 +6,15 @@
  * ('spot-2exch' and 'spot-perp'), and the Immutable PaperJournal.
  */
 
+import type { D1Database } from '../db';
 import { buildCanonical50TickSequence } from './fixtures';
-import { PaperJournal } from './journal';
+import { PaperJournal, type R2BucketLike } from './journal';
 import { OrderbookSequencer } from './orderbook-sequencer';
 import { PaperReplayEngine } from './replay';
 import { PaperStrategyEngine } from './strategy-engine';
 import type {
   NormalizedOrderbook,
+  PaperClosedCycle,
   PaperPair,
   PaperStrategyId,
   PaperStrategySnapshot,
@@ -21,6 +23,11 @@ import type {
 export interface DurableObjectStorageLike {
   get<T = unknown>(key: string): Promise<T | undefined>;
   put<T = unknown>(key: string, value: T): Promise<void>;
+}
+
+export interface DurableObjectEnvLike {
+  DB?: D1Database;
+  STORAGE?: R2BucketLike;
 }
 
 export interface DurableObjectStateLike {
@@ -32,14 +39,17 @@ const STRATEGY_IDS: PaperStrategyId[] = ['spot-2exch', 'spot-perp'];
 
 export class PaperTradingDurableObject {
   private readonly state: DurableObjectStateLike;
+  private readonly env?: DurableObjectEnvLike;
   private readonly sequencer: OrderbookSequencer;
   private readonly strategies: Map<PaperStrategyId, PaperStrategyEngine>;
   private readonly journal: PaperJournal;
   private tickCounter = 0;
   private readonly modelVersion = 'paper-v1.0.0';
+  private initialized = false;
 
-  constructor(state: DurableObjectStateLike) {
+  constructor(state: DurableObjectStateLike, env?: DurableObjectEnvLike) {
     this.state = state;
+    this.env = env;
     this.sequencer = new OrderbookSequencer({
       maxFeedAgeMs: 1000,
       maxClockSkewMs: 250,
@@ -58,6 +68,32 @@ export class PaperTradingDurableObject {
     this.journal = new PaperJournal();
   }
 
+  async ensureRestored(): Promise<void> {
+    if (this.initialized) return;
+    const storedTick = await this.state.storage.get<number>('last_tick_counter');
+    if (storedTick !== undefined) {
+      this.tickCounter = storedTick;
+    }
+    const storedCycles = await this.state.storage.get<PaperClosedCycle[]>('paper_closed_cycles');
+    if (storedCycles && Array.isArray(storedCycles)) {
+      for (const cycle of storedCycles) {
+        await this.journal.recordClosedCycle(cycle, this.env?.DB, this.env?.STORAGE);
+      }
+    } else if (this.env?.DB) {
+      // Fallback: restore from immutable D1 paper_trade_journal
+      await this.journal.loadFromD1(this.env.DB);
+    }
+    for (const sid of STRATEGY_IDS) {
+      const savedStrategyState = await this.state.storage.get<
+        ReturnType<PaperStrategyEngine['serializeState']>
+      >(`strategy_state_${sid}`);
+      if (savedStrategyState) {
+        this.strategies.get(sid)?.restoreState(savedStrategyState);
+      }
+    }
+    this.initialized = true;
+  }
+
   async ingestOrderbook(
     book: NormalizedOrderbook,
     nowTs: number = book.receivedTs
@@ -65,11 +101,13 @@ export class PaperTradingDurableObject {
     streamState: ReturnType<OrderbookSequencer['ingest']>;
     snapshots: Record<PaperStrategyId, PaperStrategySnapshot>;
   }> {
+    await this.ensureRestored();
     this.tickCounter += 1;
     const streamState = this.sequencer.ingest(book, nowTs);
 
     for (const engine of this.strategies.values()) {
       const prevClosedCount = engine.getClosedCycles().length;
+      const prevClosedKeys = new Set(engine.getClosedCycles().map((c) => c.idempotencyKey));
       engine.evaluatePair(
         this.sequencer,
         book.pair,
@@ -79,13 +117,21 @@ export class PaperTradingDurableObject {
       );
       const currentClosed = engine.getClosedCycles();
       if (currentClosed.length > prevClosedCount) {
-        const newest = currentClosed[currentClosed.length - 1];
-        await this.journal.recordClosedCycle(newest);
+        for (const c of currentClosed) {
+          if (!prevClosedKeys.has(c.idempotencyKey)) {
+            await this.journal.recordClosedCycle(c, this.env?.DB, this.env?.STORAGE);
+          }
+        }
       }
-      await this.journal.saveStrategySnapshot(engine.getSnapshot());
+      await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
+      await this.state.storage.put(
+        `strategy_state_${engine.strategyId}`,
+        engine.serializeState()
+      );
     }
 
     await this.state.storage.put('last_tick_counter', this.tickCounter);
+    await this.state.storage.put('paper_closed_cycles', this.journal.getClosedCycles());
 
     return {
       streamState,
@@ -97,6 +143,7 @@ export class PaperTradingDurableObject {
     book: NormalizedOrderbook,
     nowTs: number = book.receivedTs
   ): Promise<ReturnType<OrderbookSequencer['resyncSnapshot']>> {
+    await this.ensureRestored();
     return this.sequencer.resyncSnapshot(book, nowTs);
   }
 
@@ -145,9 +192,12 @@ export class PaperTradingDurableObject {
     }
 
     // Default GET /status
+    await this.ensureRestored();
     const snapshots = this.getStrategySnapshots();
     return Response.json({
       executionMode: 'PAPER',
+      isLive: false,
+      dataSource: 'DURABLE_OBJECT_PERSISTED',
       modelVersion: this.modelVersion,
       tickCounter: this.tickCounter,
       pairs: PAIRS,

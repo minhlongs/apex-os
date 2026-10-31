@@ -33,6 +33,20 @@
 			"bucket_name": "apex-os-uploads-staging"
 		}
 	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "PAPER_TRADING_DO",
+				"class_name": "PaperTradingDurableObject"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1-paper-trading-do",
+			"new_classes": ["PaperTradingDurableObject"]
+		}
+	],
 	"vars": {
 		"APP_ENV": "staging",
 		"STELLAR_NETWORK": "testnet",

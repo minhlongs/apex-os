@@ -13,6 +13,7 @@ import {
 
 // Re-export named exports from OpenNext worker (Durable Objects, etc.)
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from './.open-next/worker.js';
+export { PaperTradingDurableObject } from './src/lib/paper/worker-do.ts';
 
 export default {
   async fetch(request, env, ctx) {

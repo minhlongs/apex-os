@@ -226,18 +226,22 @@ export class PayoutRouter {
 
   /**
    * Check whether V1 Stellar-only payout enforcement is active.
-   * Always enforced in production/staging or when V1_STELLAR_ONLY_PAYOUTS=true.
+   * Hardened: Always enforced in production and staging environments regardless of flags.
+   * In non-test environments, defaults to enforced unless explicitly set to 'false'.
+   * In test environment, enforced when V1_STELLAR_ONLY_PAYOUTS === 'true'.
    */
   isStellarOnlyEnforced(): boolean {
-    if (process.env.V1_STELLAR_ONLY_PAYOUTS === 'false') {
-      return false;
-    }
-    return (
-      process.env.V1_STELLAR_ONLY_PAYOUTS === 'true' ||
+    if (
       process.env.NODE_ENV === 'production' ||
       process.env.APP_ENV === 'production' ||
       process.env.APP_ENV === 'staging'
-    );
+    ) {
+      return true;
+    }
+    if (process.env.NODE_ENV === 'test') {
+      return process.env.V1_STELLAR_ONLY_PAYOUTS === 'true';
+    }
+    return process.env.V1_STELLAR_ONLY_PAYOUTS !== 'false';
   }
 
   /**

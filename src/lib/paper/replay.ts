@@ -13,6 +13,7 @@ import type {
   PaperStrategyId,
   ReplayExecutionResult,
   ReplayTick,
+  StrategyEconomicAudit,
 } from './types';
 
 const STRATEGY_IDS: PaperStrategyId[] = ['spot-2exch', 'spot-perp'];
@@ -128,7 +129,12 @@ export class PaperReplayEngine {
   }
 
   /**
-   * Descriptive research evaluation only (NOT a deployment gate).
+   * Strict Economic Gate & Audit verification (Blocking for GO-LIVE).
+   * Gate requirements per strategy:
+   *   1. >= 30 continuous real-market days (from verified timestamps, never tick-count formula)
+   *   2. >= 100 valid closed cycles
+   *   3. Net realized P&L > 0 after all fees and funding
+   *   4. Max drawdown <= 2.0% (including unrealized mark-to-market positions)
    */
   static buildEconomicResearchSummary(
     result: ReplayExecutionResult,
@@ -136,35 +142,56 @@ export class PaperReplayEngine {
       generatedAt?: string;
       targetBenchmarkDays?: number;
       targetBenchmarkCycles?: number;
+      verifiedRealMarketDays?: number;
     }
   ): EconomicResearchSummary {
     const targetBenchmarkDays = options?.targetBenchmarkDays ?? 30;
     const targetBenchmarkCycles = options?.targetBenchmarkCycles ?? 100;
+    // Verified observation days must come from explicit market timestamps, defaulting to 0 for replay/fixtures
+    const verifiedDays = options?.verifiedRealMarketDays ?? 0;
+
+    const strategies: StrategyEconomicAudit[] = STRATEGY_IDS.map((sid) => {
+      const s = result.strategies[sid];
+      const daysPassed = verifiedDays >= targetBenchmarkDays;
+      const cyclesPassed = s.closedCyclesCount >= targetBenchmarkCycles;
+      const pnlPassed = s.realizedNetPnlUsdt > 0;
+      const maxDrawdownLimitPct = 2.0;
+      const drawdownPassed = s.maxDrawdownPct <= maxDrawdownLimitPct;
+      const isReadyForLive = daysPassed && cyclesPassed && pnlPassed && drawdownPassed;
+
+      return {
+        strategyId: sid,
+        observedContinuousDays: verifiedDays,
+        targetBenchmarkDays,
+        daysPassed,
+        closedCyclesCount: s.closedCyclesCount,
+        targetBenchmarkCycles,
+        cyclesPassed,
+        netPnlUsdt: s.realizedNetPnlUsdt,
+        pnlPassed,
+        maxDrawdownPct: s.maxDrawdownPct,
+        maxDrawdownLimitPct,
+        drawdownPassed,
+        isReadyForLive,
+        verdict: isReadyForLive ? 'GO' : 'NO_GO',
+        researchFinding:
+          `Observed ${verifiedDays}/${targetBenchmarkDays} continuous market days, ` +
+          `${s.closedCyclesCount}/${targetBenchmarkCycles} closed cycles. ` +
+          `Net P&L: ${s.realizedNetPnlUsdt.toFixed(4)} USDT (Pass=${pnlPassed}), ` +
+          `Max DD: ${s.maxDrawdownPct.toFixed(4)}% <= 2.0% (Pass=${drawdownPassed}). ` +
+          `Strategy Verdict: ${isReadyForLive ? 'GO' : 'NO_GO (Economic Gate Active)'}`,
+      };
+    });
+
+    const allPassed = strategies.every((st) => st.isReadyForLive);
 
     return {
-      reportType: 'DESCRIPTIVE_RESEARCH_ONLY',
-      isReleaseBlocker: false,
-      generatedAt:
-        options?.generatedAt ?? new Date(0).toISOString(),
+      reportType: 'STRICT_ECONOMIC_AUDIT',
+      isReleaseBlocker: true,
+      overallVerdict: allPassed ? 'GO' : 'NO_GO',
+      generatedAt: options?.generatedAt ?? new Date(0).toISOString(),
       modelVersion: result.modelVersion,
-      strategies: STRATEGY_IDS.map((sid) => {
-        const s = result.strategies[sid];
-        const observedDays = Math.max(1, Math.floor(result.tickCount / 24));
-        return {
-          strategyId: sid,
-          observedContinuousDays: observedDays,
-          targetBenchmarkDays,
-          closedCyclesCount: s.closedCyclesCount,
-          targetBenchmarkCycles,
-          netPnlUsdt: s.realizedNetPnlUsdt,
-          maxDrawdownPct: s.maxDrawdownPct,
-          maxDrawdownLimitPct: s.maxDrawdownPct,
-          researchFinding:
-            `Over ${observedDays} continuous observation days and ${s.closedCyclesCount} closed cycles, ` +
-            `strategy realized net P&L of ${s.realizedNetPnlUsdt.toFixed(4)} USDT with max drawdown ${s.maxDrawdownPct.toFixed(4)}% ` +
-            `and taker fees of ${s.totalFeesPaidUsdt.toFixed(4)} USDT in paper simulation.`,
-        };
-      }),
+      strategies,
     };
   }
 }

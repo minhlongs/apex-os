@@ -55,10 +55,19 @@ export class PaperStrategyEngine {
   private realizedNetPnlUsdt = 0;
   private totalFeesPaidUsdt = 0;
   private totalFundingUsdt = 0;
+  private totalRebalanceFeesUsdt = 0;
   private noTradeCount = 0;
   private desyncHaltCount = 0;
 
-  private readonly openCycles = new Map<string, PaperOpenCycle>();
+  // Venue-specific balances and inventories (F07)
+  private readonly venueBalances: Record<'binance' | 'bybit', {
+    freeCollateralUsdt: number;
+    allocatedCollateralUsdt: number;
+    baseInventory: Record<PaperPair, number>;
+  }>;
+
+  private lastUnrealizedPnlUsdt = 0;
+  private openCycles = new Map<string, PaperOpenCycle>();
   private readonly closedCycles: PaperClosedCycle[] = [];
   private readonly decisions: PaperDecisionLog[] = [];
 
@@ -80,6 +89,25 @@ export class PaperStrategyEngine {
 
     this.cashBalanceUsdt = this.initialCapitalUsdt;
     this.peakEquityUsdt = this.initialCapitalUsdt;
+
+    // Allocate 5,000 USDT collateral per venue
+    // V1 Paper initial state:
+    // To support two-way physical spot trading without spot borrowing/shorting,
+    // pre-fund initial base inventory on both venues (e.g. 0.05 BTC and 0.5 ETH)
+    // with equal value deducted from free quote collateral, or initialize balances.
+    const perVenueCollateral = round4(this.initialCapitalUsdt / 2);
+    this.venueBalances = {
+      binance: {
+        freeCollateralUsdt: perVenueCollateral,
+        allocatedCollateralUsdt: 0,
+        baseInventory: { 'BTC/USDT': 1.0, 'ETH/USDT': 10.0 },
+      },
+      bybit: {
+        freeCollateralUsdt: perVenueCollateral,
+        allocatedCollateralUsdt: 0,
+        baseInventory: { 'BTC/USDT': 1.0, 'ETH/USDT': 10.0 },
+      },
+    };
   }
 
   static computeIdempotencyKey(parts: Array<string | number>): string {
@@ -96,7 +124,10 @@ export class PaperStrategyEngine {
     nowTs: number,
     replayBatchId = 'live-buffer'
   ): PaperDecisionLog {
-    if (this.haltedByDrawdown) {
+    // Always evaluate Mark-To-Market and drawdown on existing positions
+    this.updateMarkToMarketDrawdown(sequencer, nowTs);
+
+    if (this.haltedByDrawdown && !this.openCycles.has(pair)) {
       const log: PaperDecisionLog = {
         tickIndex,
         timestamp: nowTs,
@@ -105,7 +136,7 @@ export class PaperStrategyEngine {
         decision: 'HALTED_DRAWDOWN',
         rawSpreadBps: 0,
         estimatedNetSpreadBps: 0,
-        reason: `Strategy halted: max drawdown ${this.maxDrawdownPct}% exceeded ${this.maxDrawdownLimitPct}% limit`,
+        reason: `Strategy halted from opening new cycles: max drawdown ${this.maxDrawdownPct}% reached >= ${this.maxDrawdownLimitPct}% limit`,
       };
       this.decisions.push(log);
       return log;
@@ -250,6 +281,21 @@ export class PaperStrategyEngine {
     const rawSpreadBps = round4(useDir1 ? spreadDir1Bps : spreadDir2Bps);
     const netSpreadBps = round4(rawSpreadBps - this.roundTripFeeBps());
 
+    if (this.haltedByDrawdown) {
+      const haltLog: PaperDecisionLog = {
+        tickIndex,
+        timestamp: nowTs,
+        strategyId: this.strategyId,
+        pair,
+        decision: 'HALTED_DRAWDOWN',
+        rawSpreadBps,
+        estimatedNetSpreadBps: netSpreadBps,
+        reason: `Strategy halted on mark-to-market: max drawdown ${this.maxDrawdownPct}% reached >= ${this.maxDrawdownLimitPct}% limit`,
+      };
+      this.decisions.push(haltLog);
+      return haltLog;
+    }
+
     if (
       netSpreadBps < this.minEntryNetSpreadBps ||
       this.openCycles.size >= this.maxOpenCycles ||
@@ -279,6 +325,33 @@ export class PaperStrategyEngine {
     const entrySellPrice = useDir1 ? fillSellByb.vwapPrice : fillSellBin.vwapPrice;
     const seqA = useDir1 ? binanceBook.sequenceId : bybitBook.sequenceId;
     const seqB = useDir1 ? bybitBook.sequenceId : binanceBook.sequenceId;
+
+    // Strict Inventory & Collateral Check (F07 / R2):
+    // In V1, spot borrowing and shorting are forbidden.
+    // The buying venue must have sufficient free quote collateral (USDT),
+    // and the selling venue must hold sufficient base asset inventory.
+    const requiredBaseQty = round8(this.maxCycleNotionalUsdt / entryBuyPrice);
+    const buyerVenue = this.venueBalances[buyExchange];
+    const sellerVenue = this.venueBalances[sellExchange];
+
+    if (
+      buyerVenue.freeCollateralUsdt < this.maxCycleNotionalUsdt ||
+      sellerVenue.baseInventory[pair] < requiredBaseQty
+    ) {
+      this.noTradeCount += 1;
+      const noTradeLog: PaperDecisionLog = {
+        tickIndex,
+        timestamp: nowTs,
+        strategyId: this.strategyId,
+        pair,
+        decision: 'NO_TRADE',
+        rawSpreadBps,
+        estimatedNetSpreadBps: netSpreadBps,
+        reason: `Insufficient inventory/collateral on venues: ${buyExchange} free USDT=${buyerVenue.freeCollateralUsdt} (need ${this.maxCycleNotionalUsdt}), ${sellExchange} base ${pair}=${sellerVenue.baseInventory[pair]} (need ${requiredBaseQty})`,
+      };
+      this.decisions.push(noTradeLog);
+      return noTradeLog;
+    }
 
     const cycle = this.openNewCycle({
       pair,
@@ -337,17 +410,28 @@ export class PaperStrategyEngine {
 
     const spotBook = sequencer.getBook('binance', pair, 'spot')!;
     const perpBook = sequencer.getBook('binance', pair, 'linear_perp')!;
-    const fundingBps = perpBook.fundingRateBps ?? 1.0;
+    // When funding rate is missing, default to 0 bps (never assume positive profit)
+    const fundingBps = perpBook.fundingRateBps ?? 0.0;
 
     const existingOpen = this.openCycles.get(pair);
     if (existingOpen) {
-      // Accrue funding interval credit on short perp when fundingRateBps > 0
-      const fundingStepUsdt = round4(
-        existingOpen.notionalUsdt * (fundingBps / 10000) * 0.25
-      );
-      existingOpen.accruedFundingUsdt = round4(
-        existingOpen.accruedFundingUsdt + fundingStepUsdt
-      );
+      // Funding settlement occurs strictly at discrete 8-hour UTC boundaries (00:00, 08:00, 16:00 UTC)
+      // Never accumulate per tick evaluation.
+      const FUNDING_INTERVAL_MS = 8 * 60 * 60 * 1000;
+      const lastAccrualTs = existingOpen.lastFundingAccrualTs ?? existingOpen.entryTs;
+      const lastBoundary = Math.floor(lastAccrualTs / FUNDING_INTERVAL_MS);
+      const currentBoundary = Math.floor(nowTs / FUNDING_INTERVAL_MS);
+
+      if (currentBoundary > lastBoundary) {
+        const intervals = currentBoundary - lastBoundary;
+        const fundingStepUsdt = round4(
+          existingOpen.notionalUsdt * (fundingBps / 10000) * intervals
+        );
+        existingOpen.accruedFundingUsdt = round4(
+          existingOpen.accruedFundingUsdt + fundingStepUsdt
+        );
+        existingOpen.lastFundingAccrualTs = currentBoundary * FUNDING_INTERVAL_MS;
+      }
 
       const exitSpotSell = OrderbookSequencer.computeVwapFill(
         spotBook,
@@ -360,13 +444,16 @@ export class PaperStrategyEngine {
         existingOpen.notionalUsdt
       );
 
+      // Check current mark-to-market drawdown including unrealized P&L
+      this.updateMarkToMarketDrawdown(sequencer, nowTs);
+
       if (exitSpotSell.filled && exitPerpBuy.filled) {
         const exitBasisBps =
           ((exitPerpBuy.vwapPrice - exitSpotSell.vwapPrice) / exitSpotSell.vwapPrice) *
           10000;
 
-        // Close when perp premium converges back toward spot
-        if (exitBasisBps <= this.exitConvergenceSpreadBps) {
+        // Close when perp premium converges back toward spot or when halted by drawdown to cut loss
+        if (exitBasisBps <= this.exitConvergenceSpreadBps || this.haltedByDrawdown) {
           const closed = this.closeOpenCycle(
             existingOpen,
             exitSpotSell.vwapPrice,
@@ -385,11 +472,28 @@ export class PaperStrategyEngine {
             decision: 'CLOSE_CYCLE',
             rawSpreadBps: closed.rawSpreadBps,
             estimatedNetSpreadBps: closed.netSpreadBps,
-            reason: `Closed spot-perp cycle ${closed.cycleId} with net P&L ${closed.netPnlUsdt} USDT (funding ${closed.fundingDeltaUsdt} USDT)`,
+            reason: this.haltedByDrawdown
+              ? `Closed spot-perp cycle ${closed.cycleId} due to drawdown risk cut (${this.maxDrawdownPct}% >= ${this.maxDrawdownLimitPct}%)`
+              : `Closed spot-perp cycle ${closed.cycleId} with net P&L ${closed.netPnlUsdt} USDT (funding ${closed.fundingDeltaUsdt} USDT)`,
           };
           this.decisions.push(log);
           return log;
         }
+      }
+
+      if (this.haltedByDrawdown) {
+        const haltLog: PaperDecisionLog = {
+          tickIndex,
+          timestamp: nowTs,
+          strategyId: this.strategyId,
+          pair,
+          decision: 'HALTED_DRAWDOWN',
+          rawSpreadBps: 0,
+          estimatedNetSpreadBps: 0,
+          reason: `Strategy halted on mark-to-market: max drawdown ${this.maxDrawdownPct}% reached >= ${this.maxDrawdownLimitPct}% limit`,
+        };
+        this.decisions.push(haltLog);
+        return haltLog;
       }
 
       const holdLog: PaperDecisionLog = {
@@ -497,6 +601,18 @@ export class PaperStrategyEngine {
 
     this.cashBalanceUsdt = round4(this.cashBalanceUsdt - notionalUsdt);
 
+    // Update venue-specific collateral and inventory
+    const legA = this.venueBalances[params.legAExchange];
+    const legB = this.venueBalances[params.legBExchange];
+    const halfNotional = round4(notionalUsdt / 2);
+    legA.freeCollateralUsdt = round4(legA.freeCollateralUsdt - halfNotional);
+    legA.allocatedCollateralUsdt = round4(legA.allocatedCollateralUsdt + halfNotional);
+    legA.baseInventory[params.pair] = round8(legA.baseInventory[params.pair] + quantityBase);
+
+    legB.freeCollateralUsdt = round4(legB.freeCollateralUsdt - halfNotional);
+    legB.allocatedCollateralUsdt = round4(legB.allocatedCollateralUsdt + halfNotional);
+    legB.baseInventory[params.pair] = round8(legB.baseInventory[params.pair] - quantityBase);
+
     const openCycle: PaperOpenCycle = {
       cycleId,
       strategyId: this.strategyId,
@@ -589,6 +705,18 @@ export class PaperStrategyEngine {
     this.openCycles.delete(open.pair);
     this.closedCycles.push(closed);
 
+    // Release and rebalance venue collateral and inventories
+    const legA = this.venueBalances[open.legAExchange];
+    const legB = this.venueBalances[open.legBExchange];
+    const halfNotional = round4(open.notionalUsdt / 2);
+    legA.allocatedCollateralUsdt = round4(legA.allocatedCollateralUsdt - halfNotional);
+    legA.freeCollateralUsdt = round4(legA.freeCollateralUsdt + halfNotional + netPnlUsdt / 2);
+    legA.baseInventory[open.pair] = round8(legA.baseInventory[open.pair] - open.quantityBase);
+
+    legB.allocatedCollateralUsdt = round4(legB.allocatedCollateralUsdt - halfNotional);
+    legB.freeCollateralUsdt = round4(legB.freeCollateralUsdt + halfNotional + netPnlUsdt / 2);
+    legB.baseInventory[open.pair] = round8(legB.baseInventory[open.pair] + open.quantityBase);
+
     this.cashBalanceUsdt = round4(this.cashBalanceUsdt + open.notionalUsdt + netPnlUsdt);
     this.realizedNetPnlUsdt = round4(this.realizedNetPnlUsdt + netPnlUsdt);
     this.totalFeesPaidUsdt = round4(this.totalFeesPaidUsdt + totalFeesUsdt);
@@ -604,11 +732,67 @@ export class PaperStrategyEngine {
     if (drawdownPct > this.maxDrawdownPct) {
       this.maxDrawdownPct = drawdownPct;
     }
-    if (this.maxDrawdownPct > this.maxDrawdownLimitPct) {
+    if (this.maxDrawdownPct >= this.maxDrawdownLimitPct) {
       this.haltedByDrawdown = true;
     }
 
     return closed;
+  }
+
+  /**
+   * Update mark-to-market drawdown using total equity including unrealized P&L.
+   * Halts strategy when drawdown reaches or exceeds the threshold (drawdownPct >= maxDrawdownLimitPct).
+   */
+  updateMarkToMarketDrawdown(
+    sequencer?: OrderbookSequencer,
+    _nowTs?: number
+  ): { equityUsdt: number; drawdownPct: number; halted: boolean } {
+    let unrealizedPnlUsdt = 0;
+
+    if (sequencer) {
+      for (const open of this.openCycles.values()) {
+        const bookA = sequencer.getBook(open.legAExchange, open.pair, open.legAMarket);
+        const bookB = sequencer.getBook(open.legBExchange, open.pair, open.legBMarket);
+        if (bookA && bookB) {
+          const exitA = OrderbookSequencer.computeVwapFill(bookA, 'sell', open.notionalUsdt);
+          const exitB = OrderbookSequencer.computeVwapFill(bookB, 'buy', open.notionalUsdt);
+          if (exitA.filled && exitB.filled) {
+            const pnlA = (exitA.vwapPrice - open.entryLegAPrice) * open.quantityBase;
+            const pnlB = (open.entryLegBPrice - exitB.vwapPrice) * open.quantityBase;
+            const estExitFees = open.notionalUsdt * this.singleLegTakerFeeRate * 2;
+            unrealizedPnlUsdt += pnlA + pnlB + open.accruedFundingUsdt - open.entryFeesUsdt - estExitFees;
+          }
+        }
+      }
+    }
+
+    this.lastUnrealizedPnlUsdt = round4(unrealizedPnlUsdt);
+
+    let allocated = 0;
+    for (const c of this.openCycles.values()) {
+      allocated += c.notionalUsdt;
+    }
+
+    const currentEquity = round4(this.cashBalanceUsdt + allocated + unrealizedPnlUsdt);
+    if (currentEquity > this.peakEquityUsdt) {
+      this.peakEquityUsdt = currentEquity;
+    }
+    const drawdownPct = round4(
+      ((this.peakEquityUsdt - currentEquity) / this.peakEquityUsdt) * 100
+    );
+    if (drawdownPct > this.maxDrawdownPct) {
+      this.maxDrawdownPct = drawdownPct;
+    }
+    // Strict halt guard: halt when drawdown reaches or exceeds limit (>= 2%)
+    if (this.maxDrawdownPct >= this.maxDrawdownLimitPct) {
+      this.haltedByDrawdown = true;
+    }
+
+    return {
+      equityUsdt: currentEquity,
+      drawdownPct: this.maxDrawdownPct,
+      halted: this.haltedByDrawdown,
+    };
   }
 
   getCurrentEquityUsdt(): number {
@@ -616,7 +800,7 @@ export class PaperStrategyEngine {
     for (const c of this.openCycles.values()) {
       allocated += c.notionalUsdt;
     }
-    return round4(this.cashBalanceUsdt + allocated);
+    return round4(this.cashBalanceUsdt + allocated + this.lastUnrealizedPnlUsdt);
   }
 
   getSnapshot(): PaperStrategySnapshot {
@@ -638,7 +822,8 @@ export class PaperStrategyEngine {
       initialCapitalUsdt: this.initialCapitalUsdt,
       cashBalanceUsdt: this.cashBalanceUsdt,
       allocatedNotionalUsdt: round4(allocated),
-      equityUsdt: round4(this.cashBalanceUsdt + allocated),
+      unrealizedPnlUsdt: this.lastUnrealizedPnlUsdt,
+      equityUsdt: round4(this.cashBalanceUsdt + allocated + this.lastUnrealizedPnlUsdt),
       peakEquityUsdt: this.peakEquityUsdt,
       realizedNetPnlUsdt: this.realizedNetPnlUsdt,
       totalFeesPaidUsdt: this.totalFeesPaidUsdt,
@@ -650,6 +835,21 @@ export class PaperStrategyEngine {
       noTradeCount: this.noTradeCount,
       desyncHaltCount: this.desyncHaltCount,
       winRatePct,
+      totalRebalanceFeesUsdt: this.totalRebalanceFeesUsdt,
+      venueBalances: {
+        binance: {
+          exchange: 'binance',
+          freeCollateralUsdt: this.venueBalances.binance.freeCollateralUsdt,
+          allocatedCollateralUsdt: this.venueBalances.binance.allocatedCollateralUsdt,
+          baseInventory: { ...this.venueBalances.binance.baseInventory },
+        },
+        bybit: {
+          exchange: 'bybit',
+          freeCollateralUsdt: this.venueBalances.bybit.freeCollateralUsdt,
+          allocatedCollateralUsdt: this.venueBalances.bybit.allocatedCollateralUsdt,
+          baseInventory: { ...this.venueBalances.bybit.baseInventory },
+        },
+      },
     };
   }
 
@@ -659,5 +859,87 @@ export class PaperStrategyEngine {
 
   getDecisions(): PaperDecisionLog[] {
     return [...this.decisions];
+  }
+
+  isHalted(): boolean {
+    return this.haltedByDrawdown;
+  }
+
+  serializeState(): {
+    cashBalanceUsdt: number;
+    peakEquityUsdt: number;
+    maxDrawdownPct: number;
+    haltedByDrawdown: boolean;
+    realizedNetPnlUsdt: number;
+    totalFeesPaidUsdt: number;
+    totalFundingUsdt: number;
+    totalRebalanceFeesUsdt: number;
+    noTradeCount: number;
+    desyncHaltCount: number;
+    venueBalances: Record<'binance' | 'bybit', {
+      freeCollateralUsdt: number;
+      allocatedCollateralUsdt: number;
+      baseInventory: Record<PaperPair, number>;
+    }>;
+    openCycles: PaperOpenCycle[];
+    closedCycles: PaperClosedCycle[];
+  } {
+    return {
+      cashBalanceUsdt: this.cashBalanceUsdt,
+      peakEquityUsdt: this.peakEquityUsdt,
+      maxDrawdownPct: this.maxDrawdownPct,
+      haltedByDrawdown: this.haltedByDrawdown,
+      realizedNetPnlUsdt: this.realizedNetPnlUsdt,
+      totalFeesPaidUsdt: this.totalFeesPaidUsdt,
+      totalFundingUsdt: this.totalFundingUsdt,
+      totalRebalanceFeesUsdt: this.totalRebalanceFeesUsdt,
+      noTradeCount: this.noTradeCount,
+      desyncHaltCount: this.desyncHaltCount,
+      venueBalances: {
+        binance: {
+          freeCollateralUsdt: this.venueBalances.binance.freeCollateralUsdt,
+          allocatedCollateralUsdt: this.venueBalances.binance.allocatedCollateralUsdt,
+          baseInventory: { ...this.venueBalances.binance.baseInventory },
+        },
+        bybit: {
+          freeCollateralUsdt: this.venueBalances.bybit.freeCollateralUsdt,
+          allocatedCollateralUsdt: this.venueBalances.bybit.allocatedCollateralUsdt,
+          baseInventory: { ...this.venueBalances.bybit.baseInventory },
+        },
+      },
+      openCycles: Array.from(this.openCycles.values()),
+      closedCycles: [...this.closedCycles],
+    };
+  }
+
+  restoreState(saved: ReturnType<PaperStrategyEngine['serializeState']>): void {
+    this.cashBalanceUsdt = saved.cashBalanceUsdt;
+    this.peakEquityUsdt = saved.peakEquityUsdt;
+    this.maxDrawdownPct = saved.maxDrawdownPct;
+    this.haltedByDrawdown = saved.haltedByDrawdown;
+    this.realizedNetPnlUsdt = saved.realizedNetPnlUsdt;
+    this.totalFeesPaidUsdt = saved.totalFeesPaidUsdt;
+    this.totalFundingUsdt = saved.totalFundingUsdt;
+    this.totalRebalanceFeesUsdt = saved.totalRebalanceFeesUsdt ?? 0;
+    this.noTradeCount = saved.noTradeCount;
+    this.desyncHaltCount = saved.desyncHaltCount;
+    if (saved.venueBalances) {
+      this.venueBalances.binance = {
+        freeCollateralUsdt: saved.venueBalances.binance.freeCollateralUsdt,
+        allocatedCollateralUsdt: saved.venueBalances.binance.allocatedCollateralUsdt,
+        baseInventory: { ...saved.venueBalances.binance.baseInventory },
+      };
+      this.venueBalances.bybit = {
+        freeCollateralUsdt: saved.venueBalances.bybit.freeCollateralUsdt,
+        allocatedCollateralUsdt: saved.venueBalances.bybit.allocatedCollateralUsdt,
+        baseInventory: { ...saved.venueBalances.bybit.baseInventory },
+      };
+    }
+    this.openCycles.clear();
+    for (const oc of saved.openCycles) {
+      this.openCycles.set(oc.pair, oc);
+    }
+    this.closedCycles.length = 0;
+    this.closedCycles.push(...saved.closedCycles);
   }
 }
