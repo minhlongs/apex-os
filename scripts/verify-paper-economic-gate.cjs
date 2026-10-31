@@ -127,7 +127,36 @@ function evaluateRuns(runs, options = {}) {
     const heartbeatTs = normalizedHb ? Date.parse(normalizedHb) : NaN;
     const heartbeatAgeMs = Number.isFinite(heartbeatTs) ? nowMs - heartbeatTs : Infinity;
 
-    const daysOk = Number.isFinite(days) && days >= TARGET_DAYS;
+    // Physical Duration & Impossibility Verification (Finding C5):
+    // A run cannot claim 30 days of real-market coverage if the run started today.
+    // Validate that the physical elapsed time since run start (and window start timestamp)
+    // is >= claimed days (and >= TARGET_DAYS of 30 days = 30 * 86,400,000 ms).
+    const windowStartStr = extractRunWindowId(run.run_id, strategyId);
+    const windowStartMs = Number(windowStartStr);
+    const hasValidWindowTs = Number.isFinite(windowStartMs) && windowStartMs > 0 && windowStartMs <= nowMs;
+    const elapsedWindowDays = hasValidWindowTs ? (nowMs - windowStartMs) / (24 * 3600 * 1000) : 0;
+
+    let elapsedStartedAtDays = Infinity;
+    if (run.started_at) {
+      const startedAtRaw = String(run.started_at);
+      const normalizedStartedAt =
+        startedAtRaw && !startedAtRaw.endsWith('Z') && !startedAtRaw.includes('+')
+          ? `${startedAtRaw.replace(' ', 'T')}Z`
+          : startedAtRaw;
+      const startedAtTs = Date.parse(normalizedStartedAt);
+      if (Number.isFinite(startedAtTs)) {
+        elapsedStartedAtDays = (nowMs - startedAtTs) / (24 * 3600 * 1000);
+      }
+    }
+
+    const durationIsPhysicallyPossible =
+      hasValidWindowTs &&
+      elapsedWindowDays >= TARGET_DAYS &&
+      days <= elapsedWindowDays + 1e-4 &&
+      elapsedStartedAtDays >= TARGET_DAYS &&
+      days <= elapsedStartedAtDays + 1e-4;
+
+    const daysOk = Number.isFinite(days) && days >= TARGET_DAYS && durationIsPhysicallyPossible;
     const cyclesOk = Number.isFinite(cycles) && cycles >= TARGET_CYCLES;
     const pnlOk = Number.isFinite(netPnl) && netPnl > 0;
     const ddOk = Number.isFinite(maxDd) && maxDd >= 0 && maxDd <= MAX_DRAWDOWN_PCT;
@@ -160,6 +189,8 @@ function evaluateRuns(runs, options = {}) {
       modelVersion,
       expectedModelVersion,
       verifiedRealMarketDays: days,
+      elapsedWindowDays: Number(elapsedWindowDays.toFixed(6)),
+      durationIsPhysicallyPossible,
       closedCyclesCount: cycles,
       realizedNetPnlUsdt: netPnl,
       maxDrawdownPct: maxDd,
@@ -170,6 +201,7 @@ function evaluateRuns(runs, options = {}) {
       verdict,
       checks: {
         daysOk,
+        durationIsPhysicallyPossible,
         cyclesOk,
         pnlOk,
         ddOk,
@@ -182,22 +214,29 @@ function evaluateRuns(runs, options = {}) {
   }
 
   // Cross-strategy provenance check: both strategies must share the same config_hash
-  // and belong to the same run window if run_id encodes the window timestamp.
+  // and both run_id windows must be valid timestamps that each satisfy >= 30 days of
+  // physical elapsed wall-clock time, proving neither strategy shortcut the acceptance timer.
   if (activeRunsByStrategy.size === REQUIRED_STRATEGIES.length) {
     const runA = activeRunsByStrategy.get('spot-2exch');
     const runB = activeRunsByStrategy.get('spot-perp');
     const sameConfigHash = String(runA.config_hash ?? '') === String(runB.config_hash ?? '');
-    const windowA = extractRunWindowId(runA.run_id, 'spot-2exch');
-    const windowB = extractRunWindowId(runB.run_id, 'spot-perp');
-    const sameWindow = !windowA || !windowB ? false : windowA === windowB;
+    const windowA = Number(extractRunWindowId(runA.run_id, 'spot-2exch'));
+    const windowB = Number(extractRunWindowId(runB.run_id, 'spot-perp'));
+    const windowAValid =
+      Number.isFinite(windowA) && windowA > 0 && windowA <= nowMs && nowMs - windowA >= TARGET_DAYS * 86_400_000;
+    const windowBValid =
+      Number.isFinite(windowB) && windowB > 0 && windowB <= nowMs && nowMs - windowB >= TARGET_DAYS * 86_400_000;
+    const sameWindow = windowA === windowB;
 
-    if (!sameConfigHash || !sameWindow) {
+    if (!sameConfigHash || !windowAValid || !windowBValid || !sameWindow) {
       allPassed = false;
       for (const d of details) {
         d.passed = false;
         d.checks = {
           ...d.checks,
           sameConfigHash,
+          windowAValid,
+          windowBValid,
           sameWindow,
         };
       }

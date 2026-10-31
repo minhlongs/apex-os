@@ -1646,6 +1646,147 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         expect(postOpenVenue?.binance.baseInventory['BTC/USDT']).toBeCloseTo(expectedBtc, 4);
         expect(postOpenVenue?.binance.allocatedCollateralUsdt).toBeGreaterThanOrEqual(1000); // 500 spot buy + 500 perp margin
       });
+
+      it('C1: resets continuousCoverageMs and runStartedAtMs when feed gap exceeds 15s, even when polled incrementally every 1s', async () => {
+        const { PaperTradingDurableObject } = await import('../worker-do');
+        const { REQUIRED_PAPER_STREAMS } = await import('../orderbook-sequencer');
+        const store = new Map<string, unknown>();
+        const doInstance = new PaperTradingDurableObject({
+          storage: {
+            get: async (k) => store.get(k) as any,
+            put: async (k, v) => { store.set(k, v); },
+            delete: async (k) => { store.delete(k); },
+          },
+        });
+        await doInstance.ensureRestored();
+
+        const baseTs = 1761840000000;
+        // Ingest all 8 streams to establish live state
+        for (const s of REQUIRED_PAPER_STREAMS) {
+          const mid = s.pair === 'BTC/USDT' ? 68000 : 2600;
+          await doInstance.ingestOrderbook({
+            exchange: s.exchange,
+            pair: s.pair,
+            marketType: s.marketType,
+            sequenceId: 10,
+            exchangeTs: baseTs - 5,
+            receivedTs: baseTs,
+            bids: [{ price: mid, quantity: 1 }],
+            asks: [{ price: mid + 5, quantity: 1 }],
+          }, baseTs);
+        }
+        expect(doInstance.isCollectorLive(baseTs)).toBe(true);
+
+        // Advance 5 seconds with live stream updates: coverage should accrue ~5s
+        const tLive = baseTs + 5000;
+        for (const s of REQUIRED_PAPER_STREAMS) {
+          const mid = s.pair === 'BTC/USDT' ? 68000 : 2600;
+          await doInstance.ingestOrderbook({
+            exchange: s.exchange,
+            pair: s.pair,
+            marketType: s.marketType,
+            sequenceId: 11,
+            exchangeTs: tLive - 5,
+            receivedTs: tLive,
+            bids: [{ price: mid, quantity: 1 }],
+            asks: [{ price: mid + 5, quantity: 1 }],
+          }, tLive);
+        }
+        const status1 = (await (await doInstance.fetch(new Request('http://internal/status'))).json()) as any;
+        expect(status1.continuousCoverageMs).toBeGreaterThanOrEqual(5000);
+
+        // Now simulate a 60s outage where check/tick occurs every 1s without receiving all required streams
+        for (let s = 1; s <= 60; s++) {
+          const tickTs = tLive + s * 1000;
+          // Ingest only 1 stream so the feed is non-live (isCollectorLive = false)
+          await doInstance.ingestOrderbook({
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 12 + s,
+            exchangeTs: tickTs - 5,
+            receivedTs: tickTs,
+            bids: [{ price: 68000, quantity: 1 }],
+            asks: [{ price: 68005, quantity: 1 }],
+          }, tickTs);
+        }
+
+        // After 60s of outage with 1s steps, the window MUST have reset to 0 (Finding C1 Repro 1)
+        const statusAfterOutage = (await (await doInstance.fetch(new Request('http://internal/status'))).json()) as any;
+        expect(statusAfterOutage.continuousCoverageMs).toBe(0);
+        expect(statusAfterOutage.verifiedRealMarketDays).toBe(0);
+
+        // Reconnect after 31 days with no intermediate checks: must NOT credit 31 days of continuous coverage! (Finding C1 Repro 2)
+        const t31DaysLater = tLive + 31 * 86400 * 1000;
+        for (const s of REQUIRED_PAPER_STREAMS) {
+          const mid = s.pair === 'BTC/USDT' ? 68000 : 2600;
+          await doInstance.ingestOrderbook({
+            exchange: s.exchange,
+            pair: s.pair,
+            marketType: s.marketType,
+            sequenceId: 200,
+            exchangeTs: t31DaysLater - 5,
+            receivedTs: t31DaysLater,
+            bids: [{ price: mid, quantity: 1 }],
+            asks: [{ price: mid + 5, quantity: 1 }],
+          }, t31DaysLater);
+        }
+        const status31Days = (await (await doInstance.fetch(new Request('http://internal/status'))).json()) as any;
+        expect(status31Days.continuousCoverageMs).toBe(0);
+        expect(status31Days.verifiedRealMarketDays).toBe(0);
+      });
+
+      it('C2: OrderbookSequencer preserves authentic delta metadata and correctly verifies range continuity or flags FEED_DESYNC', () => {
+        const sequencer = new OrderbookSequencer();
+        const baseTs = 1761840000000;
+
+        // Ingest REST snapshot with sequenceId = 100
+        const snap = sequencer.resyncSnapshot({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 100,
+          exchangeTs: baseTs,
+          receivedTs: baseTs + 5,
+          isDelta: false,
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68010, quantity: 1 }],
+        }, baseTs + 5);
+        expect(snap.status).toBe('SYNCED');
+        expect(snap.lastSequenceId).toBe(100);
+
+        // Delta that legitimately bridges snapshot (U <= 101 && u >= 101, e.g. U=95, u=105)
+        const validBridge = sequencer.ingest({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          firstUpdateId: 95,
+          sequenceId: 105,
+          exchangeTs: baseTs + 10,
+          receivedTs: baseTs + 15,
+          isDelta: true,
+          bids: [{ price: 68001, quantity: 1 }],
+          asks: [{ price: 68009, quantity: 1 }],
+        }, baseTs + 15);
+        expect(validBridge.status).toBe('SYNCED');
+        expect(validBridge.lastSequenceId).toBe(105);
+
+        // Delta with true missing sequence gap (U = 110 > 106, missing 106..109)
+        const gappedDelta = sequencer.ingest({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          firstUpdateId: 110,
+          sequenceId: 120,
+          exchangeTs: baseTs + 20,
+          receivedTs: baseTs + 25,
+          isDelta: true,
+          bids: [{ price: 68002, quantity: 1 }],
+          asks: [{ price: 68008, quantity: 1 }],
+        }, baseTs + 25);
+        // Must reject authentic gap as FEED_DESYNC, not mask it
+        expect(gappedDelta.status).toBe('FEED_DESYNC');
+      });
     });
   });
 });

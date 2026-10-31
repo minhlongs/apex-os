@@ -311,25 +311,16 @@ export class LiveMarketCollector {
       this.recordBookIngest(snapshotBook);
     }
     const minSeq = snapshotBook ? snapshotBook.sequenceId : -1;
-    let bridgedFirst = false;
     const drained: NormalizedOrderbook[] = [];
     for (const delta of queued) {
       if (delta.sequenceId <= minSeq) {
         continue;
       }
-      if (!bridgedFirst && snapshotBook) {
-        // Bridge the first post-snapshot delta so its prevSequenceId aligns with the snapshot
-        bridgedFirst = true;
-        const bridged = {
-          ...delta,
-          prevSequenceId: snapshotBook.sequenceId,
-        };
-        drained.push(bridged);
-        this.recordBookIngest(bridged);
-      } else {
-        drained.push(delta);
-        this.recordBookIngest(delta);
-      }
+      // Preserve authentic delta metadata (sequenceId, prevSequenceId, firstUpdateId).
+      // Do NOT rewrite prevSequenceId to mask missing ranges or sequence gaps.
+      // OrderbookSequencer verifies whether the delta genuinely bridges or triggers FEED_DESYNC.
+      drained.push(delta);
+      this.recordBookIngest(delta);
     }
     return drained;
   }
@@ -390,6 +381,19 @@ export class LiveMarketCollector {
     });
   }
 
+  /**
+   * Explicitly acknowledge that a funding settlement event has been ingested and durably processed.
+   * Clears the pending settlement metadata so subsequent books do not keep emitting it.
+   */
+  ackFundingSettlement(key: string, eventId: string): void {
+    const cached = this.fundingByKey.get(key);
+    if (cached && cached.pendingSettlementEventId === eventId) {
+      cached.pendingSettlementEventId = undefined;
+      cached.pendingSettlementTs = undefined;
+      cached.pendingSettlementRateBps = undefined;
+    }
+  }
+
   private consumeFundingMetadata(key: string, now: number): {
     fundingRateBps: number;
     nextFundingTimeMs?: number;
@@ -404,9 +408,7 @@ export class LiveMarketCollector {
       const eventId = cached.pendingSettlementEventId;
       const settlementTs = cached.pendingSettlementTs;
       const settledRate = cached.pendingSettlementRateBps ?? cached.rateBps;
-      cached.pendingSettlementEventId = undefined;
-      cached.pendingSettlementTs = undefined;
-      cached.pendingSettlementRateBps = undefined;
+      // Retain pendingSettlementEventId until acknowledged by downstream persistence or overwritten by next boundary
       return {
         fundingRateBps: settledRate,
         nextFundingTimeMs: cached.nextFundingTimeMs,

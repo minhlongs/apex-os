@@ -21,6 +21,7 @@ export interface NormalizedOrderbook {
   marketType: PaperMarketType;
   sequenceId: number;
   prevSequenceId?: number;
+  firstUpdateId?: number;
   exchangeTs: number;
   receivedTs: number;
   isDelta?: boolean;

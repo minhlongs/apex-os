@@ -109,6 +109,7 @@ export class OrderbookSequencer {
       marketType,
       sequenceId: msg.u,
       prevSequenceId,
+      firstUpdateId: typeof msg.U === 'number' ? msg.U : undefined,
       exchangeTs: msg.E,
       receivedTs,
       isDelta: true,
@@ -255,12 +256,18 @@ export class OrderbookSequencer {
     // 2. Explicit gap via prevSequenceId mismatch or jump > 1
     //    - For Binance Futures (`pu`), `prevSequenceId` must equal `existing.lastSequenceId`
     //    - For Binance Spot (`U - 1`), `expectedPrev` (`U - 1`) must be <= `existing.lastSequenceId`
+    //    - If first delta after a snapshot has range `firstUpdateId <= existing.lastSequenceId + 1 && sequenceId >= existing.lastSequenceId + 1`,
+    //      it covers the snapshot continuity window legitimately.
     const expectedPrev =
       book.prevSequenceId !== undefined ? book.prevSequenceId : book.sequenceId - 1;
+    const isBridgeCovered =
+      typeof book.firstUpdateId === 'number' &&
+      book.firstUpdateId <= existing.lastSequenceId + 1 &&
+      book.sequenceId >= existing.lastSequenceId + 1;
     const hasSequenceGap =
       !isRepeatedValidSnapshot &&
       (book.sequenceId <= existing.lastSequenceId ||
-        (book.isDelta !== false && expectedPrev > existing.lastSequenceId));
+        (book.isDelta !== false && expectedPrev > existing.lastSequenceId && !isBridgeCovered));
 
     if (hasSequenceGap) {
       const desyncState: SequencerStreamState = {

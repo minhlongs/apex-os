@@ -61,6 +61,8 @@ export class PaperTradingDurableObject {
   private lastLiveIngestTsMs: number | null = null;
   private continuousCoverageMs = 0;
   private lastCoverageCheckTsMs: number | null = null;
+  private lastLiveConfirmedTsMs: number | null = null;
+  private gapStartedAtMs: number | null = null;
   private collectorDesiredRunning = false;
   private ingestQueue: Promise<unknown> = Promise.resolve();
   private readonly sessionTicks: Array<{
@@ -120,6 +122,14 @@ export class PaperTradingDurableObject {
     const storedLastCoverageCheck = await this.state.storage.get<number>('last_coverage_check_ts_ms');
     if (storedLastCoverageCheck !== undefined) {
       this.lastCoverageCheckTsMs = storedLastCoverageCheck;
+    }
+    const storedLastLiveConfirmed = await this.state.storage.get<number>('last_live_confirmed_ts_ms');
+    if (storedLastLiveConfirmed !== undefined) {
+      this.lastLiveConfirmedTsMs = storedLastLiveConfirmed;
+    }
+    const storedGapStarted = await this.state.storage.get<number>('gap_started_at_ms');
+    if (storedGapStarted !== undefined) {
+      this.gapStartedAtMs = storedGapStarted;
     }
     const storedDesiredRunning = await this.state.storage.get<boolean>('collector_desired_running');
     if (storedDesiredRunning !== undefined) {
@@ -287,37 +297,86 @@ export class PaperTradingDurableObject {
    * If a feed gap occurs (not live for > 15s) that cannot be continuously recovered,
    * reset the 30-day window per the user's explicit rule: never pause and accumulate
    * across unrecoverable gaps; restart the window.
+   *
+   * Fixes Finding C1:
+   * - Repro 1: Feed goes false for 60s while checked every 1s -> must track gapStartedAtMs
+   *   and reset window once gap exceeds 15s, NOT keep window alive because each step is small.
+   * - Repro 2: Feed reconnects true after 31 days with no intermediate checks -> must NOT
+   *   credit the 31-day unverified gap to continuous coverage. Only steps <= 15s since
+   *   last live confirmation are credited. Any step > 15s resets continuousCoverageMs.
    */
   private async updateCoverage(nowMs: number, isLive: boolean): Promise<void> {
-    if (!this.lastCoverageCheckTsMs) {
-      this.lastCoverageCheckTsMs = nowMs;
-      if (isLive) {
-        await this.state.storage.put('last_coverage_check_ts_ms', nowMs);
-      }
-      return;
-    }
-
-    const elapsed = Math.max(0, nowMs - this.lastCoverageCheckTsMs);
     this.lastCoverageCheckTsMs = nowMs;
     await this.state.storage.put('last_coverage_check_ts_ms', nowMs);
 
     if (isLive) {
-      this.continuousCoverageMs += elapsed;
-      await this.state.storage.put('continuous_coverage_ms', this.continuousCoverageMs);
-    } else if (elapsed > 15000) {
-      // Unrecoverable gap: reset continuous coverage and start a new run window
-      this.continuousCoverageMs = 0;
-      this.runStartedAtMs = nowMs;
-      await this.state.storage.put('continuous_coverage_ms', 0);
-      await this.state.storage.put('run_started_at_ms', nowMs);
-      if (this.env?.DB) {
-        for (const sid of STRATEGY_IDS) {
-          await this.journal.deactivatePriorRuns(
-            sid,
-            `run_${sid}_${nowMs}`,
-            this.env.DB
-          );
+      if (this.gapStartedAtMs !== null && nowMs - this.gapStartedAtMs > 15000) {
+        // Feed recovered, but the gap exceeded 15s: unrecoverable gap, reset window
+        await this.resetContinuousWindow(nowMs);
+        this.lastLiveConfirmedTsMs = nowMs;
+        this.gapStartedAtMs = null;
+        await this.state.storage.put('last_live_confirmed_ts_ms', nowMs);
+        if (this.state.storage.delete) {
+          await this.state.storage.delete('gap_started_at_ms');
         }
+        return;
+      }
+
+      if (this.lastLiveConfirmedTsMs !== null) {
+        const step = Math.max(0, nowMs - this.lastLiveConfirmedTsMs);
+        if (step > 15000) {
+          // Unmonitored gap occurred between live checks (> 15s): reset window
+          await this.resetContinuousWindow(nowMs);
+          this.lastLiveConfirmedTsMs = nowMs;
+          this.gapStartedAtMs = null;
+          await this.state.storage.put('last_live_confirmed_ts_ms', nowMs);
+          if (this.state.storage.delete) {
+            await this.state.storage.delete('gap_started_at_ms');
+          }
+          return;
+        }
+
+        // Proven continuous live step <= 15s
+        this.continuousCoverageMs += step;
+        await this.state.storage.put('continuous_coverage_ms', this.continuousCoverageMs);
+      }
+
+      this.lastLiveConfirmedTsMs = nowMs;
+      this.gapStartedAtMs = null;
+      await this.state.storage.put('last_live_confirmed_ts_ms', nowMs);
+      if (this.state.storage.delete) {
+        await this.state.storage.delete('gap_started_at_ms');
+      }
+    } else {
+      // Feed is non-live
+      if (this.gapStartedAtMs === null) {
+        this.gapStartedAtMs = this.lastLiveConfirmedTsMs ?? nowMs;
+        await this.state.storage.put('gap_started_at_ms', this.gapStartedAtMs);
+      }
+      const outageDuration = Math.max(0, nowMs - this.gapStartedAtMs);
+      if (outageDuration > 15000) {
+        // Continuous feed loss > 15s: reset continuous window immediately
+        await this.resetContinuousWindow(nowMs);
+        this.lastLiveConfirmedTsMs = null;
+        if (this.state.storage.delete) {
+          await this.state.storage.delete('last_live_confirmed_ts_ms');
+        }
+      }
+    }
+  }
+
+  private async resetContinuousWindow(nowMs: number): Promise<void> {
+    this.continuousCoverageMs = 0;
+    this.runStartedAtMs = nowMs;
+    await this.state.storage.put('continuous_coverage_ms', 0);
+    await this.state.storage.put('run_started_at_ms', nowMs);
+    if (this.env?.DB) {
+      for (const sid of STRATEGY_IDS) {
+        await this.journal.deactivatePriorRuns(
+          sid,
+          `run_${sid}_${nowMs}`,
+          this.env.DB
+        );
       }
     }
   }
@@ -477,16 +536,65 @@ export class PaperTradingDurableObject {
     const isLive = this.isCollectorLive(nowTs);
     await this.updateCoverage(nowTs, isLive);
 
-    // Evaluate strategy state after resync as well
+    // Evaluate strategy state after resync through the unified persistence pipeline
     const replayObjectKey = `r2://apex-os-paper/live/resync-${book.exchange}-${book.pair.replace('/', '')}-${book.sequenceId}.json`;
     for (const engine of this.strategies.values()) {
-      engine.evaluatePair(
+      const prevClosedCount = engine.getClosedCycles().length;
+      const prevClosedKeys = new Set(engine.getClosedCycles().map((c) => c.idempotencyKey));
+      const decision = engine.evaluatePair(
         this.sequencer,
         book.pair,
         this.tickCounter,
         nowTs,
         replayObjectKey
       );
+      const currentClosed = engine.getClosedCycles();
+      if (currentClosed.length > prevClosedCount) {
+        for (const c of currentClosed) {
+          if (!prevClosedKeys.has(c.idempotencyKey)) {
+            await this.journal.recordClosedCycle(c, this.env?.DB, this.env?.STORAGE);
+            if (this.env?.STORAGE) {
+              const cycleTicks = this.sessionTicks.filter(
+                (t) => t.nowTs >= c.entryTs && t.nowTs <= c.exitTs
+              );
+              await this.journal.archiveReplayData(
+                `${c.replayObjectKey}.raw.json`,
+                {
+                  cycle: c,
+                  triggerBook: book,
+                  decision,
+                  cycleTicks,
+                  decisions: engine.getDecisions().slice(-50),
+                  fundingLedger: engine.getSnapshot().fundingLedger ?? [],
+                  sequencerStates: this.sequencer.getAllStates(),
+                },
+                this.env.STORAGE
+              );
+            }
+          }
+        }
+      }
+
+      await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
+      await this.state.storage.put(
+        `strategy_state_${engine.strategyId}`,
+        engine.serializeState()
+      );
+    }
+
+    if (book.fundingEventId && this.collector) {
+      const streamKey = OrderbookSequencer.makeStreamKey(
+        book.exchange,
+        book.pair,
+        book.marketType
+      );
+      this.collector.ackFundingSettlement(streamKey, book.fundingEventId);
+    }
+
+    await this.state.storage.put('paper_closed_cycles', this.journal.getClosedCycles());
+
+    if (this.env?.DB) {
+      await this.syncRunsInD1(nowTs);
     }
 
     return result;
