@@ -17,7 +17,8 @@ export { PaperTradingDurableObject } from './src/lib/paper/worker-do.ts';
 
 export default {
   async fetch(request, env, ctx) {
-    // Set D1 bindings on globalThis for legacy compatibility
+    // Set bindings on globalThis for OpenNext route handlers
+    globalThis.env = env;
     if (env.DB) {
       globalThis.DB = env.DB;
     }
@@ -29,6 +30,9 @@ export default {
     }
     if (env.STORAGE) {
       globalThis.STORAGE = env.STORAGE;
+    }
+    if (env.PAPER_TRADING_DO) {
+      globalThis.PAPER_TRADING_DO = env.PAPER_TRADING_DO;
     }
 
     // Handle cron-triggered payouts.

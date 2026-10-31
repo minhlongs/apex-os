@@ -27,6 +27,18 @@ export interface NormalizedOrderbook {
   bids: OrderbookLevel[];
   asks: OrderbookLevel[];
   fundingRateBps?: number;
+  nextFundingTimeMs?: number;
+  fundingEventId?: string;
+}
+
+export interface FundingSettlementEvent {
+  eventId: string;
+  exchange: PaperExchange;
+  pair: PaperPair;
+  settlementTs: number;
+  fundingRateBps: number;
+  notionalUsdt: number;
+  fundingDeltaUsdt: number;
 }
 
 export type SequencerStatus =
@@ -87,6 +99,9 @@ export interface PaperOpenCycle {
   entryFeesUsdt: number;
   accruedFundingUsdt: number;
   lastFundingAccrualTs?: number;
+  appliedFundingEventIds?: string[];
+  /** Last recorded unrealized P&L mark for this cycle, in USDT. */
+  lastUnrealizedPnlUsdt?: number;
 }
 
 export interface PaperClosedCycle {
@@ -137,6 +152,7 @@ export interface VenueCollateralBalance {
   freeCollateralUsdt: number;
   allocatedCollateralUsdt: number;
   baseInventory: Record<PaperPair, number>;
+  baseInventoryCostBasisUsdt?: Record<PaperPair, number>;
 }
 
 export interface PaperStrategySnapshot {
@@ -147,6 +163,7 @@ export interface PaperStrategySnapshot {
   initialCapitalUsdt: number;
   cashBalanceUsdt: number;
   allocatedNotionalUsdt: number;
+  inventoryValueUsdt?: number;
   unrealizedPnlUsdt?: number;
   equityUsdt: number;
   peakEquityUsdt: number;
@@ -162,6 +179,7 @@ export interface PaperStrategySnapshot {
   desyncHaltCount: number;
   winRatePct: number;
   venueBalances?: Record<PaperExchange, VenueCollateralBalance>;
+  fundingLedger?: FundingSettlementEvent[];
 }
 
 export interface ReplayTick {

@@ -129,6 +129,15 @@ export function buildCanonical50TickSequence(): ReplayTick[] {
           fundingRateBps: btcFundingBps,
         }),
         makeBook({
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: seq,
+          ts: nowTs,
+          midPrice: binanceBtcPerpMid - 2,
+          fundingRateBps: btcFundingBps - 0.2,
+        }),
+        makeBook({
           exchange: 'binance',
           pair: 'ETH/USDT',
           marketType: 'spot',
@@ -152,6 +161,15 @@ export function buildCanonical50TickSequence(): ReplayTick[] {
           ts: nowTs,
           midPrice: binanceEthPerpMid,
           fundingRateBps: ethFundingBps,
+        }),
+        makeBook({
+          exchange: 'bybit',
+          pair: 'ETH/USDT',
+          marketType: 'linear_perp',
+          sequenceId: seq,
+          ts: nowTs,
+          midPrice: binanceEthPerpMid - 0.1,
+          fundingRateBps: ethFundingBps - 0.1,
         }),
       ],
     });

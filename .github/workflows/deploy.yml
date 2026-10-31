@@ -99,14 +99,14 @@ jobs:
         run: bash scripts/assert-staging-isolation.sh
 
       - name: Enforce strict economic go-live verdict (Production Blocker)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
         run: |
           echo "Auditing Paper Trading economic go-live criteria..."
-          # Running go-live-gate script with strict release verification
           bash scripts/go-live-gate.sh
-          if [ "${ALLOW_PRODUCTION_OVERRIDE}" != "true" ]; then
-            echo "Production release requires completed 30-day paper window. Enforcing NO-GO guard."
-            exit 1
-          fi
+          RUNS_JSON="$(./node_modules/.bin/wrangler d1 execute apex-os-staging-db --remote --config wrangler.staging.jsonc --command "SELECT * FROM paper_trading_runs WHERE is_active = 1" --json | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const p=JSON.parse(d);console.log(JSON.stringify(p[0]?.results||[]))}catch{console.log('[]')}})")"
+          node scripts/verify-paper-economic-gate.cjs --runs-json "${RUNS_JSON}"
 
       - name: Build Worker bundle
         env:

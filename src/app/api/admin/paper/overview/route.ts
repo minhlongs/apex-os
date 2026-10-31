@@ -8,7 +8,7 @@
  *   1. Realtime terminal metrics (feed latency, raw spread, net spread)
  *   2. Closed cycles table and strategy equity curves (two 10k USDT ledgers)
  *   3. Deterministic replay digest verification
- *   4. Descriptive economic research report (non-blocking)
+ *   4. Strict economic audit report (release blocker)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -56,21 +56,75 @@ export async function GET(request: NextRequest) {
       return authRes.response;
     }
 
-    // Try reading live Durable Object state if bound
+    // Try reading Durable Object state if bound
     if (env?.PAPER_TRADING_DO) {
       try {
         const doId = env.PAPER_TRADING_DO.idFromName('global-paper-engine');
         const stub = env.PAPER_TRADING_DO.get(doId);
         const doRes = await stub.fetch(new Request('http://internal/status'));
         if (doRes.ok) {
-          const doData = await doRes.json();
-          return NextResponse.json({
-            ...doData,
-            isLive: true,
-            dataSource: 'LIVE_DURABLE_OBJECT_STREAM',
-            watermark: 'PAPER SIMULATION ONLY - ZERO LIVE CEX ORDERS OR WITHDRAWALS',
-            syncedAt: new Date().toISOString(),
-          }, { status: 200 });
+          const doData = (await doRes.json()) as {
+            isLive?: boolean;
+            dataSource?: string;
+            tickCounter?: number;
+            runStartedAtMs?: number | null;
+            modelVersion?: string;
+            strategies?: Record<'spot-2exch' | 'spot-perp', import('@/lib/paper/types').PaperStrategySnapshot>;
+            closedCycles?: import('@/lib/paper/types').PaperClosedCycle[];
+            sequencerStates?: import('@/lib/paper/types').SequencerStreamState[];
+          };
+
+          const isTrulyLive = Boolean(doData.isLive && (doData.tickCounter ?? 0) > 0);
+          const verifiedRealMarketDays =
+            isTrulyLive && doData.runStartedAtMs
+              ? Math.max(0, (Date.now() - doData.runStartedAtMs) / (24 * 3600 * 1000))
+              : 0;
+
+          const ticks = buildCanonical50TickSequence();
+          const determinism = PaperReplayEngine.verifyDeterminism(
+            ticks,
+            doData.modelVersion ?? 'paper-v1.1.0'
+          );
+
+          const economicSummary = doData.strategies
+            ? PaperReplayEngine.buildEconomicResearchSummary(
+                {
+                  modelVersion: doData.modelVersion ?? 'paper-v1.1.0',
+                  tickCount: doData.tickCounter ?? 0,
+                  digest: determinism.digestA,
+                  strategies: doData.strategies,
+                  closedCycles: doData.closedCycles ?? [],
+                  decisions: [],
+                  sequencerStates: doData.sequencerStates ?? [],
+                },
+                {
+                  generatedAt: new Date().toISOString(),
+                  verifiedRealMarketDays,
+                }
+              )
+            : undefined;
+
+          return NextResponse.json(
+            {
+              ...doData,
+              isLive: isTrulyLive,
+              dataSource: isTrulyLive
+                ? 'LIVE_DURABLE_OBJECT_STREAM'
+                : doData.dataSource ?? 'DURABLE_OBJECT_IDLE_OR_STALE',
+              liveTradingEnabled: false,
+              overallVerdict: economicSummary?.overallVerdict ?? 'NO_GO',
+              replayVerification: {
+                tickCount: doData.tickCounter ?? 0,
+                digest: determinism.digestA,
+                bitIdentical: determinism.bitIdentical,
+              },
+              recentDecisions: [],
+              economicResearchReport: economicSummary,
+              watermark: 'PAPER SIMULATION ONLY - ZERO LIVE CEX ORDERS OR WITHDRAWALS',
+              syncedAt: new Date().toISOString(),
+            },
+            { status: 200 }
+          );
         }
       } catch (doErr) {
         console.warn('[PaperOverview] DO fetch failed, falling back to deterministic fixture:', doErr);
@@ -84,6 +138,7 @@ export async function GET(request: NextRequest) {
     const determinism = PaperReplayEngine.verifyDeterminism(ticks, 'paper-v1.1.0');
     const economicSummary = PaperReplayEngine.buildEconomicResearchSummary(replayResult, {
       generatedAt: new Date().toISOString(),
+      verifiedRealMarketDays: 0,
     });
 
     return NextResponse.json(

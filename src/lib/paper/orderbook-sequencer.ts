@@ -495,4 +495,66 @@ export class OrderbookSequencer {
       slippageBps: Number((Math.max(0, rawSlippage) * 10000).toFixed(4)),
     };
   }
+
+  /**
+   * Compute realistic VWAP fill price across L2 orderbook depth for a target base quantity.
+   * Used for closing/marking-to-market an open position holding an exact base quantity.
+   */
+  static computeVwapFillByBaseQty(
+    book: NormalizedOrderbook,
+    side: 'buy' | 'sell',
+    targetQuantityBase: number
+  ): VwapFillResult {
+    const levels = side === 'buy' ? book.asks : book.bids;
+    if (!levels || levels.length === 0 || targetQuantityBase <= 0) {
+      return {
+        filled: false,
+        vwapPrice: 0,
+        filledQuantityBase: 0,
+        filledNotionalUsdt: 0,
+        slippageBps: 0,
+      };
+    }
+
+    const topPrice = levels[0].price;
+    let remainingBase = targetQuantityBase;
+    let totalBase = 0;
+    let totalNotional = 0;
+
+    for (const level of levels) {
+      if (remainingBase <= 0) break;
+      if (level.price <= 0 || level.quantity <= 0) continue;
+
+      const takeBase = Math.min(remainingBase, level.quantity);
+      const takeNotional = takeBase * level.price;
+
+      totalBase += takeBase;
+      totalNotional += takeNotional;
+      remainingBase -= takeBase;
+    }
+
+    if (remainingBase > 1e-8 || totalBase <= 0) {
+      return {
+        filled: false,
+        vwapPrice: 0,
+        filledQuantityBase: Number(totalBase.toFixed(8)),
+        filledNotionalUsdt: Number(totalNotional.toFixed(4)),
+        slippageBps: 0,
+      };
+    }
+
+    const vwapPrice = totalNotional / totalBase;
+    const rawSlippage =
+      side === 'buy'
+        ? (vwapPrice - topPrice) / topPrice
+        : (topPrice - vwapPrice) / topPrice;
+
+    return {
+      filled: true,
+      vwapPrice: Number(vwapPrice.toFixed(6)),
+      filledQuantityBase: Number(totalBase.toFixed(8)),
+      filledNotionalUsdt: Number(totalNotional.toFixed(4)),
+      slippageBps: Number((Math.max(0, rawSlippage) * 10000).toFixed(4)),
+    };
+  }
 }
