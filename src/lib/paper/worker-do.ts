@@ -49,6 +49,14 @@ const STRATEGY_IDS: PaperStrategyId[] = ['spot-2exch', 'spot-perp'];
 
 export { PAPER_MODEL_VERSION, PAPER_FROZEN_CONFIG_HASH };
 
+interface StrategyWindowBaseline {
+  baselineClosedCyclesCount: number;
+  baselineRealizedNetPnlUsdt: number;
+  baselineEquityUsdt: number;
+  windowPeakEquityUsdt: number;
+  windowMaxDrawdownPct: number;
+}
+
 export class PaperTradingDurableObject {
   private readonly state: DurableObjectStateLike;
   private readonly env?: DurableObjectEnvLike;
@@ -70,6 +78,11 @@ export class PaperTradingDurableObject {
     nowTs: number;
     book: NormalizedOrderbook;
   }> = [];
+  private readonly activeCycleTicks: Map<
+    string,
+    Array<{ tickIndex: number; nowTs: number; book: NormalizedOrderbook }>
+  > = new Map();
+  private readonly windowBaselines: Map<PaperStrategyId, StrategyWindowBaseline> = new Map();
   private readonly modelVersion = PAPER_MODEL_VERSION;
   private readonly configHash = PAPER_FROZEN_CONFIG_HASH;
   private initialized = false;
@@ -97,6 +110,13 @@ export class PaperTradingDurableObject {
           maxDrawdownLimitPct: PAPER_CANONICAL_CONFIG.maxDrawdownLimitPct,
         })
       );
+      this.windowBaselines.set(sid, {
+        baselineClosedCyclesCount: 0,
+        baselineRealizedNetPnlUsdt: 0,
+        baselineEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
+        windowPeakEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
+        windowMaxDrawdownPct: 0,
+      });
     }
     this.journal = new PaperJournal();
   }
@@ -151,6 +171,22 @@ export class PaperTradingDurableObject {
       >(`strategy_state_${sid}`);
       if (savedStrategyState) {
         this.strategies.get(sid)?.restoreState(savedStrategyState);
+      }
+
+      const storedBaseline = await this.state.storage.get<StrategyWindowBaseline>(
+        `window_baseline_${sid}`
+      );
+      if (storedBaseline) {
+        this.windowBaselines.set(sid, storedBaseline);
+      }
+    }
+
+    const storedActiveTicks = await this.state.storage.get<
+      Record<string, Array<{ tickIndex: number; nowTs: number; book: NormalizedOrderbook }>>
+    >('active_cycle_ticks_ledger');
+    if (storedActiveTicks) {
+      for (const [cycleId, ticks] of Object.entries(storedActiveTicks)) {
+        this.activeCycleTicks.set(cycleId, ticks);
       }
     }
 
@@ -370,8 +406,21 @@ export class PaperTradingDurableObject {
     this.runStartedAtMs = nowMs;
     await this.state.storage.put('continuous_coverage_ms', 0);
     await this.state.storage.put('run_started_at_ms', nowMs);
-    if (this.env?.DB) {
-      for (const sid of STRATEGY_IDS) {
+
+    // Reset window baselines for all strategies to snapshot current state
+    for (const sid of STRATEGY_IDS) {
+      const snap = this.strategies.get(sid)!.getSnapshot();
+      const baseline: StrategyWindowBaseline = {
+        baselineClosedCyclesCount: snap.closedCyclesCount,
+        baselineRealizedNetPnlUsdt: snap.realizedNetPnlUsdt,
+        baselineEquityUsdt: snap.equityUsdt,
+        windowPeakEquityUsdt: snap.equityUsdt,
+        windowMaxDrawdownPct: 0,
+      };
+      this.windowBaselines.set(sid, baseline);
+      await this.state.storage.put(`window_baseline_${sid}`, baseline);
+
+      if (this.env?.DB) {
         await this.journal.deactivatePriorRuns(
           sid,
           `run_${sid}_${nowMs}`,
@@ -391,11 +440,46 @@ export class PaperTradingDurableObject {
 
     for (const sid of STRATEGY_IDS) {
       const snap = this.strategies.get(sid)!.getSnapshot();
+      const baseline = this.windowBaselines.get(sid) ?? {
+        baselineClosedCyclesCount: 0,
+        baselineRealizedNetPnlUsdt: 0,
+        baselineEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
+        windowPeakEquityUsdt: snap.equityUsdt,
+        windowMaxDrawdownPct: 0,
+      };
+
+      const windowClosedCycles = Math.max(
+        0,
+        snap.closedCyclesCount - baseline.baselineClosedCyclesCount
+      );
+      const windowRealizedNetPnl = Number(
+        (snap.realizedNetPnlUsdt - baseline.baselineRealizedNetPnlUsdt).toFixed(4)
+      );
+
+      // Track window peak equity and drawdown within the continuous window
+      if (snap.equityUsdt > baseline.windowPeakEquityUsdt) {
+        baseline.windowPeakEquityUsdt = snap.equityUsdt;
+      }
+      const windowDrawdown =
+        baseline.windowPeakEquityUsdt > 0
+          ? Number(
+              (
+                ((baseline.windowPeakEquityUsdt - snap.equityUsdt) /
+                  baseline.windowPeakEquityUsdt) *
+                100
+              ).toFixed(4)
+            )
+          : 0;
+      if (windowDrawdown > baseline.windowMaxDrawdownPct) {
+        baseline.windowMaxDrawdownPct = windowDrawdown;
+      }
+      await this.state.storage.put(`window_baseline_${sid}`, baseline);
+
       const verdict: 'GO' | 'NO_GO' =
         verifiedDays >= 30 &&
-        snap.closedCyclesCount >= 100 &&
-        snap.realizedNetPnlUsdt > 0 &&
-        snap.maxDrawdownPct <= 2.0 &&
+        windowClosedCycles >= 100 &&
+        windowRealizedNetPnl > 0 &&
+        baseline.windowMaxDrawdownPct <= 2.0 &&
         !snap.haltedByDrawdown
           ? 'GO'
           : 'NO_GO';
@@ -410,9 +494,9 @@ export class PaperTradingDurableObject {
         this.env.DB,
         {
           verifiedRealMarketDays: verifiedDays,
-          closedCyclesCount: snap.closedCyclesCount,
-          realizedNetPnlUsdt: snap.realizedNetPnlUsdt,
-          maxDrawdownPct: snap.maxDrawdownPct,
+          closedCyclesCount: windowClosedCycles,
+          realizedNetPnlUsdt: windowRealizedNetPnl,
+          maxDrawdownPct: baseline.windowMaxDrawdownPct,
           verdict,
           isActive: true,
         }
@@ -453,19 +537,23 @@ export class PaperTradingDurableObject {
     }
 
     const streamState = this.sequencer.ingest(book, nowTs);
-    this.sessionTicks.push({
+    const tickEntry = {
       tickIndex: this.tickCounter,
       nowTs,
       book,
-    });
+    };
+    this.sessionTicks.push(tickEntry);
     if (this.sessionTicks.length > 500) {
       this.sessionTicks.shift();
     }
 
+    // N2: Track tick history for all currently open cycles
+    await this.recordTickForOpenCycles(tickEntry);
+
     const isLive = this.isCollectorLive(nowTs);
     await this.updateCoverage(nowTs, isLive);
 
-    const replayObjectKey = `r2://apex-os-paper/live/tick-${this.tickCounter}-${book.exchange}-${book.pair.replace('/', '')}.json`;
+    const replayObjectKey = `${book.exchange}/${book.pair}/${nowTs}-${this.tickCounter}`;
 
     for (const engine of this.strategies.values()) {
       const prevClosedCount = engine.getClosedCycles().length;
@@ -483,9 +571,11 @@ export class PaperTradingDurableObject {
           if (!prevClosedKeys.has(c.idempotencyKey)) {
             await this.journal.recordClosedCycle(c, this.env?.DB, this.env?.STORAGE);
             if (this.env?.STORAGE) {
-              const cycleTicks = this.sessionTicks.filter(
-                (t) => t.nowTs >= c.entryTs && t.nowTs <= c.exitTs
-              );
+              const cycleTicks =
+                this.activeCycleTicks.get(c.cycleId) ??
+                this.sessionTicks.filter(
+                  (t) => t.nowTs >= c.entryTs && t.nowTs <= c.exitTs
+                );
               await this.journal.archiveReplayData(
                 `${c.replayObjectKey}.raw.json`,
                 {
@@ -500,6 +590,9 @@ export class PaperTradingDurableObject {
                 this.env.STORAGE
               );
             }
+            // Clean up durable ticks for this closed cycle
+            this.activeCycleTicks.delete(c.cycleId);
+            await this.persistActiveCycleTicks();
           }
         }
       }
@@ -508,6 +601,16 @@ export class PaperTradingDurableObject {
         `strategy_state_${engine.strategyId}`,
         engine.serializeState()
       );
+    }
+
+    // N3: Discrete funding acknowledgment on the main ingest path after durable persistence
+    if (book.fundingEventId && this.collector) {
+      const streamKey = OrderbookSequencer.makeStreamKey(
+        book.exchange,
+        book.pair,
+        book.marketType
+      );
+      this.collector.ackFundingSettlement(streamKey, book.fundingEventId);
     }
 
     await this.state.storage.put('last_tick_counter', this.tickCounter);
@@ -533,11 +636,23 @@ export class PaperTradingDurableObject {
     await this.state.storage.put('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
     const result = this.sequencer.resyncSnapshot(book, nowTs);
 
+    const tickEntry = {
+      tickIndex: this.tickCounter,
+      nowTs,
+      book,
+    };
+    this.sessionTicks.push(tickEntry);
+    if (this.sessionTicks.length > 500) {
+      this.sessionTicks.shift();
+    }
+    // N2: Track resync snapshot tick in active cycles as well
+    await this.recordTickForOpenCycles(tickEntry);
+
     const isLive = this.isCollectorLive(nowTs);
     await this.updateCoverage(nowTs, isLive);
 
     // Evaluate strategy state after resync through the unified persistence pipeline
-    const replayObjectKey = `r2://apex-os-paper/live/resync-${book.exchange}-${book.pair.replace('/', '')}-${book.sequenceId}.json`;
+    const replayObjectKey = `${book.exchange}/${book.pair}/${nowTs}-${this.tickCounter}`;
     for (const engine of this.strategies.values()) {
       const prevClosedCount = engine.getClosedCycles().length;
       const prevClosedKeys = new Set(engine.getClosedCycles().map((c) => c.idempotencyKey));
@@ -554,9 +669,11 @@ export class PaperTradingDurableObject {
           if (!prevClosedKeys.has(c.idempotencyKey)) {
             await this.journal.recordClosedCycle(c, this.env?.DB, this.env?.STORAGE);
             if (this.env?.STORAGE) {
-              const cycleTicks = this.sessionTicks.filter(
-                (t) => t.nowTs >= c.entryTs && t.nowTs <= c.exitTs
-              );
+              const cycleTicks =
+                this.activeCycleTicks.get(c.cycleId) ??
+                this.sessionTicks.filter(
+                  (t) => t.nowTs >= c.entryTs && t.nowTs <= c.exitTs
+                );
               await this.journal.archiveReplayData(
                 `${c.replayObjectKey}.raw.json`,
                 {
@@ -571,6 +688,9 @@ export class PaperTradingDurableObject {
                 this.env.STORAGE
               );
             }
+            // Clean up durable ticks for this closed cycle
+            this.activeCycleTicks.delete(c.cycleId);
+            await this.persistActiveCycleTicks();
           }
         }
       }
@@ -598,6 +718,42 @@ export class PaperTradingDurableObject {
     }
 
     return result;
+  }
+
+  private async recordTickForOpenCycles(tickItem: {
+    tickIndex: number;
+    nowTs: number;
+    book: NormalizedOrderbook;
+  }): Promise<void> {
+    let hasOpen = false;
+    for (const engine of this.strategies.values()) {
+      const openList = engine.getOpenCycles();
+      if (openList.length > 0) {
+        hasOpen = true;
+        for (const oc of openList) {
+          let list = this.activeCycleTicks.get(oc.cycleId);
+          if (!list) {
+            list = [];
+            this.activeCycleTicks.set(oc.cycleId, list);
+          }
+          list.push(tickItem);
+        }
+      }
+    }
+    if (hasOpen) {
+      await this.persistActiveCycleTicks();
+    }
+  }
+
+  private async persistActiveCycleTicks(): Promise<void> {
+    const obj: Record<
+      string,
+      Array<{ tickIndex: number; nowTs: number; book: NormalizedOrderbook }>
+    > = {};
+    for (const [cid, ticks] of this.activeCycleTicks.entries()) {
+      obj[cid] = ticks;
+    }
+    await this.state.storage.put('active_cycle_ticks_ledger', obj);
   }
 
   getStrategySnapshots(): Record<PaperStrategyId, PaperStrategySnapshot> {
@@ -668,6 +824,27 @@ export class PaperTradingDurableObject {
       ? Number((this.continuousCoverageMs / (24 * 3600 * 1000)).toFixed(6))
       : 0;
     const snapshots = this.getStrategySnapshots();
+    const windowMetrics: Record<PaperStrategyId, {
+      windowClosedCyclesCount: number;
+      windowRealizedNetPnlUsdt: number;
+      windowMaxDrawdownPct: number;
+    }> = {} as any;
+    for (const sid of STRATEGY_IDS) {
+      const snap = snapshots[sid];
+      const baseline = this.windowBaselines.get(sid) ?? {
+        baselineClosedCyclesCount: 0,
+        baselineRealizedNetPnlUsdt: 0,
+        baselineEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
+        windowPeakEquityUsdt: snap.equityUsdt,
+        windowMaxDrawdownPct: 0,
+      };
+      windowMetrics[sid] = {
+        windowClosedCyclesCount: Math.max(0, snap.closedCyclesCount - baseline.baselineClosedCyclesCount),
+        windowRealizedNetPnlUsdt: Number((snap.realizedNetPnlUsdt - baseline.baselineRealizedNetPnlUsdt).toFixed(4)),
+        windowMaxDrawdownPct: baseline.windowMaxDrawdownPct,
+      };
+    }
+
     return Response.json({
       executionMode: 'PAPER',
       isLive,
@@ -685,6 +862,7 @@ export class PaperTradingDurableObject {
       sequencerStates: this.sequencer.getAllStates(),
       collectorStreams: this.collector ? this.collector.getStreamStatuses() : [],
       strategies: snapshots,
+      windowMetrics,
       closedCycles: this.journal.getClosedCycles(),
     });
   }

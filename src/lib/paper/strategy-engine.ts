@@ -614,49 +614,35 @@ export class PaperStrategyEngine {
       // When funding rate is missing, default to 0 bps (never assume positive profit)
       const fundingBps = perpBook.fundingRateBps ?? 0.0;
 
-      // Funding settlement occurs strictly on verified settlement events:
-      // either an explicit `fundingEventId` from the exchange feed or a single
-      // verified 8-hour UTC boundary crossing with fresh book timestamp near the boundary.
-      // Never synthesize multi-boundary historical catch-up loops using the current rate.
-      const FUNDING_INTERVAL_MS = 8 * 60 * 60 * 1000;
-      const lastAccrualTs = existingOpen.lastFundingAccrualTs ?? existingOpen.entryTs;
-      const lastBoundary = Math.floor(lastAccrualTs / FUNDING_INTERVAL_MS);
-      const currentBoundary = Math.floor(nowTs / FUNDING_INTERVAL_MS);
+      // Funding settlement occurs strictly on verified settlement events with an
+      // explicit `fundingEventId` from the live exchange feed.
+      // Settle only if carrying an authentic exchange settlement event ID, with a non-zero rate.
       const appliedIds = existingOpen.appliedFundingEventIds ?? [];
 
-      if (currentBoundary > lastBoundary) {
-        const settlementTs =
-          perpBook.fundingSettlementTs ?? currentBoundary * FUNDING_INTERVAL_MS;
-        const isSingleStepCrossing = currentBoundary === lastBoundary + 1;
-        const hasExplicitEvent = Boolean(perpBook.fundingEventId);
-        // Settle only if this is a single-interval boundary crossing on a live stream
-        // or carries an explicit exchange settlement event ID, with a non-zero rate.
-        if ((hasExplicitEvent || isSingleStepCrossing) && fundingBps !== 0) {
-          const eventId =
-            perpBook.fundingEventId ??
-            `${openVenue}:${pair}:funding:${settlementTs}`;
-          if (!appliedIds.includes(eventId)) {
-            const positionNotionalUsdt = existingOpen.notionalUsdt;
-            const fundingStepUsdt = round4(
-              positionNotionalUsdt * (fundingBps / 10000)
-            );
-            existingOpen.accruedFundingUsdt = round4(
-              existingOpen.accruedFundingUsdt + fundingStepUsdt
-            );
-            appliedIds.push(eventId);
-            this.fundingLedger.push({
-              eventId,
-              exchange: openVenue,
-              pair,
-              settlementTs,
-              fundingRateBps: fundingBps,
-              notionalUsdt: positionNotionalUsdt,
-              fundingDeltaUsdt: fundingStepUsdt,
-            });
-          }
+      if (perpBook.fundingEventId && fundingBps !== 0) {
+        const eventId = perpBook.fundingEventId;
+        const settlementTs = perpBook.fundingSettlementTs ?? nowTs;
+        if (!appliedIds.includes(eventId)) {
+          const positionNotionalUsdt = existingOpen.notionalUsdt;
+          const fundingStepUsdt = round4(
+            positionNotionalUsdt * (fundingBps / 10000)
+          );
+          existingOpen.accruedFundingUsdt = round4(
+            existingOpen.accruedFundingUsdt + fundingStepUsdt
+          );
+          appliedIds.push(eventId);
+          this.fundingLedger.push({
+            eventId,
+            exchange: openVenue,
+            pair,
+            settlementTs,
+            fundingRateBps: fundingBps,
+            notionalUsdt: positionNotionalUsdt,
+            fundingDeltaUsdt: fundingStepUsdt,
+          });
         }
         existingOpen.appliedFundingEventIds = appliedIds;
-        existingOpen.lastFundingAccrualTs = currentBoundary * FUNDING_INTERVAL_MS;
+        existingOpen.lastFundingAccrualTs = settlementTs;
       }
 
       const exitSpotSell = OrderbookSequencer.computeVwapFillByBaseQty(
@@ -1345,6 +1331,10 @@ export class PaperStrategyEngine {
 
   getClosedCycles(): PaperClosedCycle[] {
     return [...this.closedCycles];
+  }
+
+  getOpenCycles(): PaperOpenCycle[] {
+    return Array.from(this.openCycles.values());
   }
 
   getDecisions(): PaperDecisionLog[] {
