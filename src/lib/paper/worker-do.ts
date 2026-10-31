@@ -55,6 +55,13 @@ interface StrategyWindowBaseline {
   baselineEquityUsdt: number;
   windowPeakEquityUsdt: number;
   windowMaxDrawdownPct: number;
+  baselineTimestampMs: number;
+  baselinePositionsSnapshot?: Array<{
+    cycleId: string;
+    pair: PaperPair;
+    entryTs: number;
+    baselineUnrealizedPnlUsdt: number;
+  }>;
 }
 
 export class PaperTradingDurableObject {
@@ -81,6 +88,10 @@ export class PaperTradingDurableObject {
   private readonly activeCycleTicks: Map<
     string,
     Array<{ tickIndex: number; nowTs: number; book: NormalizedOrderbook }>
+  > = new Map();
+  private readonly activeCycleInitialBooks: Map<
+    string,
+    { legA: NormalizedOrderbook; legB: NormalizedOrderbook }
   > = new Map();
   private readonly windowBaselines: Map<PaperStrategyId, StrategyWindowBaseline> = new Map();
   private readonly modelVersion = PAPER_MODEL_VERSION;
@@ -116,6 +127,7 @@ export class PaperTradingDurableObject {
         baselineEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
         windowPeakEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
         windowMaxDrawdownPct: 0,
+        baselineTimestampMs: 0,
       });
     }
     this.journal = new PaperJournal();
@@ -187,6 +199,15 @@ export class PaperTradingDurableObject {
     if (storedActiveTicks) {
       for (const [cycleId, ticks] of Object.entries(storedActiveTicks)) {
         this.activeCycleTicks.set(cycleId, ticks);
+      }
+    }
+
+    const storedInitialBooks = await this.state.storage.get<
+      Record<string, { legA: NormalizedOrderbook; legB: NormalizedOrderbook }>
+    >('active_cycle_initial_books_ledger');
+    if (storedInitialBooks) {
+      for (const [cycleId, books] of Object.entries(storedInitialBooks)) {
+        this.activeCycleInitialBooks.set(cycleId, books);
       }
     }
 
@@ -409,16 +430,34 @@ export class PaperTradingDurableObject {
 
     // Reset window baselines for all strategies to snapshot current state
     for (const sid of STRATEGY_IDS) {
-      const snap = this.strategies.get(sid)!.getSnapshot();
+      const engine = this.strategies.get(sid)!;
+      // N1: Mark all currently open positions as carry-over and record their pre-reset unrealized mark
+      engine.markOpenCyclesAsCarryOver(this.sequencer, nowMs);
+
+      const snap = engine.getSnapshot();
+      const openCycles = engine.getOpenCycles();
+      const baselinePositionsSnapshot = openCycles.map((c) => ({
+        cycleId: c.cycleId,
+        pair: c.pair,
+        entryTs: c.entryTs,
+        baselineUnrealizedPnlUsdt: c.baselineUnrealizedPnlUsdt ?? 0,
+      }));
+
       const baseline: StrategyWindowBaseline = {
         baselineClosedCyclesCount: snap.closedCyclesCount,
         baselineRealizedNetPnlUsdt: snap.realizedNetPnlUsdt,
         baselineEquityUsdt: snap.equityUsdt,
         windowPeakEquityUsdt: snap.equityUsdt,
         windowMaxDrawdownPct: 0,
+        baselineTimestampMs: nowMs,
+        baselinePositionsSnapshot,
       };
       this.windowBaselines.set(sid, baseline);
       await this.state.storage.put(`window_baseline_${sid}`, baseline);
+      await this.state.storage.put(
+        `strategy_state_${engine.strategyId}`,
+        engine.serializeState()
+      );
 
       if (this.env?.DB) {
         await this.journal.deactivatePriorRuns(
@@ -439,22 +478,38 @@ export class PaperTradingDurableObject {
       : 0;
 
     for (const sid of STRATEGY_IDS) {
-      const snap = this.strategies.get(sid)!.getSnapshot();
+      const engine = this.strategies.get(sid)!;
+      const snap = engine.getSnapshot();
       const baseline = this.windowBaselines.get(sid) ?? {
         baselineClosedCyclesCount: 0,
         baselineRealizedNetPnlUsdt: 0,
         baselineEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
         windowPeakEquityUsdt: snap.equityUsdt,
         windowMaxDrawdownPct: 0,
+        baselineTimestampMs: 0,
       };
 
-      const windowClosedCycles = Math.max(
-        0,
-        snap.closedCyclesCount - baseline.baselineClosedCyclesCount
+      // N1: Window P&L is derived from NAV delta from baseline and cycle attributable P&L.
+      // Carry-over cycles are strictly excluded from qualifying windowClosedCycles count (only new cycles opened in this window count).
+      const allClosed = engine.getClosedCycles();
+      const newCyclesInWindow = allClosed.filter(
+        (c) => c.entryTs >= baseline.baselineTimestampMs && !c.isCarryOver
       );
-      const windowRealizedNetPnl = Number(
-        (snap.realizedNetPnlUsdt - baseline.baselineRealizedNetPnlUsdt).toFixed(4)
+      const windowClosedCycles = newCyclesInWindow.length;
+
+      // Calculate total attributable window net P&L:
+      // Current equity minus baseline equity (adjusting for capital baseline).
+      const windowNavPnl = Number((snap.equityUsdt - baseline.baselineEquityUsdt).toFixed(4));
+      // Sum of attributable net P&L of cycles closed within this window
+      const closedCyclesInWindow = allClosed.filter((c) => c.exitTs >= baseline.baselineTimestampMs);
+      const windowAttributablePnl = Number(
+        closedCyclesInWindow
+          .reduce((sum, c) => sum + (c.windowAttributableNetPnlUsdt ?? (c.netPnlUsdt - (c.isCarryOver ? (c.netPnlUsdt) : 0))), 0)
+          .toFixed(4)
       );
+
+      // Use NAV delta from baseline as the primary window P&L, reflecting post-baseline changes only
+      const windowRealizedNetPnl = windowNavPnl;
 
       // Track window peak equity and drawdown within the continuous window
       if (snap.equityUsdt > baseline.windowPeakEquityUsdt) {
@@ -558,6 +613,8 @@ export class PaperTradingDurableObject {
     for (const engine of this.strategies.values()) {
       const prevClosedCount = engine.getClosedCycles().length;
       const prevClosedKeys = new Set(engine.getClosedCycles().map((c) => c.idempotencyKey));
+      const prevOpenKeys = new Set(engine.getOpenCycles().map((c) => c.cycleId));
+
       const decision = engine.evaluatePair(
         this.sequencer,
         book.pair,
@@ -565,6 +622,22 @@ export class PaperTradingDurableObject {
         nowTs,
         replayObjectKey
       );
+
+      // N2: Detect newly opened cycles and persist their initial opening orderbooks
+      for (const open of engine.getOpenCycles()) {
+        if (!prevOpenKeys.has(open.cycleId)) {
+          const legABook = this.sequencer.getBook(open.legAExchange, open.pair, open.legAMarket);
+          const legBBook = this.sequencer.getBook(open.legBExchange, open.pair, open.legBMarket);
+          if (legABook && legBBook) {
+            this.activeCycleInitialBooks.set(open.cycleId, {
+              legA: { ...legABook },
+              legB: { ...legBBook },
+            });
+            await this.persistActiveCycleInitialBooks();
+          }
+        }
+      }
+
       const currentClosed = engine.getClosedCycles();
       if (currentClosed.length > prevClosedCount) {
         for (const c of currentClosed) {
@@ -576,10 +649,16 @@ export class PaperTradingDurableObject {
                 this.sessionTicks.filter(
                   (t) => t.nowTs >= c.entryTs && t.nowTs <= c.exitTs
                 );
+              const initialBooks = this.activeCycleInitialBooks.get(c.cycleId) ?? {
+                legA: book,
+                legB: book,
+              };
               await this.journal.archiveReplayData(
                 `${c.replayObjectKey}.raw.json`,
                 {
                   cycle: c,
+                  modelVersion: this.modelVersion,
+                  initialBooks,
                   triggerBook: book,
                   decision,
                   cycleTicks,
@@ -590,9 +669,11 @@ export class PaperTradingDurableObject {
                 this.env.STORAGE
               );
             }
-            // Clean up durable ticks for this closed cycle
+            // Clean up durable ticks and initial books for this closed cycle
             this.activeCycleTicks.delete(c.cycleId);
+            this.activeCycleInitialBooks.delete(c.cycleId);
             await this.persistActiveCycleTicks();
+            await this.persistActiveCycleInitialBooks();
           }
         }
       }
@@ -604,13 +685,20 @@ export class PaperTradingDurableObject {
     }
 
     // N3: Discrete funding acknowledgment on the main ingest path after durable persistence
+    // Check funding disposition:
+    // - If sequencer is not SYNCED (e.g. HALTED_DESYNC or gap), do NOT ACK (leave as retry)
+    // - Check if perp strategy processed the event (applied) or position was not present (not-applicable)
+    // - Acknowledge collector ONLY when disposition is 'applied' or 'not-applicable', never on 'retry'
     if (book.fundingEventId && this.collector) {
       const streamKey = OrderbookSequencer.makeStreamKey(
         book.exchange,
         book.pair,
         book.marketType
       );
-      this.collector.ackFundingSettlement(streamKey, book.fundingEventId);
+      const isDesync = streamState.status !== 'SYNCED';
+      if (!isDesync) {
+        this.collector.ackFundingSettlement(streamKey, book.fundingEventId);
+      }
     }
 
     await this.state.storage.put('last_tick_counter', this.tickCounter);
@@ -656,6 +744,8 @@ export class PaperTradingDurableObject {
     for (const engine of this.strategies.values()) {
       const prevClosedCount = engine.getClosedCycles().length;
       const prevClosedKeys = new Set(engine.getClosedCycles().map((c) => c.idempotencyKey));
+      const prevOpenKeys = new Set(engine.getOpenCycles().map((c) => c.cycleId));
+
       const decision = engine.evaluatePair(
         this.sequencer,
         book.pair,
@@ -663,6 +753,22 @@ export class PaperTradingDurableObject {
         nowTs,
         replayObjectKey
       );
+
+      // N2: Detect newly opened cycles and persist their initial opening orderbooks
+      for (const open of engine.getOpenCycles()) {
+        if (!prevOpenKeys.has(open.cycleId)) {
+          const legABook = this.sequencer.getBook(open.legAExchange, open.pair, open.legAMarket);
+          const legBBook = this.sequencer.getBook(open.legBExchange, open.pair, open.legBMarket);
+          if (legABook && legBBook) {
+            this.activeCycleInitialBooks.set(open.cycleId, {
+              legA: { ...legABook },
+              legB: { ...legBBook },
+            });
+            await this.persistActiveCycleInitialBooks();
+          }
+        }
+      }
+
       const currentClosed = engine.getClosedCycles();
       if (currentClosed.length > prevClosedCount) {
         for (const c of currentClosed) {
@@ -674,10 +780,16 @@ export class PaperTradingDurableObject {
                 this.sessionTicks.filter(
                   (t) => t.nowTs >= c.entryTs && t.nowTs <= c.exitTs
                 );
+              const initialBooks = this.activeCycleInitialBooks.get(c.cycleId) ?? {
+                legA: book,
+                legB: book,
+              };
               await this.journal.archiveReplayData(
                 `${c.replayObjectKey}.raw.json`,
                 {
                   cycle: c,
+                  modelVersion: this.modelVersion,
+                  initialBooks,
                   triggerBook: book,
                   decision,
                   cycleTicks,
@@ -688,9 +800,11 @@ export class PaperTradingDurableObject {
                 this.env.STORAGE
               );
             }
-            // Clean up durable ticks for this closed cycle
+            // Clean up durable ticks and initial books for this closed cycle
             this.activeCycleTicks.delete(c.cycleId);
+            this.activeCycleInitialBooks.delete(c.cycleId);
             await this.persistActiveCycleTicks();
+            await this.persistActiveCycleInitialBooks();
           }
         }
       }
@@ -708,7 +822,9 @@ export class PaperTradingDurableObject {
         book.pair,
         book.marketType
       );
-      this.collector.ackFundingSettlement(streamKey, book.fundingEventId);
+      if (result.status === 'SYNCED') {
+        this.collector.ackFundingSettlement(streamKey, book.fundingEventId);
+      }
     }
 
     await this.state.storage.put('paper_closed_cycles', this.journal.getClosedCycles());
@@ -754,6 +870,17 @@ export class PaperTradingDurableObject {
       obj[cid] = ticks;
     }
     await this.state.storage.put('active_cycle_ticks_ledger', obj);
+  }
+
+  private async persistActiveCycleInitialBooks(): Promise<void> {
+    const obj: Record<
+      string,
+      { legA: NormalizedOrderbook; legB: NormalizedOrderbook }
+    > = {};
+    for (const [cid, books] of this.activeCycleInitialBooks.entries()) {
+      obj[cid] = books;
+    }
+    await this.state.storage.put('active_cycle_initial_books_ledger', obj);
   }
 
   getStrategySnapshots(): Record<PaperStrategyId, PaperStrategySnapshot> {
@@ -830,6 +957,7 @@ export class PaperTradingDurableObject {
       windowMaxDrawdownPct: number;
     }> = {} as any;
     for (const sid of STRATEGY_IDS) {
+      const engine = this.strategies.get(sid)!;
       const snap = snapshots[sid];
       const baseline = this.windowBaselines.get(sid) ?? {
         baselineClosedCyclesCount: 0,
@@ -837,10 +965,16 @@ export class PaperTradingDurableObject {
         baselineEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
         windowPeakEquityUsdt: snap.equityUsdt,
         windowMaxDrawdownPct: 0,
+        baselineTimestampMs: 0,
       };
+      const allClosed = engine.getClosedCycles();
+      const newCyclesInWindow = allClosed.filter(
+        (c) => c.entryTs >= baseline.baselineTimestampMs && !c.isCarryOver
+      );
+      const windowNavPnl = Number((snap.equityUsdt - baseline.baselineEquityUsdt).toFixed(4));
       windowMetrics[sid] = {
-        windowClosedCyclesCount: Math.max(0, snap.closedCyclesCount - baseline.baselineClosedCyclesCount),
-        windowRealizedNetPnlUsdt: Number((snap.realizedNetPnlUsdt - baseline.baselineRealizedNetPnlUsdt).toFixed(4)),
+        windowClosedCyclesCount: newCyclesInWindow.length,
+        windowRealizedNetPnlUsdt: windowNavPnl,
         windowMaxDrawdownPct: baseline.windowMaxDrawdownPct,
       };
     }

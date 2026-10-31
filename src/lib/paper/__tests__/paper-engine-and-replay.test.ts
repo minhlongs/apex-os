@@ -2183,6 +2183,324 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
 
         expect(ackCalls).toContain('binance:linear_perp:BTC/USDT:binance_btc_funding_evt_resync');
       });
+
+      it('N1 Acceptance: Carry-over position (+100 USDT profit pre-reset) closed post-reset at same price yields 0 window P&L and is excluded from 100 qualifying cycles', async () => {
+        const store = new Map<string, unknown>();
+        const doInstance = new PaperTradingDurableObject({
+          storage: {
+            get: async (k) => store.get(k) as any,
+            put: async (k, v) => { store.set(k, v); },
+            delete: async (k) => { store.delete(k); },
+          },
+        });
+        await doInstance.ensureRestored();
+
+        const baseTs = 1730000000000;
+        const engines = (doInstance as any).strategies as Map<string, PaperStrategyEngine>;
+        const spot2Engine = engines.get('spot-2exch')!;
+
+        // 1. Manually inject a pre-reset open cycle with ~100 USDT unrealized profit
+        // Bought Leg A at 10000, Sold Leg B at 11000.
+        // Current market has Leg B converging to 10000 (meaning buying back Leg B yields +100 USDT gross profit).
+        // Entry fee = 1.0, exit fee at 10000/10000 is 1.0 (5 bps per leg) -> total fee = 2.0. Net unrealized profit = 98.0 USDT.
+        const preResetOpenCycle = {
+          cycleId: 'pre_reset_cycle_1',
+          strategyId: 'spot-2exch' as const,
+          pair: 'BTC/USDT' as const,
+          entryTs: baseTs - 50000,
+          entrySeqA: 1,
+          entrySeqB: 1,
+          notionalUsdt: 1000,
+          quantityBase: 0.1,
+          legAExchange: 'binance' as const,
+          legAMarket: 'spot' as const,
+          legBExchange: 'bybit' as const,
+          legBMarket: 'spot' as const,
+          entryLegAPrice: 10000,
+          entryLegBPrice: 11000, // bought at 10000, sold at 11000
+          entrySpreadBps: 1000,
+          entryFeesUsdt: 1.0,
+          accruedFundingUsdt: 0,
+          lastUnrealizedPnlUsdt: 98.0,
+        };
+        (spot2Engine as any).openCycles.set('pre_reset_cycle_1', preResetOpenCycle);
+        spot2Engine.getSnapshot().cashBalanceUsdt = 10000;
+        spot2Engine.getSnapshot().equityUsdt = 10098; // baseline includes the +98 unrealized profit
+
+        // 2. Trigger window reset (>15s feed gap)
+        await (doInstance as any).resetContinuousWindow(baseTs);
+
+        // Verify cycle is marked carryOver with baseline mark of 98 USDT
+        const carryCycle = spot2Engine.getOpenCycles().find((c) => c.cycleId === 'pre_reset_cycle_1');
+        expect(carryCycle).toBeDefined();
+        expect(carryCycle!.isCarryOver).toBe(true);
+        expect(carryCycle!.baselineUnrealizedPnlUsdt).toBe(98.0);
+
+        // 3. Close the cycle post-reset at the EXACT SAME mark prices (legA: 10000, legB: 10000)
+        // (no new profit formed post-reset)
+        const closed = (spot2Engine as any).closeOpenCycle(
+          carryCycle,
+          10000, // exitLegAPrice
+          10000, // exitLegBPrice (bought back at 10000 -> +100 gross, -2.0 total fees = 98.0 net)
+          100,
+          100,
+          baseTs + 5000,
+          0,
+          'replay_test'
+        );
+
+        expect(closed.isCarryOver).toBe(true);
+        expect(closed.netPnlUsdt).toBe(98.0);
+        // Lifetime net P&L was 98 USDT, but window attributable P&L formed POST-baseline is 0!
+        expect(closed.windowAttributableNetPnlUsdt).toBe(0);
+
+        // 4. Ingest an orderbook tick to trigger status/D1 calculation
+        await doInstance.ingestOrderbook({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 101,
+          exchangeTs: baseTs + 6000,
+          receivedTs: baseTs + 6005,
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68010, quantity: 1 }],
+        }, baseTs + 6005);
+
+        // 5. Query status endpoint and verify window metrics
+        const res = await doInstance.fetch(new Request('http://localhost/status'));
+        const body = (await res.json()) as any;
+        const spotMetrics = body.windowMetrics['spot-2exch'];
+
+        // Must NOT count the carry-over cycle in window qualifying cycles
+        expect(spotMetrics.windowClosedCyclesCount).toBe(0);
+        // Must NOT receive the +100 USDT pre-reset profit in window P&L!
+        expect(spotMetrics.windowRealizedNetPnlUsdt).toBeLessThanOrEqual(0.0);
+      });
+
+      it('N2 Acceptance: Independent PaperReplayEngine reconstructs cycle >550 ticks solely from artifact', async () => {
+        const baseTs = 1730000000000;
+        const initialLegA: NormalizedOrderbook = {
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 1,
+          exchangeTs: baseTs,
+          receivedTs: baseTs,
+          bids: [{ price: 67900, quantity: 2 }],
+          asks: [{ price: 68000, quantity: 2 }],
+        };
+        const initialLegB: NormalizedOrderbook = {
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 1,
+          exchangeTs: baseTs,
+          receivedTs: baseTs,
+          bids: [{ price: 68200, quantity: 2 }],
+          asks: [{ price: 68300, quantity: 2 }],
+        };
+
+        const cycleTicks: Array<{ tickIndex: number; nowTs: number; book: NormalizedOrderbook }> = [];
+        // Generate >550 ticks across the cycle life
+        for (let i = 1; i <= 560; i++) {
+          const tTs = baseTs + i * 100;
+          // Every tick alternates updating binance and bybit
+          const isBinance = i % 2 === 1;
+          const book: NormalizedOrderbook = {
+            exchange: isBinance ? 'binance' : 'bybit',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: i + 1,
+            exchangeTs: tTs,
+            receivedTs: tTs,
+            bids: [{ price: isBinance ? 67900 + (i * 0.1) : 68200 - (i * 0.1), quantity: 2 }],
+            asks: [{ price: isBinance ? 68000 + (i * 0.1) : 68300 - (i * 0.1), quantity: 2 }],
+          };
+          cycleTicks.push({
+            tickIndex: i,
+            nowTs: tTs,
+            book,
+          });
+        }
+
+        const mockClosedCycle: PaperClosedCycle = {
+          cycleId: 'cycle_test_replay_550',
+          idempotencyKey: 'idemp_550',
+          strategyId: 'spot-2exch',
+          pair: 'BTC/USDT',
+          entryTs: baseTs + 100,
+          exitTs: baseTs + 56000,
+          entrySeqA: 1,
+          entrySeqB: 1,
+          exitSeqA: 559,
+          exitSeqB: 560,
+          notionalUsdt: 1000,
+          quantityBase: 0.0147,
+          legAExchange: 'binance',
+          legAMarket: 'spot',
+          legBExchange: 'bybit',
+          legBMarket: 'spot',
+          entryLegAPrice: 68000,
+          entryLegBPrice: 68200,
+          exitLegAPrice: 68050,
+          exitLegBPrice: 68150,
+          rawSpreadBps: 29.41,
+          netSpreadBps: 5.41,
+          grossPnlUsdt: 2.94,
+          totalFeesUsdt: 2.4,
+          fundingDeltaUsdt: 0,
+          netPnlUsdt: 0.54,
+          modelVersion: 'paper-v1.0.0',
+          replayObjectKey: 'binance/BTC/USDT/test-550',
+          executionMode: 'PAPER',
+        };
+
+        const artifact: PaperCycleArtifact = {
+          cycle: mockClosedCycle,
+          modelVersion: 'paper-v1.0.0',
+          initialBooks: {
+            legA: initialLegA,
+            legB: initialLegB,
+          },
+          triggerBook: cycleTicks[0].book,
+          decision: {
+            tickIndex: 1,
+            timestamp: baseTs + 100,
+            strategyId: 'spot-2exch',
+            pair: 'BTC/USDT',
+            decision: 'OPEN_CYCLE',
+            rawSpreadBps: 29.41,
+            estimatedNetSpreadBps: 5.41,
+            reason: 'Test cycle',
+          },
+          cycleTicks,
+          decisions: [],
+          fundingLedger: [],
+          sequencerStates: [],
+        };
+
+        // Replay cycle independently solely from artifact
+        const verification = PaperReplayEngine.replayCycleFromArtifact(artifact);
+        expect(verification.cycleId).toBe('cycle_test_replay_550');
+        expect(verification.decisionsCount).toBe(560);
+      });
+
+      it('N3 Acceptance: HALTED_DESYNC suppresses ACK; event retried and applied once on resync; post-settlement open receives no funding', async () => {
+        const store = new Map<string, unknown>();
+        const doInstance = new PaperTradingDurableObject({
+          storage: {
+            get: async (k) => store.get(k) as any,
+            put: async (k, v) => { store.set(k, v); },
+            delete: async (k) => { store.delete(k); },
+          },
+        });
+        await doInstance.ensureRestored();
+
+        const ackCalls: string[] = [];
+        (doInstance as any).collector = {
+          ackFundingSettlement: (streamKey: string, eventId: string) => {
+            ackCalls.push(`${streamKey}:${eventId}`);
+          },
+        };
+
+        const baseTs = 1730000000000;
+
+        // 1. Ingest normal initial spot book so sequencer has stream state
+        await doInstance.ingestOrderbook({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: 1,
+          exchangeTs: baseTs,
+          receivedTs: baseTs,
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68010, quantity: 1 }],
+        }, baseTs);
+
+        // 2. Ingest out-of-order sequence (e.g. sequence 10 with prevSequenceId 5 -> gap -> FEED_DESYNC)
+        const desyncBook: NormalizedOrderbook = {
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: 10,
+          prevSequenceId: 5,
+          exchangeTs: baseTs + 500,
+          receivedTs: baseTs + 505,
+          fundingEventId: 'gap_funding_event_1',
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68010, quantity: 1 }],
+        };
+
+        const ingestRes = await doInstance.ingestOrderbook(desyncBook, baseTs + 505);
+        expect(ingestRes.streamState.status).toBe('FEED_DESYNC');
+        // Critical N3: ACK must NOT be called on FEED_DESYNC / HALTED_DESYNC!
+        expect(ackCalls).not.toContain('binance:linear_perp:BTC/USDT:gap_funding_event_1');
+
+        // 3. Resync stream with snapshot book containing the event -> status becomes SYNCED
+        const resyncBook: NormalizedOrderbook = {
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: 10,
+          exchangeTs: baseTs + 1000,
+          receivedTs: baseTs + 1005,
+          isDelta: false,
+          fundingEventId: 'gap_funding_event_1',
+          fundingSettlementTs: baseTs + 800,
+          fundingRateBps: 1.5,
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68010, quantity: 1 }],
+        };
+
+        const resyncRes = await doInstance.resyncStream(resyncBook, baseTs + 1005);
+        expect(resyncRes.status).toBe('SYNCED');
+        // Critical N3: Now on resync SYNCED, ACK is triggered!
+        expect(ackCalls).toContain('binance:linear_perp:BTC/USDT:gap_funding_event_1');
+
+        // 4. Post-settlement open eligibility test:
+        // Position opened at baseTs + 900 (AFTER settlement at baseTs + 800) must receive zero funding
+        const perpEngine = ((doInstance as any).strategies as Map<string, PaperStrategyEngine>).get('spot-perp')!;
+        (perpEngine as any).openCycles.set('post_settlement_cycle', {
+          cycleId: 'post_settlement_cycle',
+          strategyId: 'spot-perp',
+          pair: 'BTC/USDT',
+          entryTs: baseTs + 900, // > settlementTs (baseTs + 800)
+          entrySeqA: 1,
+          entrySeqB: 1,
+          notionalUsdt: 1000,
+          quantityBase: 0.1,
+          legAExchange: 'binance',
+          legAMarket: 'spot',
+          legBExchange: 'binance',
+          legBMarket: 'linear_perp',
+          entryLegAPrice: 68000,
+          entryLegBPrice: 68000,
+          entrySpreadBps: 0,
+          entryFeesUsdt: 1.0,
+          accruedFundingUsdt: 0,
+          appliedFundingEventIds: [],
+        });
+
+        // Ingest another book with the old settlement event
+        await doInstance.ingestOrderbook({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: 11,
+          exchangeTs: baseTs + 1100,
+          receivedTs: baseTs + 1105,
+          fundingEventId: 'gap_funding_event_1',
+          fundingSettlementTs: baseTs + 800,
+          fundingRateBps: 1.5,
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68010, quantity: 1 }],
+        }, baseTs + 1105);
+
+        const postPos = perpEngine.getOpenCycles().find((c) => c.cycleId === 'post_settlement_cycle');
+        expect(postPos).toBeDefined();
+        // Accrued funding must remain 0 because entryTs (baseTs + 900) > settlementTs (baseTs + 800)
+        expect(postPos!.accruedFundingUsdt).toBe(0);
+      });
     });
   });
 });

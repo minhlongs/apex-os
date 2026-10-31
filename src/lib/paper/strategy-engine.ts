@@ -622,7 +622,11 @@ export class PaperStrategyEngine {
       if (perpBook.fundingEventId && fundingBps !== 0) {
         const eventId = perpBook.fundingEventId;
         const settlementTs = perpBook.fundingSettlementTs ?? nowTs;
-        if (!appliedIds.includes(eventId)) {
+        // Eligibility check: Position must have been opened at or before the settlement timestamp.
+        // Never pay or charge funding to a position opened after settlement occurred.
+        const isEligible = existingOpen.entryTs <= settlementTs;
+
+        if (isEligible && !appliedIds.includes(eventId)) {
           const positionNotionalUsdt = existingOpen.notionalUsdt;
           const fundingStepUsdt = round4(
             positionNotionalUsdt * (fundingBps / 10000)
@@ -1020,6 +1024,10 @@ export class PaperStrategyEngine {
       modelVersion: this.modelVersion,
       replayObjectKey: `r2://paper-replay/${replayBatchId}/${idempotencyKey}.json.gz`,
       executionMode: 'PAPER',
+      isCarryOver: open.isCarryOver,
+      windowAttributableNetPnlUsdt: open.isCarryOver
+        ? round4(netPnlUsdt - (open.baselineUnrealizedPnlUsdt ?? 0))
+        : netPnlUsdt,
     };
 
     this.openCycles.delete(open.pair);
@@ -1335,6 +1343,43 @@ export class PaperStrategyEngine {
 
   getOpenCycles(): PaperOpenCycle[] {
     return Array.from(this.openCycles.values());
+  }
+
+  /**
+   * Mark all currently open positions as carry-over positions with their current unrealized P&L.
+   * Invoked upon a continuous window baseline reset.
+   */
+  markOpenCyclesAsCarryOver(sequencer?: OrderbookSequencer, nowTs?: number): void {
+    if (sequencer) {
+      this.refreshMarkPricesFromSequencer(sequencer);
+    }
+    for (const open of this.openCycles.values()) {
+      open.isCarryOver = true;
+      if (sequencer) {
+        const keyA = OrderbookSequencer.makeStreamKey(open.legAExchange, open.pair, open.legAMarket);
+        const keyB = OrderbookSequencer.makeStreamKey(open.legBExchange, open.pair, open.legBMarket);
+        const bookA = sequencer.getBook(open.legAExchange, open.pair, open.legAMarket);
+        const bookB = sequencer.getBook(open.legBExchange, open.pair, open.legBMarket);
+        if (bookA && bookB) {
+          const fillA = OrderbookSequencer.computeVwapFillByBaseQty(bookA, 'sell', open.quantityBase);
+          const fillB = OrderbookSequencer.computeVwapFillByBaseQty(bookB, 'buy', open.quantityBase);
+          if (fillA.filled && fillB.filled) {
+            const legAPnl = (fillA.vwapPrice - open.entryLegAPrice) * open.quantityBase;
+            const legBPnl = (open.entryLegBPrice - fillB.vwapPrice) * open.quantityBase;
+            const exitAQuote = open.quantityBase * fillA.vwapPrice;
+            const exitBQuote = open.quantityBase * fillB.vwapPrice;
+            const exitFees = (exitAQuote + exitBQuote) * this.singleLegTakerFeeRate;
+            const totalFees = open.entryFeesUsdt + exitFees;
+            const currentNetPnl = legAPnl + legBPnl + (open.accruedFundingUsdt ?? 0) - totalFees;
+            open.baselineUnrealizedPnlUsdt = round4(currentNetPnl);
+            open.lastUnrealizedPnlUsdt = round4(currentNetPnl);
+          }
+        }
+      }
+      if (open.baselineUnrealizedPnlUsdt === undefined) {
+        open.baselineUnrealizedPnlUsdt = round4(open.lastUnrealizedPnlUsdt ?? 0);
+      }
+    }
   }
 
   getDecisions(): PaperDecisionLog[] {

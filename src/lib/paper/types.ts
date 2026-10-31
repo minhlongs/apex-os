@@ -43,6 +43,16 @@ export interface FundingSettlementEvent {
   fundingDeltaUsdt: number;
 }
 
+export type FundingDisposition = 'applied' | 'not-applicable' | 'retry';
+
+export interface FundingDispositionResult {
+  disposition: FundingDisposition;
+  reason: string;
+  eventId: string;
+  settlementTs?: number;
+  appliedDeltaUsdt?: number;
+}
+
 export type SequencerStatus =
   | 'SYNCED'
   | 'FEED_DESYNC'
@@ -106,6 +116,10 @@ export interface PaperOpenCycle {
   lastUnrealizedPnlUsdt?: number;
   /** Net quote cash delta applied to free+allocated collateral upon opening this cycle. */
   openCycleCashDeltaUsdt?: number;
+  /** Indicates if this cycle was carried over across a continuous window reset. */
+  isCarryOver?: boolean;
+  /** The unrealized P&L mark already formed before the window reset, in USDT. */
+  baselineUnrealizedPnlUsdt?: number;
 }
 
 export interface PaperClosedCycle {
@@ -138,6 +152,10 @@ export interface PaperClosedCycle {
   modelVersion: string;
   replayObjectKey: string;
   executionMode: 'PAPER';
+  /** True if this cycle was already open prior to window baseline reset. */
+  isCarryOver?: boolean;
+  /** Realized P&L accrued specifically within the current window after baseline. */
+  windowAttributableNetPnlUsdt?: number;
 }
 
 export interface PaperDecisionLog {
@@ -184,6 +202,7 @@ export interface PaperStrategySnapshot {
   winRatePct: number;
   venueBalances?: Record<PaperExchange, VenueCollateralBalance>;
   fundingLedger?: FundingSettlementEvent[];
+  modelConfigHash?: string;
 }
 
 export interface ReplayTick {
@@ -199,6 +218,25 @@ export interface ReplayExecutionResult {
   strategies: Record<PaperStrategyId, PaperStrategySnapshot>;
   closedCycles: PaperClosedCycle[];
   decisions: PaperDecisionLog[];
+  sequencerStates: SequencerStreamState[];
+}
+
+export interface PaperCycleArtifact {
+  cycle: PaperClosedCycle;
+  modelVersion: string;
+  initialBooks: {
+    legA: NormalizedOrderbook;
+    legB: NormalizedOrderbook;
+  };
+  triggerBook: NormalizedOrderbook;
+  decision: PaperDecisionLog;
+  cycleTicks: Array<{
+    tickIndex: number;
+    nowTs: number;
+    book: NormalizedOrderbook;
+  }>;
+  decisions: PaperDecisionLog[];
+  fundingLedger: FundingSettlementEvent[];
   sequencerStates: SequencerStreamState[];
 }
 

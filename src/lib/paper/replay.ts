@@ -10,6 +10,7 @@ import { OrderbookSequencer } from './orderbook-sequencer';
 import { PaperStrategyEngine } from './strategy-engine';
 import type {
   EconomicResearchSummary,
+  PaperCycleArtifact,
   PaperStrategyId,
   ReplayExecutionResult,
   ReplayTick,
@@ -18,11 +19,96 @@ import type {
 
 const STRATEGY_IDS: PaperStrategyId[] = ['spot-2exch', 'spot-perp'];
 
+export interface ReplayedCycleVerification {
+  cycleId: string;
+  matched: boolean;
+  replayedCycle: any;
+  pnlDifferenceUsdt: number;
+  decisionsCount: number;
+  fillsCount: number;
+  reasons: string[];
+}
+
 export class PaperReplayEngine {
   static computeDigest(payload: unknown): string {
     return createHash('sha256')
       .update(JSON.stringify(payload))
       .digest('hex');
+  }
+
+  /**
+   * Replay a single cycle independently solely from its persisted PaperCycleArtifact.
+   * Reconstructs orderbook state from initialBooks + cycleTicks, re-executes decisions
+   * and VWAP fills, and verifies that the resulting closed cycle matches the archived cycle.
+   */
+  static replayCycleFromArtifact(artifact: PaperCycleArtifact): ReplayedCycleVerification {
+    const { cycle, modelVersion, initialBooks, cycleTicks, fundingLedger } = artifact;
+    const sequencer = new OrderbookSequencer();
+
+    // Re-seed initial books if present
+    if (initialBooks?.legA) {
+      sequencer.ingest(initialBooks.legA, initialBooks.legA.receivedTs);
+    }
+    if (initialBooks?.legB) {
+      sequencer.ingest(initialBooks.legB, initialBooks.legB.receivedTs);
+    }
+
+    const engine = new PaperStrategyEngine({
+      strategyId: cycle.strategyId,
+      modelVersion,
+    });
+
+    let fillsCount = 0;
+    const reasons: string[] = [];
+
+    // Re-feed all ticks recorded during the cycle
+    for (const tick of cycleTicks) {
+      sequencer.ingest(tick.book, tick.nowTs);
+      const dec = engine.evaluatePair(
+        sequencer,
+        cycle.pair,
+        tick.tickIndex,
+        tick.nowTs,
+        `replay-${cycle.cycleId}`
+      );
+      if (dec.decision === 'OPEN_CYCLE' || dec.decision === 'CLOSE_CYCLE') {
+        fillsCount++;
+      }
+    }
+
+    const closed = engine.getClosedCycles();
+    const matchingClosed = closed.find((c) => c.cycleId === cycle.cycleId || c.entryTs === cycle.entryTs);
+
+    if (!matchingClosed) {
+      // If cycle was not closed yet or didn't trigger identical close, check open cycles
+      const open = engine.getOpenCycles().find((o) => o.cycleId === cycle.cycleId);
+      reasons.push(open ? 'Cycle remained open during replay' : 'Cycle not opened during replay');
+      return {
+        cycleId: cycle.cycleId,
+        matched: false,
+        replayedCycle: matchingClosed || open,
+        pnlDifferenceUsdt: cycle.netPnlUsdt,
+        decisionsCount: engine.getDecisions().length,
+        fillsCount,
+        reasons,
+      };
+    }
+
+    const pnlDiff = Math.abs(matchingClosed.netPnlUsdt - cycle.netPnlUsdt);
+    const matched = pnlDiff <= 0.0001;
+    if (!matched) {
+      reasons.push(`P&L mismatch: expected ${cycle.netPnlUsdt}, got ${matchingClosed.netPnlUsdt}`);
+    }
+
+    return {
+      cycleId: cycle.cycleId,
+      matched,
+      replayedCycle: matchingClosed,
+      pnlDifferenceUsdt: Number(pnlDiff.toFixed(4)),
+      decisionsCount: engine.getDecisions().length,
+      fillsCount,
+      reasons,
+    };
   }
 
   /**
