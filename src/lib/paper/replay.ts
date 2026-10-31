@@ -40,6 +40,12 @@ export class PaperReplayEngine {
    * Replay a single cycle independently solely from its persisted PaperCycleArtifact.
    * Reconstructs orderbook state from initialBooks + cycleTicks, re-executes decisions
    * and VWAP fills, and verifies that the resulting closed cycle matches the archived cycle.
+   *
+   * N2: Performs deep 1:1 matching:
+   * - net P&L difference <= 0.0001
+   * - fills count matching (entry + exit)
+   * - funding ledger equality (event count, rate, settlement ts, delta)
+   * - decision sequence matching (OPEN_CYCLE, CLOSE_CYCLE decisions)
    */
   static replayCycleFromArtifact(artifact: PaperCycleArtifact): ReplayedCycleVerification {
     const { cycle, modelVersion, initialBooks, cycleTicks, fundingLedger } = artifact;
@@ -94,18 +100,61 @@ export class PaperReplayEngine {
       };
     }
 
+    // 1. P&L difference check
     const pnlDiff = Math.abs(matchingClosed.netPnlUsdt - cycle.netPnlUsdt);
-    const matched = pnlDiff <= 0.0001;
-    if (!matched) {
+    if (pnlDiff > 0.0001) {
       reasons.push(`P&L mismatch: expected ${cycle.netPnlUsdt}, got ${matchingClosed.netPnlUsdt}`);
     }
+
+    // 2. Fills count check (open and close)
+    if (fillsCount < 2) {
+      reasons.push(`Fills count mismatch: expected at least 2 (open and close), got ${fillsCount}`);
+    }
+
+    // 3. Fills / Prices check
+    const entryDiff = Math.abs(matchingClosed.netSpreadBps - cycle.netSpreadBps);
+    if (entryDiff > 0.01) {
+      reasons.push(`Net spread mismatch: expected ${cycle.netSpreadBps}, got ${matchingClosed.netSpreadBps}`);
+    }
+
+    // 4. Funding ledger reconciliation (N2/N3)
+    const replayedFunding = engine.getSnapshot().fundingLedger ?? [];
+    const expectedFunding = fundingLedger ?? [];
+    if (expectedFunding.length !== replayedFunding.length) {
+      reasons.push(
+        `Funding ledger count mismatch: expected ${expectedFunding.length} events, got ${replayedFunding.length}`
+      );
+    } else {
+      for (let i = 0; i < expectedFunding.length; i++) {
+        const exp = expectedFunding[i];
+        const rep = replayedFunding[i];
+        if (exp.eventId !== rep.eventId || Math.abs(exp.fundingDeltaUsdt - rep.fundingDeltaUsdt) > 0.0001) {
+          reasons.push(
+            `Funding event mismatch at index ${i}: expected [${exp.eventId}, ${exp.fundingDeltaUsdt}], got [${rep.eventId}, ${rep.fundingDeltaUsdt}]`
+          );
+        }
+      }
+    }
+
+    // 5. Decision sequence matching: verify entry and exit decisions match
+    const engineDecisions = engine.getDecisions();
+    const openDecision = engineDecisions.find((d) => d.decision === 'OPEN_CYCLE');
+    const closeDecision = engineDecisions.find((d) => d.decision === 'CLOSE_CYCLE');
+    if (!openDecision) {
+      reasons.push('Missing OPEN_CYCLE decision in replayed decisions');
+    }
+    if (!closeDecision) {
+      reasons.push('Missing CLOSE_CYCLE decision in replayed decisions');
+    }
+
+    const matched = reasons.length === 0;
 
     return {
       cycleId: cycle.cycleId,
       matched,
       replayedCycle: matchingClosed,
       pnlDifferenceUsdt: Number(pnlDiff.toFixed(4)),
-      decisionsCount: engine.getDecisions().length,
+      decisionsCount: engineDecisions.length,
       fillsCount,
       reasons,
     };

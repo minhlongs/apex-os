@@ -20,6 +20,7 @@ import {
   PAPER_MODEL_VERSION,
 } from './strategy-engine';
 import type {
+  FundingDispositionResult,
   NormalizedOrderbook,
   PaperClosedCycle,
   PaperPair,
@@ -422,11 +423,11 @@ export class PaperTradingDurableObject {
     }
   }
 
+  private windowEstablished = false;
+
   private async resetContinuousWindow(nowMs: number): Promise<void> {
     this.continuousCoverageMs = 0;
-    this.runStartedAtMs = nowMs;
     await this.state.storage.put('continuous_coverage_ms', 0);
-    await this.state.storage.put('run_started_at_ms', nowMs);
 
     // Reset window baselines for all strategies to snapshot current state
     for (const sid of STRATEGY_IDS) {
@@ -684,19 +685,60 @@ export class PaperTradingDurableObject {
       );
     }
 
-    // N3: Discrete funding acknowledgment on the main ingest path after durable persistence
-    // Check funding disposition:
-    // - If sequencer is not SYNCED (e.g. HALTED_DESYNC or gap), do NOT ACK (leave as retry)
-    // - Check if perp strategy processed the event (applied) or position was not present (not-applicable)
-    // - Acknowledge collector ONLY when disposition is 'applied' or 'not-applicable', never on 'retry'
-    if (book.fundingEventId && this.collector) {
+    // N3: Multi-tier persisted funding disposition handling:
+    // If incoming book contains a funding event, resolve its disposition via perp engine:
+    // 1. 'applied': Funding calculated and recorded into position and funding ledger.
+    // 2. 'not-applicable': No open position, entered after settlement, 0 bps, or already applied.
+    // 3. 'retry': Open position exists but pair sync failed (e.g. HALTED_DESYNC or missing counterpart)
+    //    or stream is desynced, or persistence failed. Suppress ACK so collector/broker can replay.
+    if (book.fundingEventId) {
+      const perpEngine = this.strategies.get('spot-perp');
       const streamKey = OrderbookSequencer.makeStreamKey(
         book.exchange,
         book.pair,
         book.marketType
       );
-      const isDesync = streamState.status !== 'SYNCED';
-      if (!isDesync) {
+
+      let dispositionResult: FundingDispositionResult = {
+        disposition: 'not-applicable',
+        reason: 'No perpetual strategy active',
+        eventId: book.fundingEventId,
+      };
+
+      if (streamState.status !== 'SYNCED') {
+        dispositionResult = {
+          disposition: 'retry',
+          reason: `Stream ${streamKey} status is ${streamState.status}, not SYNCED`,
+          eventId: book.fundingEventId,
+          settlementTs: book.fundingSettlementTs ?? nowTs,
+        };
+      } else if (perpEngine) {
+        dispositionResult = perpEngine.processFundingSettlementEvent(
+          this.sequencer,
+          book,
+          nowTs
+        );
+      }
+
+      // Persist funding disposition in DO state for auditability and idempotency
+      let persistenceOk = true;
+      try {
+        await this.state.storage.put(
+          `funding_disp_${book.fundingEventId}`,
+          dispositionResult
+        );
+      } catch (err) {
+        persistenceOk = false;
+      }
+
+      // ACK collector strictly when disposition is 'applied' or 'not-applicable' AND persistence succeeded.
+      // If disposition is 'retry' (e.g. HALTED_DESYNC, missing spot counterpart, stream desync) or persistence failed: DO NOT ACK!
+      if (
+        this.collector &&
+        persistenceOk &&
+        (dispositionResult.disposition === 'applied' ||
+          dispositionResult.disposition === 'not-applicable')
+      ) {
         this.collector.ackFundingSettlement(streamKey, book.fundingEventId);
       }
     }
@@ -816,13 +858,45 @@ export class PaperTradingDurableObject {
       );
     }
 
-    if (book.fundingEventId && this.collector) {
+    // N3: Multi-tier persisted funding disposition handling on resync path:
+    if (book.fundingEventId) {
+      const perpEngine = this.strategies.get('spot-perp');
       const streamKey = OrderbookSequencer.makeStreamKey(
         book.exchange,
         book.pair,
         book.marketType
       );
-      if (result.status === 'SYNCED') {
+
+      let dispositionResult: FundingDispositionResult = {
+        disposition: 'not-applicable',
+        reason: 'No perpetual strategy active',
+        eventId: book.fundingEventId,
+      };
+
+      if (perpEngine) {
+        dispositionResult = perpEngine.processFundingSettlementEvent(
+          this.sequencer,
+          book,
+          nowTs
+        );
+      }
+
+      let persistenceOk = true;
+      try {
+        await this.state.storage.put(
+          `funding_disp_${book.fundingEventId}`,
+          dispositionResult
+        );
+      } catch (err) {
+        persistenceOk = false;
+      }
+
+      if (
+        this.collector &&
+        persistenceOk &&
+        (dispositionResult.disposition === 'applied' ||
+          dispositionResult.disposition === 'not-applicable')
+      ) {
         this.collector.ackFundingSettlement(streamKey, book.fundingEventId);
       }
     }

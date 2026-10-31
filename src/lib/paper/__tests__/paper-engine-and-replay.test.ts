@@ -2385,6 +2385,211 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         expect(verification.decisionsCount).toBe(560);
       });
 
+      it('N2 Rigorous: Independent replay verifies matched=true, decision/fill/funding equality and rejects mutated/corrupted artifact', async () => {
+        // Run full cycle via DO using canonical ticks to produce a genuine runtime artifact
+        const store = new Map<string, unknown>();
+        const savedArtifacts = new Map<string, any>();
+        const mockStorage: any = {
+          put: async (k: string, v: string) => {
+            savedArtifacts.set(k, JSON.parse(v));
+          },
+        };
+
+        const doInstance = new PaperTradingDurableObject(
+          {
+            storage: {
+              get: async (k) => store.get(k) as any,
+              put: async (k, v) => { store.set(k, v); },
+              delete: async (k) => { store.delete(k); },
+            },
+          },
+          { STORAGE: mockStorage } as any
+        );
+        await doInstance.ensureRestored();
+
+        // Feed first 10 canonical ticks (ticks 1..10 form 1 full open-hold-close cycle)
+        const ticks = buildCanonical50TickSequence().slice(0, 10);
+        for (const tick of ticks) {
+          for (const b of tick.books) {
+            await doInstance.ingestOrderbook(b, tick.nowTs);
+          }
+        }
+
+        // Check closed cycles on DO
+        const closed = doInstance.journal.getClosedCycles();
+        expect(closed.length).toBeGreaterThanOrEqual(1);
+        const cycle = closed[0];
+
+        // Retrieve actual artifact persisted to STORAGE
+        const objectPath = `${cycle.replayObjectKey}.raw.json`.replace(/^r2:\/\/[^/]+\//, '');
+        const runtimeArtifact = savedArtifacts.get(objectPath);
+        expect(runtimeArtifact).toBeDefined();
+        expect(runtimeArtifact.cycle.cycleId).toBe(cycle.cycleId);
+
+        // Independent replay verification from runtime artifact
+        const verification = PaperReplayEngine.replayCycleFromArtifact(runtimeArtifact);
+        expect(verification.matched).toBe(true);
+        expect(verification.pnlDifferenceUsdt).toBeLessThanOrEqual(0.0001);
+        expect(verification.fillsCount).toBeGreaterThanOrEqual(2);
+        expect(verification.reasons).toEqual([]);
+
+        // Mutation Test 1: Corrupted/altered cycle P&L in artifact must be rejected
+        const tamperedArtifact = JSON.parse(JSON.stringify(runtimeArtifact));
+        tamperedArtifact.cycle.netPnlUsdt += 10.0; // Fabricate extra profit
+        const tamperedVerification = PaperReplayEngine.replayCycleFromArtifact(tamperedArtifact);
+        expect(tamperedVerification.matched).toBe(false);
+        expect(tamperedVerification.reasons.some((r: string) => r.includes('P&L mismatch'))).toBe(true);
+
+        // Mutation Test 2: Missing tick in cycleTicks preventing close must fail
+        const missingTicksArtifact = JSON.parse(JSON.stringify(runtimeArtifact));
+        missingTicksArtifact.cycleTicks.pop(); // Remove exit tick
+        const missingVerification = PaperReplayEngine.replayCycleFromArtifact(missingTicksArtifact);
+        expect(missingVerification.matched).toBe(false);
+
+        // Mutation Test 3: Altered funding ledger must be caught
+        const tamperedFundingArtifact = JSON.parse(JSON.stringify(runtimeArtifact));
+        tamperedFundingArtifact.fundingLedger = [
+          {
+            eventId: 'fake_funding_event',
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            settlementTs: 1761840000000 + 1000,
+            fundingRateBps: 2.0,
+            notionalUsdt: 1000,
+            fundingDeltaUsdt: 0.2,
+          },
+        ];
+        const tamperedFundingVerification = PaperReplayEngine.replayCycleFromArtifact(tamperedFundingArtifact);
+        expect(tamperedFundingVerification.matched).toBe(false);
+        expect(tamperedFundingVerification.reasons.some((r: string) => r.includes('Funding ledger'))).toBe(true);
+      });
+
+      it('N3 Acceptance: Synced perp stream with missing spot counterpart yields HALTED_DESYNC, does NOT ACK, and retries once on recovery', async () => {
+        const store = new Map<string, unknown>();
+        const doInstance = new PaperTradingDurableObject({
+          storage: {
+            get: async (k) => store.get(k) as any,
+            put: async (k, v) => { store.set(k, v); },
+            delete: async (k) => { store.delete(k); },
+          },
+        });
+        await doInstance.ensureRestored();
+
+        const ackCalls: string[] = [];
+        (doInstance as any).collector = {
+          ackFundingSettlement: (streamKey: string, eventId: string) => {
+            ackCalls.push(`${streamKey}:${eventId}`);
+          },
+        };
+
+        const perpEngine = ((doInstance as any).strategies as Map<string, PaperStrategyEngine>).get('spot-perp')!;
+        const baseTs = 1730000000000;
+
+        // Manually place an open spot-perp position on binance
+        (perpEngine as any).openCycles.set('BTC/USDT', {
+          cycleId: 'cycle_active_perp_1',
+          strategyId: 'spot-perp',
+          pair: 'BTC/USDT',
+          entryTs: baseTs,
+          entrySeqA: 1,
+          entrySeqB: 1,
+          notionalUsdt: 1000,
+          quantityBase: 0.0147,
+          legAExchange: 'binance',
+          legAMarket: 'spot',
+          legBExchange: 'binance',
+          legBMarket: 'linear_perp',
+          entryLegAPrice: 68000,
+          entryLegBPrice: 68100,
+          entrySpreadBps: 14.7,
+          entryFeesUsdt: 2.4,
+          accruedFundingUsdt: 0,
+          appliedFundingEventIds: [],
+        });
+
+        // Scenario: Binance linear_perp stream is incoming and SYNCED, but spot counterpart has NOT arrived (missing)
+        const perpBookSynced: NormalizedOrderbook = {
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: 1,
+          exchangeTs: baseTs + 1000,
+          receivedTs: baseTs + 1005,
+          fundingEventId: 'funding_evt_missing_spot_1',
+          fundingSettlementTs: baseTs + 1000,
+          fundingRateBps: 1.5,
+          bids: [{ price: 68100, quantity: 1 }],
+          asks: [{ price: 68110, quantity: 1 }],
+        };
+
+        // Ingest the perp book. Note: DO NOT ingest binance spot book yet.
+        const ingestRes = await doInstance.ingestOrderbook(perpBookSynced, baseTs + 1005);
+        // The perp stream itself is SYNCED
+        expect(ingestRes.streamState.status).toBe('SYNCED');
+
+        // But perp strategy evaluated pair yields HALTED_DESYNC because spot counterpart is missing
+        const lastDec = perpEngine.getDecisions().find((d) => d.decision === 'HALTED_DESYNC');
+        expect(lastDec).toBeDefined();
+
+        // Critical N3: Funding ledger must be 0, and collector MUST NOT be ACKed!
+        expect(perpEngine.getSnapshot().fundingLedger.length).toBe(0);
+        expect(ackCalls).not.toContain('binance:linear_perp:BTC/USDT:funding_evt_missing_spot_1');
+
+        // Disposition persisted in DO storage must be 'retry'
+        const savedDisp = store.get('funding_disp_funding_evt_missing_spot_1') as any;
+        expect(savedDisp).toBeDefined();
+        expect(savedDisp.disposition).toBe('retry');
+
+        // Recovery: Ingest the missing spot counterpart book
+        await doInstance.ingestOrderbook({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 1,
+          exchangeTs: baseTs + 1010,
+          receivedTs: baseTs + 1010,
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68010, quantity: 1 }],
+        }, baseTs + 1010);
+
+        // Collector retries the unacknowledged event
+        await doInstance.ingestOrderbook({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: 2,
+          exchangeTs: baseTs + 1020,
+          receivedTs: baseTs + 1020,
+          fundingEventId: 'funding_evt_missing_spot_1',
+          fundingSettlementTs: baseTs + 1000,
+          fundingRateBps: 1.5,
+          bids: [{ price: 68100, quantity: 1 }],
+          asks: [{ price: 68110, quantity: 1 }],
+        }, baseTs + 1020);
+
+        // Now pair is synced -> funding applied exactly once and ACKed!
+        expect(perpEngine.getSnapshot().fundingLedger.length).toBe(1);
+        expect(perpEngine.getSnapshot().fundingLedger[0].eventId).toBe('funding_evt_missing_spot_1');
+        expect(ackCalls).toContain('binance:linear_perp:BTC/USDT:funding_evt_missing_spot_1');
+
+        // And duplicate arrival does not apply funding again
+        await doInstance.ingestOrderbook({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: 3,
+          exchangeTs: baseTs + 1030,
+          receivedTs: baseTs + 1030,
+          fundingEventId: 'funding_evt_missing_spot_1',
+          fundingSettlementTs: baseTs + 1000,
+          fundingRateBps: 1.5,
+          bids: [{ price: 68100, quantity: 1 }],
+          asks: [{ price: 68110, quantity: 1 }],
+        }, baseTs + 1030);
+
+        expect(perpEngine.getSnapshot().fundingLedger.length).toBe(1);
+      });
+
       it('N3 Acceptance: HALTED_DESYNC suppresses ACK; event retried and applied once on resync; post-settlement open receives no funding', async () => {
         const store = new Map<string, unknown>();
         const doInstance = new PaperTradingDurableObject({

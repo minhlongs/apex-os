@@ -12,7 +12,9 @@
 import { createHash } from 'crypto';
 import { OrderbookSequencer } from './orderbook-sequencer';
 import type {
+  FundingDispositionResult,
   FundingSettlementEvent,
+  NormalizedOrderbook,
   PaperClosedCycle,
   PaperDecisionLog,
   PaperOpenCycle,
@@ -313,8 +315,128 @@ export class PaperStrategyEngine {
   }
 
   /**
-   * Evaluate a single pair on the current sequencer state.
+   * Process a funding settlement event on an incoming book.
+   * Returns an explicit FundingDispositionResult:
+   * - 'applied': Eligible open position exists, feed/pair is synced, funding step was calculated, applied, and ledgered.
+   * - 'not-applicable': Either:
+   *     - Event was already applied previously (idempotent no-op)
+   *     - Rate is 0 bps
+   *     - No open position exists for this pair
+   *     - Position was opened AFTER the settlement timestamp (ineligible)
+   *     - Strategy is not spot-perp (e.g. spot-2exch has no perp funding)
+   * - 'retry':
+   *     - Open position exists that expects funding, BUT the pair is currently desynchronized (e.g. HALTED_DESYNC, missing spot counterpart leg, stale feed).
+   *       The settlement event MUST NOT be ACKed and must be retried upon recovery!
    */
+  processFundingSettlementEvent(
+    sequencer: OrderbookSequencer,
+    book: NormalizedOrderbook,
+    nowTs: number
+  ): FundingDispositionResult {
+    if (!book.fundingEventId) {
+      return {
+        disposition: 'not-applicable',
+        reason: 'Book contains no fundingEventId',
+        eventId: '',
+      };
+    }
+
+    const eventId = book.fundingEventId;
+    const settlementTs = book.fundingSettlementTs ?? nowTs;
+    const fundingBps = book.fundingRateBps ?? 0.0;
+
+    if (this.strategyId !== 'spot-perp') {
+      return {
+        disposition: 'not-applicable',
+        reason: `Strategy ${this.strategyId} does not trade perpetual contracts`,
+        eventId,
+        settlementTs,
+      };
+    }
+
+    if (fundingBps === 0) {
+      return {
+        disposition: 'not-applicable',
+        reason: 'Funding rate is 0 bps',
+        eventId,
+        settlementTs,
+      };
+    }
+
+    const existingOpen = this.openCycles.get(book.pair);
+    if (!existingOpen) {
+      return {
+        disposition: 'not-applicable',
+        reason: `No open spot-perp position exists for pair ${book.pair}`,
+        eventId,
+        settlementTs,
+      };
+    }
+
+    // Eligibility check: position must have been opened at or before the settlement timestamp
+    if (existingOpen.entryTs > settlementTs) {
+      return {
+        disposition: 'not-applicable',
+        reason: `Position entryTs ${existingOpen.entryTs} is after settlementTs ${settlementTs}`,
+        eventId,
+        settlementTs,
+      };
+    }
+
+    const appliedIds = existingOpen.appliedFundingEventIds ?? [];
+    if (appliedIds.includes(eventId)) {
+      return {
+        disposition: 'not-applicable',
+        reason: `Event ${eventId} has already been applied to position ${existingOpen.cycleId}`,
+        eventId,
+        settlementTs,
+      };
+    }
+
+    // Pair synchronization check: both spot and perp legs on the open venue must be valid and synced
+    const openVenue = existingOpen.legAExchange;
+    const keySpot = OrderbookSequencer.makeStreamKey(openVenue, book.pair, 'spot');
+    const keyPerp = OrderbookSequencer.makeStreamKey(openVenue, book.pair, 'linear_perp');
+    const syncCheck = sequencer.validatePairSync(keySpot, keyPerp, nowTs);
+
+    if (!syncCheck.ok) {
+      return {
+        disposition: 'retry',
+        reason: syncCheck.reason ?? `Pair sync failed (${syncCheck.status})`,
+        eventId,
+        settlementTs,
+      };
+    }
+
+    // Both legs are verified and synced; apply funding step
+    const positionNotionalUsdt = existingOpen.notionalUsdt;
+    const fundingStepUsdt = round4(positionNotionalUsdt * (fundingBps / 10000));
+    existingOpen.accruedFundingUsdt = round4(
+      existingOpen.accruedFundingUsdt + fundingStepUsdt
+    );
+    appliedIds.push(eventId);
+    existingOpen.appliedFundingEventIds = appliedIds;
+    existingOpen.lastFundingAccrualTs = settlementTs;
+
+    const ledgerEntry: FundingSettlementEvent = {
+      eventId,
+      exchange: openVenue,
+      pair: book.pair,
+      settlementTs,
+      fundingRateBps: fundingBps,
+      notionalUsdt: positionNotionalUsdt,
+      fundingDeltaUsdt: fundingStepUsdt,
+    };
+    this.fundingLedger.push(ledgerEntry);
+
+    return {
+      disposition: 'applied',
+      reason: `Successfully applied ${fundingStepUsdt} USDT funding to cycle ${existingOpen.cycleId}`,
+      eventId,
+      settlementTs,
+      appliedDeltaUsdt: fundingStepUsdt,
+    };
+  }
   evaluatePair(
     sequencer: OrderbookSequencer,
     pair: PaperPair,
@@ -615,38 +737,11 @@ export class PaperStrategyEngine {
       const fundingBps = perpBook.fundingRateBps ?? 0.0;
 
       // Funding settlement occurs strictly on verified settlement events with an
-      // explicit `fundingEventId` from the live exchange feed.
-      // Settle only if carrying an authentic exchange settlement event ID, with a non-zero rate.
-      const appliedIds = existingOpen.appliedFundingEventIds ?? [];
-
+      // explicit `fundingEventId` from the live exchange feed via processFundingSettlementEvent().
+      // Note: evaluatePair is called during normal tick evaluation. If a funding settlement
+      // event arrived in perpBook, evaluatePair evaluates it as well.
       if (perpBook.fundingEventId && fundingBps !== 0) {
-        const eventId = perpBook.fundingEventId;
-        const settlementTs = perpBook.fundingSettlementTs ?? nowTs;
-        // Eligibility check: Position must have been opened at or before the settlement timestamp.
-        // Never pay or charge funding to a position opened after settlement occurred.
-        const isEligible = existingOpen.entryTs <= settlementTs;
-
-        if (isEligible && !appliedIds.includes(eventId)) {
-          const positionNotionalUsdt = existingOpen.notionalUsdt;
-          const fundingStepUsdt = round4(
-            positionNotionalUsdt * (fundingBps / 10000)
-          );
-          existingOpen.accruedFundingUsdt = round4(
-            existingOpen.accruedFundingUsdt + fundingStepUsdt
-          );
-          appliedIds.push(eventId);
-          this.fundingLedger.push({
-            eventId,
-            exchange: openVenue,
-            pair,
-            settlementTs,
-            fundingRateBps: fundingBps,
-            notionalUsdt: positionNotionalUsdt,
-            fundingDeltaUsdt: fundingStepUsdt,
-          });
-        }
-        existingOpen.appliedFundingEventIds = appliedIds;
-        existingOpen.lastFundingAccrualTs = settlementTs;
+        this.processFundingSettlementEvent(sequencer, perpBook, nowTs);
       }
 
       const exitSpotSell = OrderbookSequencer.computeVwapFillByBaseQty(
