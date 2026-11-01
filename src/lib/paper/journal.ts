@@ -273,7 +273,7 @@ export class PaperJournal {
     await db
       .prepare(
         `UPDATE paper_trading_runs
-         SET is_active = 0, verdict = 'NO_GO', ended_at = datetime('now'), last_heartbeat_at = datetime('now')
+         SET is_active = 0, verdict = 'NO_GO', last_heartbeat_at = datetime('now')
          WHERE strategy_id = ? AND run_id != ? AND is_active = 1`
       )
       .bind(strategyId, activeRunId)

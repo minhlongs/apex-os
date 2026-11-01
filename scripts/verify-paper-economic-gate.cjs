@@ -136,17 +136,18 @@ function evaluateRuns(runs, options = {}) {
     const hasValidWindowTs = Number.isFinite(windowStartMs) && windowStartMs > 0 && windowStartMs <= nowMs;
     const elapsedWindowDays = hasValidWindowTs ? (nowMs - windowStartMs) / (24 * 3600 * 1000) : 0;
 
-    let elapsedStartedAtDays = Infinity;
-    if (run.started_at) {
-      const startedAtRaw = String(run.started_at);
+    let elapsedStartedAtDays = elapsedWindowDays;
+    if (run.started_at !== undefined && run.started_at !== null) {
+      const startedAtRaw = String(run.started_at).trim();
       const normalizedStartedAt =
         startedAtRaw && !startedAtRaw.endsWith('Z') && !startedAtRaw.includes('+')
           ? `${startedAtRaw.replace(' ', 'T')}Z`
           : startedAtRaw;
-      const startedAtTs = Date.parse(normalizedStartedAt);
-      if (Number.isFinite(startedAtTs)) {
-        elapsedStartedAtDays = (nowMs - startedAtTs) / (24 * 3600 * 1000);
-      }
+      const startedAtTs = normalizedStartedAt ? Date.parse(normalizedStartedAt) : NaN;
+      elapsedStartedAtDays =
+        Number.isFinite(startedAtTs) && startedAtTs > 0 && startedAtTs <= nowMs
+          ? (nowMs - startedAtTs) / (24 * 3600 * 1000)
+          : 0;
     }
 
     const durationIsPhysicallyPossible =

@@ -287,19 +287,37 @@ export class PaperStrategyEngine {
 
   /**
    * Update latest pair mark prices from available orderbooks on the sequencer.
+   * When `nowTs` is provided, only SYNCED and fresh streams (within maxFeedAgeMs)
+   * are used so stale or disconnected marks never overwrite valid valuations.
    */
-  private refreshMarkPricesFromSequencer(sequencer: OrderbookSequencer): void {
+  private refreshMarkPricesFromSequencer(
+    sequencer: OrderbookSequencer,
+    nowTs?: number
+  ): void {
     for (const pair of SUPPORTED_PAIRS) {
       const mids: number[] = [];
       for (const venue of ['binance', 'bybit'] as const) {
-        const book =
-          sequencer.getBook(venue, pair, 'spot') ??
-          sequencer.getBook(venue, pair, 'linear_perp');
-        if (book && book.bids.length > 0 && book.asks.length > 0) {
+        for (const marketType of ['spot', 'linear_perp'] as const) {
+          const book = sequencer.getBook(venue, pair, marketType);
+          if (!book || book.bids.length === 0 || book.asks.length === 0) {
+            continue;
+          }
+          if (nowTs !== undefined) {
+            const st = sequencer.getState(venue, pair, marketType);
+            if (!st || st.status !== 'SYNCED') {
+              continue;
+            }
+            const exchangeAgeMs = Math.max(0, nowTs - book.exchangeTs);
+            const receiveAgeMs = Math.max(0, nowTs - book.receivedTs);
+            if (exchangeAgeMs > 1000 || receiveAgeMs > 1000) {
+              continue;
+            }
+          }
           const bid = book.bids[0].price;
           const ask = book.asks[0].price;
           if (bid > 0 && ask > 0) {
             mids.push((bid + ask) / 2);
+            break; // Use first fresh market on this venue
           }
         }
       }
@@ -406,13 +424,15 @@ export class PaperStrategyEngine {
     const appliedIds = existingOpen.appliedFundingEventIds ?? [];
     if (appliedIds.includes(eventId)) {
       const existingLedgerEntry = this.fundingLedger.find((e) => e.eventId === eventId);
-      return {
-        disposition: 'applied',
-        reason: `Event ${eventId} has already been applied to position ${existingOpen.cycleId} (idempotent reconciliation)`,
-        eventId,
-        settlementTs,
-        appliedDeltaUsdt: existingLedgerEntry?.fundingDeltaUsdt,
-      };
+      if (existingLedgerEntry) {
+        return {
+          disposition: 'applied',
+          reason: `Event ${eventId} has already been applied to position ${existingOpen.cycleId} (idempotent reconciliation)`,
+          eventId,
+          settlementTs,
+          appliedDeltaUsdt: existingLedgerEntry.fundingDeltaUsdt,
+        };
+      }
     }
 
     // Pair synchronization check: both spot and perp legs on the open venue must be valid and synced
@@ -1247,7 +1267,7 @@ export class PaperStrategyEngine {
     let unrealizedPnlUsdt = 0;
 
     if (sequencer) {
-      this.refreshMarkPricesFromSequencer(sequencer);
+      this.refreshMarkPricesFromSequencer(sequencer, nowTs);
 
       for (const open of this.openCycles.values()) {
         const keyA = OrderbookSequencer.makeStreamKey(
@@ -1468,16 +1488,18 @@ export class PaperStrategyEngine {
    */
   markOpenCyclesAsCarryOver(sequencer?: OrderbookSequencer, nowTs?: number): void {
     if (sequencer) {
-      this.refreshMarkPricesFromSequencer(sequencer);
+      this.refreshMarkPricesFromSequencer(sequencer, nowTs);
     }
     for (const open of this.openCycles.values()) {
       open.isCarryOver = true;
       if (sequencer) {
         const keyA = OrderbookSequencer.makeStreamKey(open.legAExchange, open.pair, open.legAMarket);
         const keyB = OrderbookSequencer.makeStreamKey(open.legBExchange, open.pair, open.legBMarket);
+        const isPairFresh =
+          nowTs === undefined ? true : sequencer.validatePairSync(keyA, keyB, nowTs).ok;
         const bookA = sequencer.getBook(open.legAExchange, open.pair, open.legAMarket);
         const bookB = sequencer.getBook(open.legBExchange, open.pair, open.legBMarket);
-        if (bookA && bookB) {
+        if (isPairFresh && bookA && bookB) {
           const fillA = OrderbookSequencer.computeVwapFillByBaseQty(bookA, 'sell', open.quantityBase);
           const fillB = OrderbookSequencer.computeVwapFillByBaseQty(bookB, 'buy', open.quantityBase);
           if (fillA.filled && fillB.filled) {
@@ -1497,6 +1519,7 @@ export class PaperStrategyEngine {
         open.baselineUnrealizedPnlUsdt = round4(open.lastUnrealizedPnlUsdt ?? 0);
       }
     }
+    this.recomputeUnrealizedPnlUsdtForRemainingCycles();
   }
 
   getDecisions(): PaperDecisionLog[] {

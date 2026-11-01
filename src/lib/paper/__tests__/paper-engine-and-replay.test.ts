@@ -3097,6 +3097,152 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         expect(restartDispB).toBeDefined();
         expect(restartDispB.disposition).toBe('applied');
       });
+
+      it('N1/N2/N3 Code-Review Regressions: baseline provenance re-anchors on live recovery, deactivatePriorRuns uses schema-valid SQL, and resync stale stream suppresses ACK', async () => {
+        const store = new Map<string, unknown>();
+        const executedQueries: Array<{ sql: string; args: any[] }> = [];
+        const mockDb: any = {
+          prepare: (sql: string) => ({
+            bind: (...args: any[]) => ({
+              run: async () => {
+                executedQueries.push({ sql, args });
+                return { success: true };
+              },
+              all: async () => [],
+            }),
+            all: async () => [],
+          }),
+        };
+
+        const doInstance = new PaperTradingDurableObject(
+          {
+            storage: {
+              get: async (k) => store.get(k) as any,
+              put: async (k, v) => {
+                store.set(k, v);
+              },
+              delete: async (k) => {
+                store.delete(k);
+              },
+            },
+          },
+          { DB: mockDb }
+        );
+        await doInstance.ensureRestored();
+
+        const ackCalls: string[] = [];
+        (doInstance as any).collector = {
+          getStreamStatuses: () => [],
+          ackFundingSettlement: (streamKey: string, eventId: string) => {
+            ackCalls.push(`${streamKey}:${eventId}`);
+          },
+        };
+
+        const baseTs = Date.now() - 25000;
+        const { REQUIRED_PAPER_STREAMS } = await import('../orderbook-sequencer');
+
+        // 1. Ingest only 1 stream at t=baseTs and another at t=baseTs+20000 (>15s non-live outage)
+        await doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 1,
+            exchangeTs: baseTs - 5,
+            receivedTs: baseTs,
+            bids: [{ price: 68000, quantity: 1 }],
+            asks: [{ price: 68005, quantity: 1 }],
+          },
+          baseTs
+        );
+
+        const outageTs = baseTs + 20000;
+        await doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 2,
+            exchangeTs: outageTs - 5,
+            receivedTs: outageTs,
+            bids: [{ price: 68000, quantity: 1 }],
+            asks: [{ price: 68005, quantity: 1 }],
+          },
+          outageTs
+        );
+
+        // During non-live outage, baseline provenance MUST be PENDING_LIVE_VALUATION (stale marks are not trusted)
+        const outageStatus = (await (
+          await doInstance.fetch(new Request('http://internal/status'))
+        ).json()) as any;
+        expect(outageStatus.windowMetrics['spot-2exch'].baselineProvenance).toBe(
+          'PENDING_LIVE_VALUATION'
+        );
+        expect(outageStatus.runStartedAtMs).toBe(outageTs);
+
+        // Verify deactivatePriorRuns SQL does NOT reference non-existent `ended_at` column
+        const deactivateSqls = executedQueries.filter((q) =>
+          q.sql.includes('UPDATE paper_trading_runs')
+        );
+        expect(deactivateSqls.length).toBeGreaterThan(0);
+        for (const q of deactivateSqls) {
+          expect(q.sql).not.toContain('ended_at');
+        }
+
+        // 2. Now all 8 streams recover at recoveryTs = Date.now() with fresh marks
+        const recoveryTs = Date.now();
+        for (const s of REQUIRED_PAPER_STREAMS) {
+          const mid = s.pair === 'BTC/USDT' ? 68100 : 2620;
+          await doInstance.ingestOrderbook(
+            {
+              exchange: s.exchange,
+              pair: s.pair,
+              marketType: s.marketType,
+              sequenceId: 10,
+              exchangeTs: recoveryTs - 5,
+              receivedTs: recoveryTs,
+              bids: [{ price: mid, quantity: 1 }],
+              asks: [{ price: mid + 5, quantity: 1 }],
+            },
+            recoveryTs
+          );
+        }
+
+        // Baseline must now re-anchor at recoveryTs with LIVE_VERIFIED provenance and updated runStartedAtMs
+        const liveStatus = (await (
+          await doInstance.fetch(new Request('http://internal/status'))
+        ).json()) as any;
+        expect(liveStatus.isLive).toBe(true);
+        expect(liveStatus.windowMetrics['spot-2exch'].baselineProvenance).toBe('LIVE_VERIFIED');
+        expect(liveStatus.runStartedAtMs).toBe(recoveryTs);
+
+        // 3. Resync with a STALE snapshot (exchangeTs 5000ms behind nowTs) carrying a funding event must NOT ACK
+        const staleResyncTs = recoveryTs + 10000;
+        const staleResyncRes = await doInstance.resyncStream(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'linear_perp',
+            sequenceId: 50,
+            exchangeTs: staleResyncTs - 5000, // 5000ms old > 1000ms maxFeedAgeMs -> STALE_FEED
+            receivedTs: staleResyncTs,
+            isDelta: false,
+            fundingEventId: 'stale_resync_funding_evt_1',
+            fundingSettlementTs: staleResyncTs - 5000,
+            fundingRateBps: 2.0,
+            bids: [{ price: 68100, quantity: 1 }],
+            asks: [{ price: 68105, quantity: 1 }],
+          },
+          staleResyncTs
+        );
+        expect(staleResyncRes.status).toBe('STALE_FEED');
+        expect(ackCalls).not.toContain(
+          'binance:linear_perp:BTC/USDT:stale_resync_funding_evt_1'
+        );
+        const staleDisp = store.get('funding_disp_stale_resync_funding_evt_1') as any;
+        expect(staleDisp).toBeDefined();
+        expect(staleDisp.disposition).toBe('retry');
+      });
     });
   });
 });

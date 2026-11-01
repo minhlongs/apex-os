@@ -142,7 +142,32 @@ export class PaperReplayEngine {
       };
     }
 
-    // 1. P&L & Fee reconciliation
+    // 1. Cycle identity & timestamp checks
+    if (matchingClosed.cycleId !== cycle.cycleId) {
+      reasons.push(`Cycle ID mismatch: expected ${cycle.cycleId}, got ${matchingClosed.cycleId}`);
+    }
+    if (matchingClosed.idempotencyKey !== cycle.idempotencyKey) {
+      reasons.push(
+        `Idempotency key mismatch: expected ${cycle.idempotencyKey}, got ${matchingClosed.idempotencyKey}`
+      );
+    }
+    if (matchingClosed.entryTs !== cycle.entryTs || matchingClosed.exitTs !== cycle.exitTs) {
+      reasons.push(
+        `Cycle timestamps mismatch: expected [${cycle.entryTs}->${cycle.exitTs}], got [${matchingClosed.entryTs}->${matchingClosed.exitTs}]`
+      );
+    }
+    if (
+      matchingClosed.legAExchange !== cycle.legAExchange ||
+      matchingClosed.legAMarket !== cycle.legAMarket ||
+      matchingClosed.legBExchange !== cycle.legBExchange ||
+      matchingClosed.legBMarket !== cycle.legBMarket
+    ) {
+      reasons.push(
+        `Cycle legs mismatch: expected [${cycle.legAExchange}:${cycle.legAMarket}->${cycle.legBExchange}:${cycle.legBMarket}], got [${matchingClosed.legAExchange}:${matchingClosed.legAMarket}->${matchingClosed.legBExchange}:${matchingClosed.legBMarket}]`
+      );
+    }
+
+    // 1b. P&L & Fee reconciliation
     const pnlDiff = Math.abs(matchingClosed.netPnlUsdt - cycle.netPnlUsdt);
     if (pnlDiff > 0.0001) {
       reasons.push(`Net P&L mismatch: expected ${cycle.netPnlUsdt}, got ${matchingClosed.netPnlUsdt}`);
@@ -265,31 +290,33 @@ export class PaperReplayEngine {
       reasons.push('Missing CLOSE_CYCLE decision in replayed decisions');
     }
 
-    if (expectedDecisions && expectedDecisions.length > 0) {
-      if (expectedDecisions.length !== engineDecisions.length) {
-        reasons.push(
-          `Decision count mismatch: expected ${expectedDecisions.length}, got ${engineDecisions.length}`
-        );
-      } else {
-        for (let i = 0; i < expectedDecisions.length; i++) {
-          const expDec = expectedDecisions[i];
-          const repDec = engineDecisions[i];
-          if (
-            expDec.tickIndex !== repDec.tickIndex ||
-            expDec.decision !== repDec.decision ||
-            Math.abs(expDec.rawSpreadBps - repDec.rawSpreadBps) > 0.0001 ||
-            Math.abs(expDec.estimatedNetSpreadBps - repDec.estimatedNetSpreadBps) > 0.0001
-          ) {
-            reasons.push(
-              `Decision mismatch at index ${i} (tick ${expDec.tickIndex}): expected [${expDec.decision}, raw=${expDec.rawSpreadBps}, net=${expDec.estimatedNetSpreadBps}], got [tick ${repDec.tickIndex}, ${repDec.decision}, raw=${repDec.rawSpreadBps}, net=${repDec.estimatedNetSpreadBps}]`
-            );
-          }
+    if (!expectedDecisions || expectedDecisions.length === 0) {
+      reasons.push('Missing expected decisions in artifact');
+    } else if (expectedDecisions.length !== engineDecisions.length) {
+      reasons.push(
+        `Decision count mismatch: expected ${expectedDecisions.length}, got ${engineDecisions.length}`
+      );
+    } else {
+      for (let i = 0; i < expectedDecisions.length; i++) {
+        const expDec = expectedDecisions[i];
+        const repDec = engineDecisions[i];
+        if (
+          expDec.tickIndex !== repDec.tickIndex ||
+          expDec.decision !== repDec.decision ||
+          Math.abs(expDec.rawSpreadBps - repDec.rawSpreadBps) > 0.0001 ||
+          Math.abs(expDec.estimatedNetSpreadBps - repDec.estimatedNetSpreadBps) > 0.0001
+        ) {
+          reasons.push(
+            `Decision mismatch at index ${i} (tick ${expDec.tickIndex}): expected [${expDec.decision}, raw=${expDec.rawSpreadBps}, net=${expDec.estimatedNetSpreadBps}], got [tick ${repDec.tickIndex}, ${repDec.decision}, raw=${repDec.rawSpreadBps}, net=${repDec.estimatedNetSpreadBps}]`
+          );
         }
       }
     }
 
-    // 6. Final strategy snapshot reconciliation (when captured in artifact)
-    if (finalSnapshot) {
+    // 6. Final strategy snapshot reconciliation
+    if (!finalSnapshot) {
+      reasons.push('Missing finalSnapshot in artifact');
+    } else {
       const replayedSnap = engine.getSnapshot();
       if (Math.abs(replayedSnap.equityUsdt - finalSnapshot.equityUsdt) > 0.0001) {
         reasons.push(

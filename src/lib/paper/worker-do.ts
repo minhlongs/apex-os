@@ -58,6 +58,7 @@ interface StrategyWindowBaseline {
   windowPeakEquityUsdt: number;
   windowMaxDrawdownPct: number;
   baselineTimestampMs: number;
+  baselineProvenance?: 'LIVE_VERIFIED' | 'PENDING_LIVE_VALUATION';
   baselinePositionsSnapshot?: Array<{
     cycleId: string;
     pair: PaperPair;
@@ -394,7 +395,7 @@ export class PaperTradingDurableObject {
 
     if (isLive) {
       if (this.gapStartedAtMs !== null && nowMs - this.gapStartedAtMs > 15000) {
-        // Feed recovered, but the gap exceeded 15s: unrecoverable gap, reset window
+        // Feed recovered, but the gap exceeded 15s: unrecoverable gap, reset window on fresh live marks
         await this.resetContinuousWindow(nowMs);
         this.lastLiveConfirmedTsMs = nowMs;
         this.gapStartedAtMs = null;
@@ -405,24 +406,35 @@ export class PaperTradingDurableObject {
         return;
       }
 
-      if (this.lastLiveConfirmedTsMs !== null) {
-        const step = Math.max(0, nowMs - this.lastLiveConfirmedTsMs);
-        if (step > 15000) {
-          // Unmonitored gap occurred between live checks (> 15s): reset window
-          await this.resetContinuousWindow(nowMs);
-          this.lastLiveConfirmedTsMs = nowMs;
-          this.gapStartedAtMs = null;
-          await this.state.storage.put('last_live_confirmed_ts_ms', nowMs);
-          if (this.state.storage.delete) {
-            await this.state.storage.delete('gap_started_at_ms');
-          }
-          return;
+      if (this.lastLiveConfirmedTsMs === null) {
+        // First time all 8 streams are confirmed live in this session or after an outage reset:
+        // re-anchor window baseline on verified live marks so stale outage marks are never kept as baseline.
+        await this.resetContinuousWindow(nowMs);
+        this.lastLiveConfirmedTsMs = nowMs;
+        this.gapStartedAtMs = null;
+        await this.state.storage.put('last_live_confirmed_ts_ms', nowMs);
+        if (this.state.storage.delete) {
+          await this.state.storage.delete('gap_started_at_ms');
         }
-
-        // Proven continuous live step <= 15s
-        this.continuousCoverageMs += step;
-        await this.state.storage.put('continuous_coverage_ms', this.continuousCoverageMs);
+        return;
       }
+
+      const step = Math.max(0, nowMs - this.lastLiveConfirmedTsMs);
+      if (step > 15000) {
+        // Unmonitored gap occurred between live checks (> 15s): reset window
+        await this.resetContinuousWindow(nowMs);
+        this.lastLiveConfirmedTsMs = nowMs;
+        this.gapStartedAtMs = null;
+        await this.state.storage.put('last_live_confirmed_ts_ms', nowMs);
+        if (this.state.storage.delete) {
+          await this.state.storage.delete('gap_started_at_ms');
+        }
+        return;
+      }
+
+      // Proven continuous live step <= 15s
+      this.continuousCoverageMs += step;
+      await this.state.storage.put('continuous_coverage_ms', this.continuousCoverageMs);
 
       this.lastLiveConfirmedTsMs = nowMs;
       this.gapStartedAtMs = null;
@@ -452,7 +464,14 @@ export class PaperTradingDurableObject {
 
   private async resetContinuousWindow(nowMs: number): Promise<void> {
     this.continuousCoverageMs = 0;
+    this.runStartedAtMs = nowMs;
     await this.state.storage.put('continuous_coverage_ms', 0);
+    await this.state.storage.put('run_started_at_ms', nowMs);
+
+    const isAllStreamsLive = this.isCollectorLive(nowMs);
+    const baselineProvenance: 'LIVE_VERIFIED' | 'PENDING_LIVE_VALUATION' = isAllStreamsLive
+      ? 'LIVE_VERIFIED'
+      : 'PENDING_LIVE_VALUATION';
 
     // Reset window baselines for all strategies to snapshot current state
     for (const sid of STRATEGY_IDS) {
@@ -476,6 +495,7 @@ export class PaperTradingDurableObject {
         windowPeakEquityUsdt: snap.equityUsdt,
         windowMaxDrawdownPct: 0,
         baselineTimestampMs: nowMs,
+        baselineProvenance,
         baselinePositionsSnapshot,
       };
       this.windowBaselines.set(sid, baseline);
@@ -558,8 +578,10 @@ export class PaperTradingDurableObject {
 
       const verdict: 'GO' | 'NO_GO' =
         verifiedDays >= 30 &&
+        baseline.baselineProvenance === 'LIVE_VERIFIED' &&
         windowClosedCycles >= 100 &&
         windowRealizedNetPnl > 0 &&
+        windowAttributablePnl > 0 &&
         baseline.windowMaxDrawdownPct <= 2.0 &&
         !snap.haltedByDrawdown
           ? 'GO'
@@ -994,7 +1016,14 @@ export class PaperTradingDurableObject {
         eventId: book.fundingEventId,
       };
 
-      if (perpEngine) {
+      if (result.status !== 'SYNCED') {
+        dispositionResult = {
+          disposition: 'retry',
+          reason: `Resynced stream ${streamKey} status is ${result.status}, not SYNCED`,
+          eventId: book.fundingEventId,
+          settlementTs: book.fundingSettlementTs ?? nowTs,
+        };
+      } else if (perpEngine) {
         dispositionResult = perpEngine.processFundingSettlementEvent(
           this.sequencer,
           book,
@@ -1171,6 +1200,7 @@ export class PaperTradingDurableObject {
       windowClosedCyclesCount: number;
       windowRealizedNetPnlUsdt: number;
       windowMaxDrawdownPct: number;
+      baselineProvenance: 'LIVE_VERIFIED' | 'PENDING_LIVE_VALUATION';
     }> = {} as any;
     for (const sid of STRATEGY_IDS) {
       const engine = this.strategies.get(sid)!;
@@ -1182,6 +1212,7 @@ export class PaperTradingDurableObject {
         windowPeakEquityUsdt: snap.equityUsdt,
         windowMaxDrawdownPct: 0,
         baselineTimestampMs: 0,
+        baselineProvenance: 'PENDING_LIVE_VALUATION' as const,
       };
       const allClosed = engine.getClosedCycles();
       const newCyclesInWindow = allClosed.filter(
@@ -1192,6 +1223,7 @@ export class PaperTradingDurableObject {
         windowClosedCyclesCount: newCyclesInWindow.length,
         windowRealizedNetPnlUsdt: windowNavPnl,
         windowMaxDrawdownPct: baseline.windowMaxDrawdownPct,
+        baselineProvenance: baseline.baselineProvenance ?? 'PENDING_LIVE_VALUATION',
       };
     }
 
