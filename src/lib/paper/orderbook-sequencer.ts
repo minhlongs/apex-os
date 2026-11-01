@@ -195,7 +195,51 @@ export class OrderbookSequencer {
       bids: mergeLevels(existing.bids, delta.bids, true),
       asks: mergeLevels(existing.asks, delta.asks, false),
       fundingRateBps: delta.fundingRateBps ?? existing.fundingRateBps,
+      nextFundingTimeMs: delta.nextFundingTimeMs ?? existing.nextFundingTimeMs,
+      fundingEventId: delta.fundingEventId,
+      fundingSettlementTs: delta.fundingSettlementTs,
     };
+  }
+
+  serializeState(): {
+    books: Record<string, NormalizedOrderbook>;
+    states: Record<string, SequencerStreamState>;
+  } {
+    const books: Record<string, NormalizedOrderbook> = {};
+    const states: Record<string, SequencerStreamState> = {};
+    for (const [k, v] of this.books.entries()) {
+      books[k] = {
+        ...v,
+        bids: v.bids.map((l) => ({ ...l })),
+        asks: v.asks.map((l) => ({ ...l })),
+      };
+    }
+    for (const [k, v] of this.states.entries()) {
+      states[k] = { ...v };
+    }
+    return { books, states };
+  }
+
+  restoreState(saved: {
+    books?: Record<string, NormalizedOrderbook>;
+    states?: Record<string, SequencerStreamState>;
+  }): void {
+    this.books.clear();
+    this.states.clear();
+    if (saved.books) {
+      for (const [k, v] of Object.entries(saved.books)) {
+        this.books.set(k, {
+          ...v,
+          bids: v.bids.map((l) => ({ ...l })),
+          asks: v.asks.map((l) => ({ ...l })),
+        });
+      }
+    }
+    if (saved.states) {
+      for (const [k, v] of Object.entries(saved.states)) {
+        this.states.set(k, { ...v });
+      }
+    }
   }
 
   /**
@@ -267,7 +311,9 @@ export class OrderbookSequencer {
     const hasSequenceGap =
       !isRepeatedValidSnapshot &&
       (book.sequenceId <= existing.lastSequenceId ||
-        (book.isDelta !== false && expectedPrev > existing.lastSequenceId && !isBridgeCovered));
+        ((book.isDelta === true || book.prevSequenceId !== undefined) &&
+          expectedPrev > existing.lastSequenceId &&
+          !isBridgeCovered));
 
     if (hasSequenceGap) {
       const desyncState: SequencerStreamState = {
@@ -449,6 +495,10 @@ export class OrderbookSequencer {
     marketType: PaperMarketType
   ): NormalizedOrderbook | undefined {
     return this.books.get(OrderbookSequencer.makeStreamKey(exchange, pair, marketType));
+  }
+
+  getAllBooks(): NormalizedOrderbook[] {
+    return Array.from(this.books.values());
   }
 
   getState(

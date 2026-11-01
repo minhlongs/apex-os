@@ -2032,6 +2032,9 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         }
         expect(replayFound).toBeDefined();
         expect(replayFound.cycleTicks.length).toBeGreaterThan(500);
+        const verifyRestarted550 = PaperReplayEngine.replayCycleFromArtifact(replayFound);
+        expect(verifyRestarted550.reasons).toEqual([]);
+        expect(verifyRestarted550.matched).toBe(true);
       });
 
       it('N3: rejects synthetic 8h boundary crossing without authentic exchange fundingEventId, and ACKs funding only after commit', async () => {
@@ -2432,6 +2435,10 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         expect(verification.pnlDifferenceUsdt).toBeLessThanOrEqual(0.0001);
         expect(verification.fillsCount).toBeGreaterThanOrEqual(2);
         expect(verification.reasons).toEqual([]);
+        expect(runtimeArtifact.engineConfig).toBeDefined();
+        expect(runtimeArtifact.initialStrategyState).toBeDefined();
+        expect(runtimeArtifact.finalSnapshot).toBeDefined();
+        expect(runtimeArtifact.decisions.length).toBe(verification.decisionsCount);
 
         // Mutation Test 1: Corrupted/altered cycle P&L in artifact must be rejected
         const tamperedArtifact = JSON.parse(JSON.stringify(runtimeArtifact));
@@ -2462,6 +2469,52 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         const tamperedFundingVerification = PaperReplayEngine.replayCycleFromArtifact(tamperedFundingArtifact);
         expect(tamperedFundingVerification.matched).toBe(false);
         expect(tamperedFundingVerification.reasons.some((r: string) => r.includes('Funding ledger'))).toBe(true);
+
+        // Mutation Test 4 (Strict N2): Alter a single intermediate decision OR fill price/quantity while keeping netPnlUsdt identical -> replay MUST reject
+        const decisionMutatedArtifact = JSON.parse(JSON.stringify(runtimeArtifact));
+        // Keep netPnlUsdt identical, but mutate an intermediate decision in artifact.decisions
+        const holdDecisionIdx = decisionMutatedArtifact.decisions.findIndex(
+          (d: any) => d.decision !== 'OPEN_CYCLE' && d.decision !== 'CLOSE_CYCLE'
+        );
+        if (holdDecisionIdx >= 0) {
+          decisionMutatedArtifact.decisions[holdDecisionIdx].decision = 'NO_TRADE';
+          decisionMutatedArtifact.decisions[holdDecisionIdx].rawSpreadBps += 5.0;
+        } else {
+          decisionMutatedArtifact.decisions[0].rawSpreadBps += 5.0;
+        }
+        const decisionMutatedVerif = PaperReplayEngine.replayCycleFromArtifact(decisionMutatedArtifact);
+        expect(decisionMutatedVerif.pnlDifferenceUsdt).toBe(0);
+        expect(decisionMutatedVerif.matched).toBe(false);
+        expect(decisionMutatedVerif.reasons.some((r: string) => r.includes('Decision mismatch'))).toBe(true);
+
+        // Mutation Test 5 (Strict N2): Shift entry & exit fill prices by the exact same offset (+50 USDT) or alter quantityBase while keeping netPnlUsdt identical -> replay MUST reject
+        const fillMutatedArtifact = JSON.parse(JSON.stringify(runtimeArtifact));
+        fillMutatedArtifact.cycle.entryLegAPrice += 50;
+        fillMutatedArtifact.cycle.exitLegAPrice += 50;
+        fillMutatedArtifact.cycle.quantityBase += 0.0025;
+        // netPnlUsdt is left untouched!
+        const fillMutatedVerif = PaperReplayEngine.replayCycleFromArtifact(fillMutatedArtifact);
+        expect(fillMutatedVerif.pnlDifferenceUsdt).toBe(0);
+        expect(fillMutatedVerif.matched).toBe(false);
+        expect(
+          fillMutatedVerif.reasons.some((r: string) => r.includes('Entry LegA price mismatch'))
+        ).toBe(true);
+        expect(
+          fillMutatedVerif.reasons.some((r: string) => r.includes('Exit LegA price mismatch'))
+        ).toBe(true);
+        expect(
+          fillMutatedVerif.reasons.some((r: string) => r.includes('Quantity base mismatch'))
+        ).toBe(true);
+
+        // Mutation Test 6 (Strict N2): Tamper finalSnapshot equity while keeping cycle netPnlUsdt identical -> replay MUST reject
+        const snapshotMutatedArtifact = JSON.parse(JSON.stringify(runtimeArtifact));
+        snapshotMutatedArtifact.finalSnapshot.equityUsdt += 25.0;
+        const snapshotMutatedVerif = PaperReplayEngine.replayCycleFromArtifact(snapshotMutatedArtifact);
+        expect(snapshotMutatedVerif.pnlDifferenceUsdt).toBe(0);
+        expect(snapshotMutatedVerif.matched).toBe(false);
+        expect(
+          snapshotMutatedVerif.reasons.some((r: string) => r.includes('Final snapshot equityUsdt mismatch'))
+        ).toBe(true);
       });
 
       it('N3 Acceptance: Synced perp stream with missing spot counterpart yields HALTED_DESYNC, does NOT ACK, and retries once on recovery', async () => {
@@ -2705,6 +2758,344 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         expect(postPos).toBeDefined();
         // Accrued funding must remain 0 because entryTs (baseTs + 900) > settlementTs (baseTs + 800)
         expect(postPos!.accruedFundingUsdt).toBe(0);
+      });
+
+      it('N3 Acceptance: Bybit funding event does not apply to an open Binance position (venue/market isolation)', () => {
+        const engine = new PaperStrategyEngine({ strategyId: 'spot-perp' });
+        const sequencer = new OrderbookSequencer();
+        const baseTs = 1730000000000;
+
+        (engine as any).openCycles.set('BTC/USDT', {
+          cycleId: 'cycle_binance_perp',
+          strategyId: 'spot-perp',
+          pair: 'BTC/USDT',
+          entryTs: baseTs,
+          entrySeqA: 1,
+          entrySeqB: 1,
+          notionalUsdt: 1000,
+          quantityBase: 0.0147,
+          legAExchange: 'binance',
+          legAMarket: 'spot',
+          legBExchange: 'binance',
+          legBMarket: 'linear_perp',
+          entryLegAPrice: 68000,
+          entryLegBPrice: 68100,
+          entrySpreadBps: 14.7,
+          entryFeesUsdt: 2.4,
+          accruedFundingUsdt: 0,
+          appliedFundingEventIds: [],
+        });
+
+        // Foreign-venue Bybit linear_perp book carrying a funding settlement event
+        const foreignVenueBook: NormalizedOrderbook = {
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: 1,
+          exchangeTs: baseTs + 100,
+          receivedTs: baseTs + 105,
+          fundingEventId: 'bybit_funding_evt_1',
+          fundingSettlementTs: baseTs + 100,
+          fundingRateBps: 3.0,
+          bids: [{ price: 68100, quantity: 1 }],
+          asks: [{ price: 68110, quantity: 1 }],
+        };
+
+        const result = engine.processFundingSettlementEvent(sequencer, foreignVenueBook, baseTs + 105);
+
+        expect(result.disposition).toBe('not-applicable');
+        expect(engine.getSnapshot().fundingLedger.length).toBe(0);
+        expect(engine.getSnapshot().totalFundingUsdt).toBe(0);
+        const pos = engine.getOpenCycles().find((c) => c.cycleId === 'cycle_binance_perp')!;
+        expect(pos.accruedFundingUsdt).toBe(0);
+        expect(pos.appliedFundingEventIds ?? []).not.toContain('bybit_funding_evt_1');
+
+        // Same constraint at the DO layer: ACK must not fire for a non-applicable foreign position
+        const store = new Map<string, unknown>();
+        return (async () => {
+          const doInstance = new PaperTradingDurableObject({
+            storage: {
+              get: async (k) => store.get(k) as any,
+              put: async (k, v) => { store.set(k, v); },
+              delete: async (k) => { store.delete(k); },
+            },
+          });
+          await doInstance.ensureRestored();
+
+          const ackCalls: string[] = [];
+          (doInstance as any).collector = {
+            ackFundingSettlement: (streamKey: string, eventId: string) => {
+              ackCalls.push(`${streamKey}:${eventId}`);
+            },
+          };
+
+          const doEngine = ((doInstance as any).strategies as Map<string, PaperStrategyEngine>).get('spot-perp')!;
+          (doEngine as any).openCycles.set('BTC/USDT', {
+            cycleId: 'cycle_binance_perp',
+            strategyId: 'spot-perp',
+            pair: 'BTC/USDT',
+            entryTs: baseTs,
+            entrySeqA: 1,
+            entrySeqB: 1,
+            notionalUsdt: 1000,
+            quantityBase: 0.0147,
+            legAExchange: 'binance',
+            legAMarket: 'spot',
+            legBExchange: 'binance',
+            legBMarket: 'linear_perp',
+            entryLegAPrice: 68000,
+            entryLegBPrice: 68100,
+            entrySpreadBps: 14.7,
+            entryFeesUsdt: 2.4,
+            accruedFundingUsdt: 0,
+            appliedFundingEventIds: [],
+          });
+
+          const res = await doInstance.ingestOrderbook(foreignVenueBook, baseTs + 105);
+          expect(doEngine.getSnapshot().fundingLedger.length).toBe(0);
+          expect(doEngine.getSnapshot().totalFundingUsdt).toBe(0);
+          const doDisp = store.get('funding_disp_bybit_funding_evt_1') as any;
+          expect(doDisp).toBeDefined();
+          expect(doDisp.disposition).toBe('not-applicable');
+          expect(doDisp.reason).toContain('does not match open position perp leg');
+          expect(res.snapshots['spot-perp'].fundingLedger?.length ?? 0).toBe(0);
+          // Collector is ACKed once disposition 'not-applicable' is durably persisted so it does not loop forever
+          expect(ackCalls).toContain('bybit:linear_perp:BTC/USDT:bybit_funding_evt_1');
+        })();
+      });
+
+      it('N3 Acceptance: crash at any boundary between apply funding, save strategy state, save disposition, and ACK recovers exactly once', async () => {
+        const baseTs = 1730000000000;
+        const fundingEventId = 'crash_boundary_evt_1';
+
+        /**
+         * Build a fresh DO + engine over `store`. If `store` does not yet have a
+         * persisted `strategy_state_spot-perp`, seed the open Binance spot-perp
+         * position; if it does have persisted state (post-crash restart), keep the
+         * restored state from `ensureRestored()`.
+         */
+        const buildDo = async (
+          store: Map<string, unknown>,
+          ackCalls: string[],
+          failures: { stateWrite?: boolean; dispWrite?: boolean } = {}
+        ) => {
+          const hadSavedStrategyState = store.has('strategy_state_spot-perp');
+          let allowStateWriteFailure = false;
+          const doInstance = new PaperTradingDurableObject({
+            storage: {
+              get: async (k: string) => store.get(k),
+              put: async (k: string, v: unknown) => {
+                if (allowStateWriteFailure && failures.stateWrite && k === 'strategy_state_spot-perp') {
+                  throw new Error('Simulated persistence failure on strategy_state_spot-perp');
+                }
+                if (failures.dispWrite && k === `funding_disp_${fundingEventId}`) {
+                  throw new Error(`Simulated persistence failure on funding_disp_${fundingEventId}`);
+                }
+                store.set(k, v);
+              },
+              delete: async (k: string) => {
+                store.delete(k);
+              },
+            },
+          });
+          await doInstance.ensureRestored();
+
+          (doInstance as any).collector = {
+            ackFundingSettlement: (streamKey: string, eventId: string) => {
+              ackCalls.push(`${streamKey}:${eventId}`);
+            },
+          };
+
+          const perpEngine = ((doInstance as any).strategies as Map<string, PaperStrategyEngine>).get('spot-perp')!;
+          if (!hadSavedStrategyState) {
+            (perpEngine as any).openCycles.set('BTC/USDT', {
+              cycleId: 'cycle_crash_1',
+              strategyId: 'spot-perp',
+              pair: 'BTC/USDT',
+              entryTs: baseTs,
+              entrySeqA: 1,
+              entrySeqB: 1,
+              notionalUsdt: 1000,
+              quantityBase: 0.0147,
+              legAExchange: 'binance',
+              legAMarket: 'spot',
+              legBExchange: 'binance',
+              legBMarket: 'linear_perp',
+              entryLegAPrice: 68000,
+              entryLegBPrice: 68100,
+              entrySpreadBps: 14.7,
+              entryFeesUsdt: 2.4,
+              accruedFundingUsdt: 0,
+              appliedFundingEventIds: [],
+            });
+          }
+          return {
+            doInstance,
+            perpEngine,
+            enableStateWriteFault: () => {
+              allowStateWriteFailure = true;
+            },
+          };
+        };
+
+        const makeFundingBook = (seq: number, ts: number): NormalizedOrderbook => ({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: seq,
+          exchangeTs: ts,
+          receivedTs: ts,
+          fundingEventId,
+          fundingSettlementTs: baseTs,
+          fundingRateBps: 1.5,
+          bids: [{ price: 68100, quantity: 1 }],
+          asks: [{ price: 68110, quantity: 1 }],
+        });
+
+        // Baseline: both legs synced so funding is applicable and ACK fires once
+        const baselineStore = new Map<string, unknown>();
+        const baselineAcks: string[] = [];
+        const baseline = await buildDo(baselineStore, baselineAcks);
+        await baseline.doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 1,
+            exchangeTs: baseTs + 10,
+            receivedTs: baseTs + 10,
+            bids: [{ price: 68000, quantity: 1 }],
+            asks: [{ price: 68010, quantity: 1 }],
+          },
+          baseTs + 10
+        );
+        await baseline.doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'linear_perp',
+            sequenceId: 1,
+            exchangeTs: baseTs + 10,
+            receivedTs: baseTs + 10,
+            bids: [{ price: 68100, quantity: 1 }],
+            asks: [{ price: 68110, quantity: 1 }],
+          },
+          baseTs + 10
+        );
+        await baseline.doInstance.ingestOrderbook(makeFundingBook(2, baseTs + 20), baseTs + 20);
+        expect(baseline.perpEngine.getSnapshot().fundingLedger.length).toBe(1);
+        expect(baselineAcks.filter((a) => a.endsWith(fundingEventId)).length).toBe(1);
+        const appliedDelta = baseline.perpEngine.getSnapshot().fundingLedger[0].fundingDeltaUsdt;
+
+        // Crash point A: state write succeeds, disposition write fails -> no ACK, event must be re-applied exactly once on retry
+        const storeA = new Map<string, unknown>();
+        const acksA: string[] = [];
+        const crashA = await buildDo(storeA, acksA, { dispWrite: true });
+        await crashA.doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 1,
+            exchangeTs: baseTs + 10,
+            receivedTs: baseTs + 10,
+            bids: [{ price: 68000, quantity: 1 }],
+            asks: [{ price: 68010, quantity: 1 }],
+          },
+          baseTs + 10
+        );
+        await crashA.doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'linear_perp',
+            sequenceId: 1,
+            exchangeTs: baseTs + 10,
+            receivedTs: baseTs + 10,
+            bids: [{ price: 68100, quantity: 1 }],
+            asks: [{ price: 68110, quantity: 1 }],
+          },
+          baseTs + 10
+        );
+        await crashA.doInstance.ingestOrderbook(makeFundingBook(2, baseTs + 20), baseTs + 20);
+        // The funding was applied in-memory, but ACK must be suppressed because disposition persistence failed
+        expect(crashA.perpEngine.getSnapshot().fundingLedger.length).toBe(1);
+        expect(acksA.filter((a) => a.endsWith(fundingEventId)).length).toBe(0);
+        expect(storeA.get(`funding_disp_${fundingEventId}`)).toBeUndefined();
+        // Engine state was durably written -> retry must NOT double-count funding
+        const serializedA = storeA.get('strategy_state_spot-perp') as any;
+        expect(serializedA).toBeDefined();
+
+        // Restart DO from the crashed storage, retry the same funding event: exactly-once funding before ACK
+        const restartStoreA = new Map<string, unknown>(storeA);
+        const acksRestartA: string[] = [];
+        const restartA = await buildDo(restartStoreA, acksRestartA);
+        expect(restartA.perpEngine.getSnapshot().fundingLedger.length).toBe(1);
+        await restartA.doInstance.ingestOrderbook(makeFundingBook(3, baseTs + 30), baseTs + 30);
+        expect(restartA.perpEngine.getSnapshot().fundingLedger.length).toBe(1);
+        expect(restartA.perpEngine.getSnapshot().fundingLedger[0].eventId).toBe(fundingEventId);
+        expect(restartA.perpEngine.getSnapshot().fundingLedger[0].fundingDeltaUsdt).toBeCloseTo(
+          appliedDelta,
+          4
+        );
+        expect(acksRestartA.filter((a) => a.endsWith(fundingEventId)).length).toBe(1);
+        const restartDispA = restartStoreA.get(`funding_disp_${fundingEventId}`) as any;
+        expect(restartDispA).toBeDefined();
+        expect(restartDispA.disposition).toBe('applied');
+        expect(restartDispA.appliedDeltaUsdt).toBeCloseTo(appliedDelta, 4);
+
+        // Crash point B: strategy state write fails -> nothing applied durably, no ACK; restart replays funding exactly once
+        const storeB = new Map<string, unknown>();
+        const acksB: string[] = [];
+        const crashB = await buildDo(storeB, acksB, { stateWrite: true });
+        await crashB.doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 1,
+            exchangeTs: baseTs + 10,
+            receivedTs: baseTs + 10,
+            bids: [{ price: 68000, quantity: 1 }],
+            asks: [{ price: 68010, quantity: 1 }],
+          },
+          baseTs + 10
+        );
+        await crashB.doInstance.ingestOrderbook(
+          {
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'linear_perp',
+            sequenceId: 1,
+            exchangeTs: baseTs + 10,
+            receivedTs: baseTs + 10,
+            bids: [{ price: 68100, quantity: 1 }],
+            asks: [{ price: 68110, quantity: 1 }],
+          },
+          baseTs + 10
+        );
+        crashB.enableStateWriteFault();
+        await crashB.doInstance.ingestOrderbook(makeFundingBook(2, baseTs + 20), baseTs + 20);
+        // Persistence failure must suppress ACK entirely
+        expect(acksB.filter((a) => a.endsWith(fundingEventId)).length).toBe(0);
+        expect(storeB.get(`funding_disp_${fundingEventId}`)).toBeUndefined();
+
+        // Restart from storeB (which has pre-funding state before the faulted state write)
+        const storeBRestart = new Map<string, unknown>(storeB);
+        const acksBRestart: string[] = [];
+        const restartB = await buildDo(storeBRestart, acksBRestart);
+        // Pre-funding state restored: fundingLedger is 0 prior to collector retry
+        expect(restartB.perpEngine.getSnapshot().fundingLedger.length).toBe(0);
+        await restartB.doInstance.ingestOrderbook(makeFundingBook(3, baseTs + 30), baseTs + 30);
+        expect(restartB.perpEngine.getSnapshot().fundingLedger.length).toBe(1);
+        expect(restartB.perpEngine.getSnapshot().fundingLedger[0].fundingDeltaUsdt).toBeCloseTo(
+          appliedDelta,
+          4
+        );
+        expect(acksBRestart.filter((a) => a.endsWith(fundingEventId)).length).toBe(1);
+        const restartDispB = storeBRestart.get(`funding_disp_${fundingEventId}`) as any;
+        expect(restartDispB).toBeDefined();
+        expect(restartDispB.disposition).toBe('applied');
       });
     });
   });

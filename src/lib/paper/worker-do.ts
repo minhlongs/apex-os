@@ -24,6 +24,7 @@ import type {
   NormalizedOrderbook,
   PaperClosedCycle,
   PaperPair,
+  PaperSerializedStrategyState,
   PaperStrategyId,
   PaperStrategySnapshot,
 } from './types';
@@ -92,7 +93,15 @@ export class PaperTradingDurableObject {
   > = new Map();
   private readonly activeCycleInitialBooks: Map<
     string,
-    { legA: NormalizedOrderbook; legB: NormalizedOrderbook }
+    {
+      legA: NormalizedOrderbook;
+      legB: NormalizedOrderbook;
+      allStreams?: NormalizedOrderbook[];
+    }
+  > = new Map();
+  private readonly activeCycleInitialStates: Map<
+    string,
+    ReturnType<PaperStrategyEngine['serializeState']>
   > = new Map();
   private readonly windowBaselines: Map<PaperStrategyId, StrategyWindowBaseline> = new Map();
   private readonly modelVersion = PAPER_MODEL_VERSION;
@@ -194,6 +203,13 @@ export class PaperTradingDurableObject {
       }
     }
 
+    const storedSequencerState = await this.state.storage.get<
+      ReturnType<OrderbookSequencer['serializeState']>
+    >('sequencer_state');
+    if (storedSequencerState) {
+      this.sequencer.restoreState(storedSequencerState);
+    }
+
     const storedActiveTicks = await this.state.storage.get<
       Record<string, Array<{ tickIndex: number; nowTs: number; book: NormalizedOrderbook }>>
     >('active_cycle_ticks_ledger');
@@ -209,6 +225,15 @@ export class PaperTradingDurableObject {
     if (storedInitialBooks) {
       for (const [cycleId, books] of Object.entries(storedInitialBooks)) {
         this.activeCycleInitialBooks.set(cycleId, books);
+      }
+    }
+
+    const storedInitialStates = await this.state.storage.get<
+      Record<string, ReturnType<PaperStrategyEngine['serializeState']>>
+    >('active_cycle_initial_states_ledger');
+    if (storedInitialStates) {
+      for (const [cycleId, st] of Object.entries(storedInitialStates)) {
+        this.activeCycleInitialStates.set(cycleId, st);
       }
     }
 
@@ -593,6 +618,7 @@ export class PaperTradingDurableObject {
     }
 
     const streamState = this.sequencer.ingest(book, nowTs);
+    await this.state.storage.put('sequencer_state', this.sequencer.serializeState());
     const tickEntry = {
       tickIndex: this.tickCounter,
       nowTs,
@@ -611,10 +637,12 @@ export class PaperTradingDurableObject {
 
     const replayObjectKey = `${book.exchange}/${book.pair}/${nowTs}-${this.tickCounter}`;
 
+    let perpStrategyStatePersistenceFailed = false;
     for (const engine of this.strategies.values()) {
       const prevClosedCount = engine.getClosedCycles().length;
       const prevClosedKeys = new Set(engine.getClosedCycles().map((c) => c.idempotencyKey));
       const prevOpenKeys = new Set(engine.getOpenCycles().map((c) => c.cycleId));
+      const preEvaluateState = engine.serializeState();
 
       const decision = engine.evaluatePair(
         this.sequencer,
@@ -624,7 +652,7 @@ export class PaperTradingDurableObject {
         replayObjectKey
       );
 
-      // N2: Detect newly opened cycles and persist their initial opening orderbooks
+      // N2: Detect newly opened cycles and persist their initial opening orderbooks, pre-open state, and opening tick
       for (const open of engine.getOpenCycles()) {
         if (!prevOpenKeys.has(open.cycleId)) {
           const legABook = this.sequencer.getBook(open.legAExchange, open.pair, open.legAMarket);
@@ -633,8 +661,18 @@ export class PaperTradingDurableObject {
             this.activeCycleInitialBooks.set(open.cycleId, {
               legA: { ...legABook },
               legB: { ...legBBook },
+              allStreams: this.sequencer.getAllBooks().map((b) => ({ ...b })),
             });
             await this.persistActiveCycleInitialBooks();
+          }
+          this.activeCycleInitialStates.set(open.cycleId, preEvaluateState);
+          await this.persistActiveCycleInitialStates();
+
+          const existingTicks = this.activeCycleTicks.get(open.cycleId) ?? [];
+          if (!existingTicks.some((t) => t.tickIndex === tickEntry.tickIndex)) {
+            existingTicks.push(tickEntry);
+            this.activeCycleTicks.set(open.cycleId, existingTicks);
+            await this.persistActiveCycleTicks();
           }
         }
       }
@@ -654,35 +692,67 @@ export class PaperTradingDurableObject {
                 legA: book,
                 legB: book,
               };
+              const initialStrategyState = this.activeCycleInitialStates.get(c.cycleId);
+              const cycleTickSet = new Set(cycleTicks.map((t) => t.tickIndex));
+              const cycleDecisions = engine
+                .getDecisions()
+                .filter(
+                  (d) =>
+                    d.pair === c.pair &&
+                    (cycleTickSet.size > 0
+                      ? cycleTickSet.has(d.tickIndex)
+                      : d.timestamp >= c.entryTs && d.timestamp <= c.exitTs)
+                );
               await this.journal.archiveReplayData(
                 `${c.replayObjectKey}.raw.json`,
                 {
                   cycle: c,
                   modelVersion: this.modelVersion,
+                  engineConfig: {
+                    initialCapitalUsdt: engine.initialCapitalUsdt,
+                    maxCycleNotionalUsdt: engine.maxCycleNotionalUsdt,
+                    maxOpenCycles: engine.maxOpenCycles,
+                    singleLegTakerFeeRate: engine.singleLegTakerFeeRate,
+                    minEntryNetSpreadBps: engine.minEntryNetSpreadBps,
+                    exitConvergenceSpreadBps: engine.exitConvergenceSpreadBps,
+                    maxDrawdownLimitPct: engine.maxDrawdownLimitPct,
+                  },
+                  initialStrategyState,
+                  finalSnapshot: engine.getSnapshot(),
                   initialBooks,
                   triggerBook: book,
                   decision,
                   cycleTicks,
-                  decisions: engine.getDecisions().slice(-50),
+                  decisions: cycleDecisions,
                   fundingLedger: engine.getSnapshot().fundingLedger ?? [],
                   sequencerStates: this.sequencer.getAllStates(),
                 },
                 this.env.STORAGE
               );
             }
-            // Clean up durable ticks and initial books for this closed cycle
+            // Clean up durable ticks, initial books, and initial states for this closed cycle
             this.activeCycleTicks.delete(c.cycleId);
             this.activeCycleInitialBooks.delete(c.cycleId);
+            this.activeCycleInitialStates.delete(c.cycleId);
             await this.persistActiveCycleTicks();
             await this.persistActiveCycleInitialBooks();
+            await this.persistActiveCycleInitialStates();
           }
         }
       }
-      await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
-      await this.state.storage.put(
-        `strategy_state_${engine.strategyId}`,
-        engine.serializeState()
-      );
+      try {
+        await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
+        await this.state.storage.put(
+          `strategy_state_${engine.strategyId}`,
+          engine.serializeState()
+        );
+      } catch (err) {
+        if (engine.strategyId === 'spot-perp' && book.fundingEventId) {
+          perpStrategyStatePersistenceFailed = true;
+        } else {
+          throw err;
+        }
+      }
     }
 
     // N3: Multi-tier persisted funding disposition handling:
@@ -720,15 +790,24 @@ export class PaperTradingDurableObject {
         );
       }
 
-      // Persist funding disposition in DO state for auditability and idempotency
-      let persistenceOk = true;
-      try {
-        await this.state.storage.put(
-          `funding_disp_${book.fundingEventId}`,
-          dispositionResult
-        );
-      } catch (err) {
-        persistenceOk = false;
+      // Persist both perp strategy state and funding disposition in DO state BEFORE collector ACK
+      let persistenceOk = !perpStrategyStatePersistenceFailed;
+      if (persistenceOk) {
+        try {
+          if (perpEngine && dispositionResult.disposition === 'applied') {
+            await this.journal.saveStrategySnapshot(perpEngine.getSnapshot(), this.env?.DB);
+            await this.state.storage.put(
+              'strategy_state_spot-perp',
+              perpEngine.serializeState()
+            );
+          }
+          await this.state.storage.put(
+            `funding_disp_${book.fundingEventId}`,
+            dispositionResult
+          );
+        } catch (err) {
+          persistenceOk = false;
+        }
       }
 
       // ACK collector strictly when disposition is 'applied' or 'not-applicable' AND persistence succeeded.
@@ -765,6 +844,7 @@ export class PaperTradingDurableObject {
     this.lastLiveIngestTsMs = nowTs;
     await this.state.storage.put('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
     const result = this.sequencer.resyncSnapshot(book, nowTs);
+    await this.state.storage.put('sequencer_state', this.sequencer.serializeState());
 
     const tickEntry = {
       tickIndex: this.tickCounter,
@@ -783,10 +863,12 @@ export class PaperTradingDurableObject {
 
     // Evaluate strategy state after resync through the unified persistence pipeline
     const replayObjectKey = `${book.exchange}/${book.pair}/${nowTs}-${this.tickCounter}`;
+    let perpStrategyStatePersistenceFailed = false;
     for (const engine of this.strategies.values()) {
       const prevClosedCount = engine.getClosedCycles().length;
       const prevClosedKeys = new Set(engine.getClosedCycles().map((c) => c.idempotencyKey));
       const prevOpenKeys = new Set(engine.getOpenCycles().map((c) => c.cycleId));
+      const preEvaluateState = engine.serializeState();
 
       const decision = engine.evaluatePair(
         this.sequencer,
@@ -796,7 +878,7 @@ export class PaperTradingDurableObject {
         replayObjectKey
       );
 
-      // N2: Detect newly opened cycles and persist their initial opening orderbooks
+      // N2: Detect newly opened cycles and persist their initial opening orderbooks + pre-open state + opening tick
       for (const open of engine.getOpenCycles()) {
         if (!prevOpenKeys.has(open.cycleId)) {
           const legABook = this.sequencer.getBook(open.legAExchange, open.pair, open.legAMarket);
@@ -805,8 +887,21 @@ export class PaperTradingDurableObject {
             this.activeCycleInitialBooks.set(open.cycleId, {
               legA: { ...legABook },
               legB: { ...legBBook },
+              allStreams: this.sequencer.getAllBooks().map((b) => ({ ...b })),
             });
             await this.persistActiveCycleInitialBooks();
+          }
+          this.activeCycleInitialStates.set(open.cycleId, preEvaluateState);
+          await this.persistActiveCycleInitialStates();
+
+          const existingTicks = this.activeCycleTicks.get(open.cycleId) ?? [];
+          if (
+            existingTicks.length === 0 ||
+            existingTicks[existingTicks.length - 1].tickIndex !== tickEntry.tickIndex
+          ) {
+            existingTicks.push(tickEntry);
+            this.activeCycleTicks.set(open.cycleId, existingTicks);
+            await this.persistActiveCycleTicks();
           }
         }
       }
@@ -826,36 +921,62 @@ export class PaperTradingDurableObject {
                 legA: book,
                 legB: book,
               };
+              const initialStrategyState = this.activeCycleInitialStates.get(c.cycleId);
+              const cycleTickIndices = new Set(cycleTicks.map((t) => t.tickIndex));
+              const cycleDecisions = engine
+                .getDecisions()
+                .filter((d) => d.pair === c.pair && cycleTickIndices.has(d.tickIndex));
               await this.journal.archiveReplayData(
                 `${c.replayObjectKey}.raw.json`,
                 {
                   cycle: c,
                   modelVersion: this.modelVersion,
+                  engineConfig: {
+                    initialCapitalUsdt: engine.initialCapitalUsdt,
+                    maxCycleNotionalUsdt: engine.maxCycleNotionalUsdt,
+                    maxOpenCycles: engine.maxOpenCycles,
+                    singleLegTakerFeeRate: engine.singleLegTakerFeeRate,
+                    minEntryNetSpreadBps: engine.minEntryNetSpreadBps,
+                    exitConvergenceSpreadBps: engine.exitConvergenceSpreadBps,
+                    maxDrawdownLimitPct: engine.maxDrawdownLimitPct,
+                  },
+                  initialStrategyState,
+                  finalSnapshot: engine.getSnapshot(),
                   initialBooks,
                   triggerBook: book,
                   decision,
                   cycleTicks,
-                  decisions: engine.getDecisions().slice(-50),
+                  decisions: cycleDecisions.length > 0 ? cycleDecisions : engine.getDecisions().slice(-50),
                   fundingLedger: engine.getSnapshot().fundingLedger ?? [],
                   sequencerStates: this.sequencer.getAllStates(),
                 },
                 this.env.STORAGE
               );
             }
-            // Clean up durable ticks and initial books for this closed cycle
+            // Clean up durable ticks, initial books, and initial states for this closed cycle
             this.activeCycleTicks.delete(c.cycleId);
             this.activeCycleInitialBooks.delete(c.cycleId);
+            this.activeCycleInitialStates.delete(c.cycleId);
             await this.persistActiveCycleTicks();
             await this.persistActiveCycleInitialBooks();
+            await this.persistActiveCycleInitialStates();
           }
         }
       }
 
-      await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
-      await this.state.storage.put(
-        `strategy_state_${engine.strategyId}`,
-        engine.serializeState()
-      );
+      try {
+        await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
+        await this.state.storage.put(
+          `strategy_state_${engine.strategyId}`,
+          engine.serializeState()
+        );
+      } catch (err) {
+        if (engine.strategyId === 'spot-perp' && book.fundingEventId) {
+          perpStrategyStatePersistenceFailed = true;
+        } else {
+          throw err;
+        }
+      }
     }
 
     // N3: Multi-tier persisted funding disposition handling on resync path:
@@ -881,14 +1002,23 @@ export class PaperTradingDurableObject {
         );
       }
 
-      let persistenceOk = true;
-      try {
-        await this.state.storage.put(
-          `funding_disp_${book.fundingEventId}`,
-          dispositionResult
-        );
-      } catch (err) {
-        persistenceOk = false;
+      let persistenceOk = !perpStrategyStatePersistenceFailed;
+      if (persistenceOk) {
+        try {
+          if (perpEngine && dispositionResult.disposition === 'applied') {
+            await this.journal.saveStrategySnapshot(perpEngine.getSnapshot(), this.env?.DB);
+            await this.state.storage.put(
+              `strategy_state_${perpEngine.strategyId}`,
+              perpEngine.serializeState()
+            );
+          }
+          await this.state.storage.put(
+            `funding_disp_${book.fundingEventId}`,
+            dispositionResult
+          );
+        } catch (err) {
+          persistenceOk = false;
+        }
       }
 
       if (
@@ -949,12 +1079,24 @@ export class PaperTradingDurableObject {
   private async persistActiveCycleInitialBooks(): Promise<void> {
     const obj: Record<
       string,
-      { legA: NormalizedOrderbook; legB: NormalizedOrderbook }
+      {
+        legA: NormalizedOrderbook;
+        legB: NormalizedOrderbook;
+        allStreams?: NormalizedOrderbook[];
+      }
     > = {};
     for (const [cid, books] of this.activeCycleInitialBooks.entries()) {
       obj[cid] = books;
     }
     await this.state.storage.put('active_cycle_initial_books_ledger', obj);
+  }
+
+  private async persistActiveCycleInitialStates(): Promise<void> {
+    const obj: Record<string, PaperSerializedStrategyState> = {};
+    for (const [cid, state] of this.activeCycleInitialStates.entries()) {
+      obj[cid] = state;
+    }
+    await this.state.storage.put('active_cycle_initial_states_ledger', obj);
   }
 
   getStrategySnapshots(): Record<PaperStrategyId, PaperStrategySnapshot> {

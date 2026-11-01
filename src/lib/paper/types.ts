@@ -221,12 +221,53 @@ export interface ReplayExecutionResult {
   sequencerStates: SequencerStreamState[];
 }
 
+export interface PaperSerializedStrategyState {
+  cashBalanceUsdt: number;
+  peakEquityUsdt: number;
+  maxDrawdownPct: number;
+  haltedByDrawdown: boolean;
+  realizedNetPnlUsdt: number;
+  totalFeesPaidUsdt: number;
+  totalFundingUsdt: number;
+  totalRebalanceFeesUsdt: number;
+  noTradeCount: number;
+  desyncHaltCount: number;
+  lastUnrealizedPnlUsdt: number;
+  initialInventoryCostBasisUsdt: number;
+  lastMarkPrices?: Record<PaperPair, number>;
+  venueBalances: Record<
+    PaperExchange,
+    {
+      freeCollateralUsdt: number;
+      allocatedCollateralUsdt: number;
+      baseInventory: Record<PaperPair, number>;
+      baseInventoryCostBasisUsdt: Record<PaperPair, number>;
+    }
+  >;
+  openCycles: PaperOpenCycle[];
+  closedCycles: PaperClosedCycle[];
+  fundingLedger: FundingSettlementEvent[];
+  decisions?: PaperDecisionLog[];
+}
+
 export interface PaperCycleArtifact {
   cycle: PaperClosedCycle;
   modelVersion: string;
+  engineConfig?: {
+    initialCapitalUsdt: number;
+    maxCycleNotionalUsdt: number;
+    maxOpenCycles: number;
+    singleLegTakerFeeRate: number;
+    minEntryNetSpreadBps: number;
+    exitConvergenceSpreadBps: number;
+    maxDrawdownLimitPct: number;
+  };
+  initialStrategyState?: PaperSerializedStrategyState;
+  finalSnapshot?: PaperStrategySnapshot;
   initialBooks: {
     legA: NormalizedOrderbook;
     legB: NormalizedOrderbook;
+    allStreams?: NormalizedOrderbook[];
   };
   triggerBook: NormalizedOrderbook;
   decision: PaperDecisionLog;

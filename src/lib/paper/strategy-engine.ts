@@ -354,6 +354,15 @@ export class PaperStrategyEngine {
       };
     }
 
+    if (book.marketType !== 'linear_perp') {
+      return {
+        disposition: 'not-applicable',
+        reason: `Market type ${book.marketType} is not linear_perp`,
+        eventId,
+        settlementTs,
+      };
+    }
+
     if (fundingBps === 0) {
       return {
         disposition: 'not-applicable',
@@ -373,6 +382,17 @@ export class PaperStrategyEngine {
       };
     }
 
+    // Venue/market isolation check: funding event must belong to the exact perpetual venue of the open position
+    const perpVenue = existingOpen.legBExchange;
+    if (book.exchange !== perpVenue || existingOpen.legBMarket !== 'linear_perp') {
+      return {
+        disposition: 'not-applicable',
+        reason: `Funding event on ${book.exchange}:${book.marketType} does not match open position perp leg on ${perpVenue}:${existingOpen.legBMarket}`,
+        eventId,
+        settlementTs,
+      };
+    }
+
     // Eligibility check: position must have been opened at or before the settlement timestamp
     if (existingOpen.entryTs > settlementTs) {
       return {
@@ -385,11 +405,13 @@ export class PaperStrategyEngine {
 
     const appliedIds = existingOpen.appliedFundingEventIds ?? [];
     if (appliedIds.includes(eventId)) {
+      const existingLedgerEntry = this.fundingLedger.find((e) => e.eventId === eventId);
       return {
-        disposition: 'not-applicable',
-        reason: `Event ${eventId} has already been applied to position ${existingOpen.cycleId}`,
+        disposition: 'applied',
+        reason: `Event ${eventId} has already been applied to position ${existingOpen.cycleId} (idempotent reconciliation)`,
         eventId,
         settlementTs,
+        appliedDeltaUsdt: existingLedgerEntry?.fundingDeltaUsdt,
       };
     }
 
@@ -1508,6 +1530,7 @@ export class PaperStrategyEngine {
     openCycles: PaperOpenCycle[];
     closedCycles: PaperClosedCycle[];
     fundingLedger: FundingSettlementEvent[];
+    decisions?: PaperDecisionLog[];
   } {
     return {
       cashBalanceUsdt: this.totalFreeCollateralUsdt(),
@@ -1541,9 +1564,15 @@ export class PaperStrategyEngine {
           },
         },
       },
-      openCycles: Array.from(this.openCycles.values()),
-      closedCycles: [...this.closedCycles],
-      fundingLedger: [...this.fundingLedger],
+      openCycles: Array.from(this.openCycles.values()).map((oc) => ({
+        ...oc,
+        appliedFundingEventIds: oc.appliedFundingEventIds
+          ? [...oc.appliedFundingEventIds]
+          : undefined,
+      })),
+      closedCycles: this.closedCycles.map((cc) => ({ ...cc })),
+      fundingLedger: this.fundingLedger.map((fe) => ({ ...fe })),
+      decisions: this.decisions.slice(-2000).map((d) => ({ ...d })),
     };
   }
 
@@ -1583,11 +1612,20 @@ export class PaperStrategyEngine {
     }
     this.openCycles.clear();
     for (const oc of saved.openCycles) {
-      this.openCycles.set(oc.pair, { ...oc });
+      this.openCycles.set(oc.pair, {
+        ...oc,
+        appliedFundingEventIds: oc.appliedFundingEventIds
+          ? [...oc.appliedFundingEventIds]
+          : undefined,
+      });
     }
     this.closedCycles.length = 0;
-    this.closedCycles.push(...saved.closedCycles);
-    this.fundingLedger = [...(saved.fundingLedger ?? [])];
+    this.closedCycles.push(...saved.closedCycles.map((cc) => ({ ...cc })));
+    this.fundingLedger = (saved.fundingLedger ?? []).map((fe) => ({ ...fe }));
+    if (saved.decisions) {
+      this.decisions.length = 0;
+      this.decisions.push(...saved.decisions.map((d) => ({ ...d })));
+    }
     // Restore must reproduce the same unrealized P&L the pre-restart engine
     // held for the cycles still open, and nothing for the ones it had closed.
     if (saved.lastUnrealizedPnlUsdt !== undefined) {
