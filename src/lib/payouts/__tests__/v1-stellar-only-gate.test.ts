@@ -45,6 +45,7 @@ function createMockAdapter(chain: 'stellar' | 'ethereum' | 'solana'): PayoutChai
 
 describe('V1 Launch Gate: Stellar-Only Payout Enforcement', () => {
   const originalEnv = process.env.V1_STELLAR_ONLY_PAYOUTS;
+  const originalAppEnv = process.env.APP_ENV;
 
   afterEach(() => {
     if (originalEnv === undefined) {
@@ -52,6 +53,30 @@ describe('V1 Launch Gate: Stellar-Only Payout Enforcement', () => {
     } else {
       process.env.V1_STELLAR_ONLY_PAYOUTS = originalEnv;
     }
+    if (originalAppEnv === undefined) {
+      delete process.env.APP_ENV;
+    } else {
+      process.env.APP_ENV = originalAppEnv;
+    }
+  });
+
+  it('unconditionally blocks Ethereum and Solana in production/staging even if V1_STELLAR_ONLY_PAYOUTS=false', async () => {
+    process.env.APP_ENV = 'production';
+    process.env.V1_STELLAR_ONLY_PAYOUTS = 'false';
+
+    const router = new PayoutRouter({
+      stellar: createMockAdapter('stellar'),
+      ethereum: createMockAdapter('ethereum'),
+      solana: createMockAdapter('solana'),
+    });
+
+    const ethResult = await router.sendPayout('ethereum', {
+      payoutId: 'po_eth_prod_1',
+      recipientAddress: '0x1111111111111111111111111111111111111111',
+      amount: 100,
+    });
+    expect(ethResult.success).toBe(false);
+    expect(ethResult.status).toBe('failed');
   });
 
   it('blocks Ethereum and Solana payouts when V1_STELLAR_ONLY_PAYOUTS=true while allowing Stellar', async () => {

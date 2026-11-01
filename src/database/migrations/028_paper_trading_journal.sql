@@ -36,6 +36,19 @@ CREATE TABLE IF NOT EXISTS paper_trade_journal (
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Enforce append-only immutability triggers (block UPDATE and DELETE)
+CREATE TRIGGER IF NOT EXISTS trg_prevent_paper_journal_update
+BEFORE UPDATE ON paper_trade_journal
+BEGIN
+  SELECT RAISE(ABORT, 'paper_trade_journal is strictly append-only: UPDATE prohibited');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_prevent_paper_journal_delete
+BEFORE DELETE ON paper_trade_journal
+BEGIN
+  SELECT RAISE(ABORT, 'paper_trade_journal is strictly append-only: DELETE prohibited');
+END;
+
 CREATE INDEX IF NOT EXISTS idx_paper_journal_strategy_pair ON paper_trade_journal(strategy_id, pair);
 CREATE INDEX IF NOT EXISTS idx_paper_journal_exit_ts ON paper_trade_journal(exit_ts);
 CREATE INDEX IF NOT EXISTS idx_paper_journal_idempotency ON paper_trade_journal(idempotency_key);

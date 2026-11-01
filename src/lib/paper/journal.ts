@@ -7,13 +7,26 @@
  */
 
 import type { D1Database } from '../db';
+import { createHash } from 'node:crypto';
 import type {
   EconomicResearchSummary,
   PaperClosedCycle,
+  PaperExchange,
+  PaperMarketType,
+  PaperPair,
   PaperStrategyId,
   PaperStrategySnapshot,
   SequencerStreamState,
 } from './types';
+
+export interface R2BucketLike {
+  put(
+    key: string,
+    value: string | ArrayBuffer | ArrayBufferView | ReadableStream,
+    options?: { customMetadata?: Record<string, string>; httpMetadata?: Record<string, string> }
+  ): Promise<unknown>;
+  get(key: string): Promise<{ text(): Promise<string>; json<T>(): Promise<T> } | null>;
+}
 
 export class PaperJournal {
   private readonly memoryByIdempotency = new Map<string, PaperClosedCycle>();
@@ -22,17 +35,21 @@ export class PaperJournal {
   /**
    * Append a closed paper cycle idempotently.
    * Returns true if newly inserted, false if duplicate idempotencyKey.
+   * Persists to D1 (paper_trade_journal + paper_trading_outbox) and archives to R2 bucket.
+   * If R2 fails, outbox records r2_persisted = 0 with last_error.
    */
   async recordClosedCycle(
     cycle: PaperClosedCycle,
-    db?: D1Database | null
+    db?: D1Database | null,
+    r2Bucket?: R2BucketLike | null
   ): Promise<boolean> {
     if (this.memoryByIdempotency.has(cycle.idempotencyKey)) {
       return false;
     }
-    this.memoryByIdempotency.set(cycle.idempotencyKey, cycle);
 
+    let d1Success = false;
     if (db) {
+      // 1. Insert into immutable paper_trade_journal
       await db
         .prepare(
           `INSERT OR IGNORE INTO paper_trade_journal (
@@ -77,9 +94,240 @@ export class PaperJournal {
           cycle.replayObjectKey
         )
         .run();
+
+      d1Success = true;
+
+      // 2. Insert into paper_trading_outbox for guaranteed persistence/reconciliation tracking.
+      // Do NOT swallow outbox insert failures — if outbox persistence fails, let the caller retry
+      // before marking memoryByIdempotency.
+      await db
+        .prepare(
+          `INSERT OR IGNORE INTO paper_trading_outbox (
+            outbox_id, idempotency_key, payload_json, d1_persisted, r2_persisted, attempts
+          ) VALUES (?, ?, ?, 1, 0, 1)`
+        )
+        .bind(
+          `outbox_${cycle.idempotencyKey}`,
+          cycle.idempotencyKey,
+          JSON.stringify(cycle)
+        )
+        .run();
+    }
+
+    // Mark as recorded in memory only after BOTH journal and outbox D1 writes succeed
+    this.memoryByIdempotency.set(cycle.idempotencyKey, cycle);
+
+    let r2Success = false;
+    let r2ErrorMsg: string | null = null;
+
+    if (r2Bucket && cycle.replayObjectKey) {
+      try {
+        const objectPath = cycle.replayObjectKey.replace(/^r2:\/\/[^/]+\//, '');
+        const payloadStr = JSON.stringify(cycle);
+        const checksumSha256 = createHash('sha256').update(payloadStr).digest('hex');
+
+        await r2Bucket.put(objectPath, payloadStr, {
+          customMetadata: {
+            idempotency_key: cycle.idempotencyKey,
+            model_version: cycle.modelVersion,
+            execution_mode: 'PAPER',
+            sha256: checksumSha256,
+          },
+          httpMetadata: {
+            contentType: 'application/json',
+          },
+        });
+        r2Success = true;
+      } catch (err) {
+        r2ErrorMsg = err instanceof Error ? err.message : String(err);
+        console.error('[PaperJournal] R2 archive write failed:', err);
+      }
+    }
+
+    // Update outbox status in D1 if available
+    if (db) {
+      try {
+        await db
+          .prepare(
+            `UPDATE paper_trading_outbox
+             SET d1_persisted = ?, r2_persisted = ?, last_error = ?, updated_at = datetime('now')
+             WHERE idempotency_key = ?`
+          )
+          .bind(
+            d1Success ? 1 : 0,
+            r2Success ? 1 : 0,
+            r2ErrorMsg,
+            cycle.idempotencyKey
+          )
+          .run();
+      } catch (updateErr) {
+        console.warn('[PaperJournal] Outbox update failed:', updateErr);
+      }
     }
 
     return true;
+  }
+
+  /**
+   * Archive raw replay ticks and decisions to R2 with SHA-256 integrity digest.
+   */
+  async archiveReplayData(
+    objectKey: string,
+    data: unknown,
+    r2Bucket?: R2BucketLike | null
+  ): Promise<{ objectKey: string; sha256: string } | null> {
+    if (!r2Bucket) return null;
+    const objectPath = objectKey.replace(/^r2:\/\/[^/]+\//, '');
+    const serialized = JSON.stringify(data);
+    const sha256 = createHash('sha256').update(serialized).digest('hex');
+
+    await r2Bucket.put(objectPath, serialized, {
+      customMetadata: {
+        sha256,
+        execution_mode: 'PAPER',
+      },
+      httpMetadata: {
+        contentType: 'application/json',
+      },
+    });
+
+    return { objectKey, sha256 };
+  }
+
+  /**
+   * Reconcile pending outbox entries (retry R2 archiving).
+   */
+  async reconcileOutbox(
+    db: D1Database,
+    r2Bucket?: R2BucketLike | null
+  ): Promise<{ processed: number; retriedR2: number; errors: number }> {
+    const res = await db
+      .prepare(
+        `SELECT outbox_id, idempotency_key, payload_json, attempts
+         FROM paper_trading_outbox
+         WHERE r2_persisted = 0 AND attempts < 10
+         LIMIT 50`
+      )
+      .all<{ outbox_id: string; idempotency_key: string; payload_json: string; attempts: number }>();
+
+    const rows = Array.isArray(res) ? res : (res?.results || []);
+    let retriedR2 = 0;
+    let errors = 0;
+
+    for (const row of rows) {
+      try {
+        if (r2Bucket) {
+          const cycle = JSON.parse(row.payload_json) as PaperClosedCycle;
+          const objectPath = cycle.replayObjectKey.replace(/^r2:\/\/[^/]+\//, '');
+          const payloadStr = JSON.stringify(cycle);
+          const checksumSha256 = createHash('sha256').update(payloadStr).digest('hex');
+
+          await r2Bucket.put(objectPath, payloadStr, {
+            customMetadata: {
+              idempotency_key: cycle.idempotencyKey,
+              model_version: cycle.modelVersion,
+              execution_mode: 'PAPER',
+              sha256: checksumSha256,
+            },
+            httpMetadata: {
+              contentType: 'application/json',
+            },
+          });
+
+          await db
+            .prepare(
+              `UPDATE paper_trading_outbox
+               SET r2_persisted = 1, last_error = NULL, attempts = attempts + 1, updated_at = datetime('now')
+               WHERE idempotency_key = ?`
+            )
+            .bind(row.idempotency_key)
+            .run();
+
+          retriedR2 += 1;
+        }
+      } catch (err) {
+        errors += 1;
+        await db
+          .prepare(
+            `UPDATE paper_trading_outbox
+             SET last_error = ?, attempts = attempts + 1, updated_at = datetime('now')
+             WHERE idempotency_key = ?`
+          )
+          .bind(err instanceof Error ? err.message : String(err), row.idempotency_key)
+          .run();
+      }
+    }
+
+    return { processed: rows.length, retriedR2, errors };
+  }
+
+  /**
+   * Deactivate all prior active paper_trading_runs records for a strategy when
+   * a new run window starts (e.g., after an unrecoverable feed gap or config reset).
+   */
+  async deactivatePriorRuns(
+    strategyId: PaperStrategyId,
+    activeRunId: string,
+    db: D1Database
+  ): Promise<void> {
+    await db
+      .prepare(
+        `UPDATE paper_trading_runs
+         SET is_active = 0, verdict = 'NO_GO', last_heartbeat_at = datetime('now')
+         WHERE strategy_id = ? AND run_id != ? AND is_active = 1`
+      )
+      .bind(strategyId, activeRunId)
+      .run();
+  }
+
+  /**
+   * Sync and record active paper trading run heartbeat & metrics.
+   */
+  async syncPaperRun(
+    runId: string,
+    strategyId: PaperStrategyId,
+    modelVersion: string,
+    configHash: string,
+    db: D1Database,
+    metrics: {
+      verifiedRealMarketDays: number;
+      closedCyclesCount: number;
+      realizedNetPnlUsdt: number;
+      maxDrawdownPct: number;
+      verdict: 'GO' | 'NO_GO';
+      isActive?: boolean;
+    }
+  ): Promise<void> {
+    await db
+      .prepare(
+        `INSERT INTO paper_trading_runs (
+          run_id, model_version, config_hash, strategy_id,
+          verified_real_market_days, closed_cycles_count,
+          realized_net_pnl_usdt, max_drawdown_pct, verdict,
+          is_active, last_heartbeat_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        ON CONFLICT(run_id) DO UPDATE SET
+          verified_real_market_days = excluded.verified_real_market_days,
+          closed_cycles_count = excluded.closed_cycles_count,
+          realized_net_pnl_usdt = excluded.realized_net_pnl_usdt,
+          max_drawdown_pct = excluded.max_drawdown_pct,
+          verdict = excluded.verdict,
+          is_active = excluded.is_active,
+          last_heartbeat_at = datetime('now')`
+      )
+      .bind(
+        runId,
+        modelVersion,
+        configHash,
+        strategyId,
+        metrics.verifiedRealMarketDays,
+        metrics.closedCyclesCount,
+        metrics.realizedNetPnlUsdt,
+        metrics.maxDrawdownPct,
+        metrics.verdict,
+        metrics.isActive !== false ? 1 : 0
+      )
+      .run();
   }
 
   async saveStrategySnapshot(
@@ -139,6 +387,51 @@ export class PaperJournal {
     return Array.from(this.memoryByIdempotency.values());
   }
 
+  async loadFromD1(db: D1Database): Promise<number> {
+    const res = await db
+      .prepare('SELECT * FROM paper_trade_journal ORDER BY exit_ts ASC')
+      .all<Record<string, unknown>>();
+    const rows = Array.isArray(res) ? res : (res?.results || []);
+    let restored = 0;
+    for (const r of rows) {
+      const cycle: PaperClosedCycle = {
+        cycleId: String(r.cycle_id),
+        idempotencyKey: String(r.idempotency_key),
+        strategyId: r.strategy_id as PaperStrategyId,
+        pair: r.pair as PaperPair,
+        entryTs: Number(r.entry_ts),
+        exitTs: Number(r.exit_ts),
+        entrySeqA: Number(r.entry_seq_a),
+        entrySeqB: Number(r.entry_seq_b),
+        exitSeqA: Number(r.exit_seq_a),
+        exitSeqB: Number(r.exit_seq_b),
+        notionalUsdt: Number(r.notional_usdt),
+        quantityBase: Number(r.quantity_base),
+        legAExchange: r.leg_a_exchange as PaperExchange,
+        legAMarket: r.leg_a_market as PaperMarketType,
+        legBExchange: r.leg_b_exchange as PaperExchange,
+        legBMarket: r.leg_b_market as PaperMarketType,
+        entryLegAPrice: Number(r.entry_leg_a_price),
+        entryLegBPrice: Number(r.entry_leg_b_price),
+        exitLegAPrice: Number(r.exit_leg_a_price),
+        exitLegBPrice: Number(r.exit_leg_b_price),
+        rawSpreadBps: Number(r.raw_spread_bps),
+        netSpreadBps: Number(r.net_spread_bps),
+        grossPnlUsdt: Number(r.gross_pnl_usdt),
+        totalFeesUsdt: Number(r.total_fees_usdt),
+        fundingDeltaUsdt: Number(r.funding_delta_usdt),
+        netPnlUsdt: Number(r.net_pnl_usdt),
+        modelVersion: String(r.model_version),
+        replayObjectKey: String(r.replay_object_key),
+        executionMode: 'PAPER',
+      };
+      if (await this.recordClosedCycle(cycle)) {
+        restored += 1;
+      }
+    }
+    return restored;
+  }
+
   /**
    * Export closed cycles as a CSV document explicitly stamped with PAPER,
    * model_version, and feed_age_ms.
@@ -151,6 +444,7 @@ export class PaperJournal {
   }): string {
     const headerComments = [
       `# EXECUTION_MODE: PAPER (SIMULATION ONLY - NO LIVE CEX ORDERS OR WITHDRAWALS)`,
+      `# DATA_SOURCE: FIXTURE_REPLAY (DETERMINISTIC SIMULATION - NOT REAL-TIME LIVE CEX)`,
       `# MODEL_VERSION: ${params.modelVersion}`,
       `# MAX_FEED_AGE_MS: ${params.maxFeedAgeMs}`,
       `# REPLAY_DIGEST_SHA256: ${params.replayDigest}`,

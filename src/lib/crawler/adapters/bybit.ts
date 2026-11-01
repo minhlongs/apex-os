@@ -124,6 +124,11 @@ export class BybitCrawlerAdapter implements ExchangeCrawlerAdapter {
             if (activeSymbols.size === 0 || activeSymbols.has(card.pair)) {
               rateCards.push({
                 ...card,
+                metadata: {
+                  ...card.metadata,
+                  data_source: 'live_symbols_with_curated_rates',
+                  symbols_crawled_live: true,
+                },
                 updatedAt: new Date().toISOString(),
               });
             }

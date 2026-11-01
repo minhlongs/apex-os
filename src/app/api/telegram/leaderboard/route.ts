@@ -56,7 +56,7 @@ function getDatabase(request?: Request): D1Database | null {
 /**
  * Computes referral tier badge based on verified referrals count and volume
  */
-export function calculateTier(
+function calculateTier(
   referrals: number,
   volumeUsd: number
 ): 'DIAMOND' | 'PLATINUM' | 'GOLD' | 'SILVER' | 'BRONZE' {
@@ -70,7 +70,7 @@ export function calculateTier(
 /**
  * Computes podium badge based on sequential 1-indexed rank
  */
-export function calculateBadge(
+function calculateBadge(
   rank: number
 ): 'gold' | 'silver' | 'bronze' | 'top_10' | 'contender' {
   if (rank === 1) return 'gold';

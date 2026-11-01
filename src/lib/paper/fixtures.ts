@@ -89,14 +89,14 @@ export function buildCanonical50TickSequence(): ReplayTick[] {
       bybitEthSpotMid = 2607.5;
       binanceEthPerpMid = 2607.0;
     } else if (phase === 6) {
-      // Convergence phase: prices align so both strategies close profitably
-      binanceBtcSpotMid = 68140;
-      bybitBtcSpotMid = 68138;
-      binanceBtcPerpMid = 68139;
+      // Convergence phase: prices align back at reference equilibrium so both strategies close profitably
+      binanceBtcSpotMid = 68000;
+      bybitBtcSpotMid = 68000;
+      binanceBtcPerpMid = 68000;
 
-      binanceEthSpotMid = 2605.0;
-      bybitEthSpotMid = 2604.9;
-      binanceEthPerpMid = 2605.0;
+      binanceEthSpotMid = 2600.0;
+      bybitEthSpotMid = 2600.0;
+      binanceEthPerpMid = 2600.0;
     }
 
     ticks.push({
@@ -129,6 +129,15 @@ export function buildCanonical50TickSequence(): ReplayTick[] {
           fundingRateBps: btcFundingBps,
         }),
         makeBook({
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'linear_perp',
+          sequenceId: seq,
+          ts: nowTs,
+          midPrice: binanceBtcPerpMid - 2,
+          fundingRateBps: btcFundingBps - 0.2,
+        }),
+        makeBook({
           exchange: 'binance',
           pair: 'ETH/USDT',
           marketType: 'spot',
@@ -152,6 +161,15 @@ export function buildCanonical50TickSequence(): ReplayTick[] {
           ts: nowTs,
           midPrice: binanceEthPerpMid,
           fundingRateBps: ethFundingBps,
+        }),
+        makeBook({
+          exchange: 'bybit',
+          pair: 'ETH/USDT',
+          marketType: 'linear_perp',
+          sequenceId: seq,
+          ts: nowTs,
+          midPrice: binanceEthPerpMid - 0.1,
+          fundingRateBps: ethFundingBps - 0.1,
         }),
       ],
     });

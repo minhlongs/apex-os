@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "build:worker": "opennextjs-cloudflare build",
     "deploy:staging": "bash scripts/assert-staging-isolation.sh && npm run build:worker && opennextjs-cloudflare deploy --config wrangler.staging.jsonc",
     "deploy:production": "bash scripts/assert-staging-isolation.sh && npm run build:worker && opennextjs-cloudflare deploy --config wrangler.jsonc",
@@ -17,7 +17,7 @@
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx --max-warnings 0",
     "verify-node": "node scripts/verify-node-version.cjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "rm -rf .next/types .next/dev/types && tsc --noEmit",
     "test": "npm run verify-node && jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",

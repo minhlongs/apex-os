@@ -27,9 +27,26 @@ export interface BinanceDepthMessage {
   s: string;
   U: number;
   u: number;
+  pu?: number;
   b: Array<[string, string]>;
   a: Array<[string, string]>;
 }
+
+export const REQUIRED_PAPER_STREAMS: ReadonlyArray<{
+  exchange: PaperExchange;
+  pair: PaperPair;
+  marketType: PaperMarketType;
+  streamKey: string;
+}> = [
+  { exchange: 'binance', pair: 'BTC/USDT', marketType: 'spot', streamKey: 'binance:spot:BTC/USDT' },
+  { exchange: 'binance', pair: 'BTC/USDT', marketType: 'linear_perp', streamKey: 'binance:linear_perp:BTC/USDT' },
+  { exchange: 'bybit', pair: 'BTC/USDT', marketType: 'spot', streamKey: 'bybit:spot:BTC/USDT' },
+  { exchange: 'bybit', pair: 'BTC/USDT', marketType: 'linear_perp', streamKey: 'bybit:linear_perp:BTC/USDT' },
+  { exchange: 'binance', pair: 'ETH/USDT', marketType: 'spot', streamKey: 'binance:spot:ETH/USDT' },
+  { exchange: 'binance', pair: 'ETH/USDT', marketType: 'linear_perp', streamKey: 'binance:linear_perp:ETH/USDT' },
+  { exchange: 'bybit', pair: 'ETH/USDT', marketType: 'spot', streamKey: 'bybit:spot:ETH/USDT' },
+  { exchange: 'bybit', pair: 'ETH/USDT', marketType: 'linear_perp', streamKey: 'bybit:linear_perp:ETH/USDT' },
+];
 
 export interface BybitOrderbookMessage {
   topic: string;
@@ -73,23 +90,29 @@ export class OrderbookSequencer {
     fundingRateBps?: number
   ): NormalizedOrderbook {
     const pair: PaperPair = msg.s.toUpperCase() === 'ETHUSDT' ? 'ETH/USDT' : 'BTC/USDT';
+    // Preserve level deletions (quantity === 0) for L2 delta assembly
     const bids: OrderbookLevel[] = msg.b
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-      .filter((l) => l.quantity > 0)
       .sort((a, b) => b.price - a.price);
     const asks: OrderbookLevel[] = msg.a
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-      .filter((l) => l.quantity > 0)
       .sort((a, b) => a.price - b.price);
+
+    const prevSequenceId =
+      marketType === 'linear_perp' && typeof msg.pu === 'number'
+        ? msg.pu
+        : msg.U - 1;
 
     return {
       exchange: 'binance',
       pair,
       marketType,
       sequenceId: msg.u,
-      prevSequenceId: msg.U - 1,
+      prevSequenceId,
+      firstUpdateId: typeof msg.U === 'number' ? msg.U : undefined,
       exchangeTs: msg.E,
       receivedTs,
+      isDelta: true,
       bids,
       asks,
       fundingRateBps,
@@ -107,13 +130,12 @@ export class OrderbookSequencer {
   ): NormalizedOrderbook {
     const pair: PaperPair =
       msg.data.s.toUpperCase() === 'ETHUSDT' ? 'ETH/USDT' : 'BTC/USDT';
+    // Preserve level deletions (quantity === 0) for L2 delta assembly
     const bids: OrderbookLevel[] = msg.data.b
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-      .filter((l) => l.quantity > 0)
       .sort((a, b) => b.price - a.price);
     const asks: OrderbookLevel[] = msg.data.a
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-      .filter((l) => l.quantity > 0)
       .sort((a, b) => a.price - b.price);
 
     return {
@@ -124,10 +146,100 @@ export class OrderbookSequencer {
       prevSequenceId: msg.type === 'snapshot' ? undefined : msg.data.u - 1,
       exchangeTs: msg.ts,
       receivedTs,
+      isDelta: msg.type === 'delta',
       bids,
       asks,
       fundingRateBps,
     };
+  }
+
+  /**
+   * Merge incoming L2 delta levels into an existing orderbook.
+   * Levels with quantity <= 0 are removed.
+   */
+  static applyL2Delta(
+    existing: NormalizedOrderbook,
+    delta: NormalizedOrderbook
+  ): NormalizedOrderbook {
+    const mergeLevels = (
+      current: OrderbookLevel[],
+      updates: OrderbookLevel[],
+      isBid: boolean
+    ): OrderbookLevel[] => {
+      const levelMap = new Map<number, number>();
+      for (const l of current) {
+        if (l.quantity > 0) levelMap.set(l.price, l.quantity);
+      }
+      for (const u of updates) {
+        if (u.quantity <= 0) {
+          levelMap.delete(u.price);
+        } else {
+          levelMap.set(u.price, u.quantity);
+        }
+      }
+      const merged: OrderbookLevel[] = Array.from(levelMap.entries()).map(
+        ([price, quantity]) => ({ price, quantity })
+      );
+      return merged.sort((a, b) => (isBid ? b.price - a.price : a.price - b.price));
+    };
+
+    return {
+      exchange: delta.exchange,
+      pair: delta.pair,
+      marketType: delta.marketType,
+      sequenceId: delta.sequenceId,
+      prevSequenceId: delta.prevSequenceId,
+      exchangeTs: delta.exchangeTs,
+      receivedTs: delta.receivedTs,
+      isDelta: false,
+      bids: mergeLevels(existing.bids, delta.bids, true),
+      asks: mergeLevels(existing.asks, delta.asks, false),
+      fundingRateBps: delta.fundingRateBps ?? existing.fundingRateBps,
+      nextFundingTimeMs: delta.nextFundingTimeMs ?? existing.nextFundingTimeMs,
+      fundingEventId: delta.fundingEventId,
+      fundingSettlementTs: delta.fundingSettlementTs,
+    };
+  }
+
+  serializeState(): {
+    books: Record<string, NormalizedOrderbook>;
+    states: Record<string, SequencerStreamState>;
+  } {
+    const books: Record<string, NormalizedOrderbook> = {};
+    const states: Record<string, SequencerStreamState> = {};
+    for (const [k, v] of this.books.entries()) {
+      books[k] = {
+        ...v,
+        bids: v.bids.map((l) => ({ ...l })),
+        asks: v.asks.map((l) => ({ ...l })),
+      };
+    }
+    for (const [k, v] of this.states.entries()) {
+      states[k] = { ...v };
+    }
+    return { books, states };
+  }
+
+  restoreState(saved: {
+    books?: Record<string, NormalizedOrderbook>;
+    states?: Record<string, SequencerStreamState>;
+  }): void {
+    this.books.clear();
+    this.states.clear();
+    if (saved.books) {
+      for (const [k, v] of Object.entries(saved.books)) {
+        this.books.set(k, {
+          ...v,
+          bids: v.bids.map((l) => ({ ...l })),
+          asks: v.asks.map((l) => ({ ...l })),
+        });
+      }
+    }
+    if (saved.states) {
+      for (const [k, v] of Object.entries(saved.states)) {
+        this.states.set(k, { ...v });
+      }
+    }
   }
 
   /**
@@ -166,8 +278,8 @@ export class OrderbookSequencer {
       return nextState;
     }
 
-    // If already in FEED_DESYNC, remain halted until explicit resyncSnapshot()
-    if (existing.status === 'FEED_DESYNC') {
+    // If already in FEED_DESYNC or DISCONNECTED, remain halted until explicit resyncSnapshot()
+    if (existing.status === 'FEED_DESYNC' || existing.status === 'DISCONNECTED') {
       const haltedState: SequencerStreamState = {
         ...existing,
         feedAgeMs,
@@ -177,14 +289,31 @@ export class OrderbookSequencer {
       return haltedState;
     }
 
+    // Valid repeated snapshot check (e.g., Bybit L1/L2 snapshot where u repeats when book is unchanged)
+    const isRepeatedValidSnapshot =
+      !book.isDelta &&
+      book.prevSequenceId === undefined &&
+      book.sequenceId === existing.lastSequenceId;
+
     // Sequence continuity check:
-    // 1. Out-of-order / non-monotonic sequence ID
+    // 1. Out-of-order / non-monotonic sequence ID (unless valid repeated snapshot)
     // 2. Explicit gap via prevSequenceId mismatch or jump > 1
+    //    - For Binance Futures (`pu`), `prevSequenceId` must equal `existing.lastSequenceId`
+    //    - For Binance Spot (`U - 1`), `expectedPrev` (`U - 1`) must be <= `existing.lastSequenceId`
+    //    - If first delta after a snapshot has range `firstUpdateId <= existing.lastSequenceId + 1 && sequenceId >= existing.lastSequenceId + 1`,
+    //      it covers the snapshot continuity window legitimately.
     const expectedPrev =
       book.prevSequenceId !== undefined ? book.prevSequenceId : book.sequenceId - 1;
+    const isBridgeCovered =
+      typeof book.firstUpdateId === 'number' &&
+      book.firstUpdateId <= existing.lastSequenceId + 1 &&
+      book.sequenceId >= existing.lastSequenceId + 1;
     const hasSequenceGap =
-      book.sequenceId <= existing.lastSequenceId ||
-      expectedPrev > existing.lastSequenceId;
+      !isRepeatedValidSnapshot &&
+      (book.sequenceId <= existing.lastSequenceId ||
+        ((book.isDelta === true || book.prevSequenceId !== undefined) &&
+          expectedPrev > existing.lastSequenceId &&
+          !isBridgeCovered));
 
     if (hasSequenceGap) {
       const desyncState: SequencerStreamState = {
@@ -199,6 +328,13 @@ export class OrderbookSequencer {
       return desyncState;
     }
 
+    // Apply L2 delta if incoming book is an incremental update
+    const existingBook = this.books.get(key);
+    const finalBook =
+      book.isDelta && existingBook
+        ? OrderbookSequencer.applyL2Delta(existingBook, book)
+        : book;
+
     if (feedAgeMs > this.maxFeedAgeMs) {
       const staleState: SequencerStreamState = {
         ...existing,
@@ -210,7 +346,7 @@ export class OrderbookSequencer {
         staleCount: existing.staleCount + 1,
         lastErrorReason: `Feed age ${feedAgeMs}ms exceeds limit ${this.maxFeedAgeMs}ms`,
       };
-      this.books.set(key, book);
+      this.books.set(key, finalBook);
       this.states.set(key, staleState);
       return staleState;
     }
@@ -224,7 +360,7 @@ export class OrderbookSequencer {
       feedAgeMs,
       lastErrorReason: undefined,
     };
-    this.books.set(key, book);
+    this.books.set(key, finalBook);
     this.states.set(key, syncedState);
     return syncedState;
   }
@@ -286,6 +422,14 @@ export class OrderbookSequencer {
       };
     }
 
+    if (stateA.status === 'DISCONNECTED' || stateB.status === 'DISCONNECTED') {
+      return {
+        ok: false,
+        status: 'DISCONNECTED',
+        reason: stateA.lastErrorReason || stateB.lastErrorReason || 'Feed disconnected',
+      };
+    }
+
     if (stateA.status === 'FEED_DESYNC' || stateB.status === 'FEED_DESYNC') {
       return {
         ok: false,
@@ -316,12 +460,45 @@ export class OrderbookSequencer {
     return { ok: true, status: 'SYNCED' };
   }
 
+  /**
+   * Mark a stream as DISCONNECTED when WebSocket drops, halting trading until resyncSnapshot.
+   */
+  markDisconnected(
+    exchange: PaperExchange,
+    pair: PaperPair,
+    marketType: PaperMarketType,
+    reason = 'WebSocket connection closed'
+  ): SequencerStreamState {
+    const key = OrderbookSequencer.makeStreamKey(exchange, pair, marketType);
+    const existing = this.states.get(key);
+    const nextState: SequencerStreamState = {
+      streamKey: key,
+      exchange,
+      pair,
+      marketType,
+      status: 'DISCONNECTED',
+      lastSequenceId: existing?.lastSequenceId ?? 0,
+      lastExchangeTs: existing?.lastExchangeTs ?? 0,
+      lastReceivedTs: existing?.lastReceivedTs ?? 0,
+      feedAgeMs: existing?.feedAgeMs ?? 0,
+      gapCount: existing?.gapCount ?? 0,
+      staleCount: existing?.staleCount ?? 0,
+      lastErrorReason: reason,
+    };
+    this.states.set(key, nextState);
+    return nextState;
+  }
+
   getBook(
     exchange: PaperExchange,
     pair: PaperPair,
     marketType: PaperMarketType
   ): NormalizedOrderbook | undefined {
     return this.books.get(OrderbookSequencer.makeStreamKey(exchange, pair, marketType));
+  }
+
+  getAllBooks(): NormalizedOrderbook[] {
+    return Array.from(this.books.values());
   }
 
   getState(
@@ -334,6 +511,43 @@ export class OrderbookSequencer {
 
   getAllStates(): SequencerStreamState[] {
     return Array.from(this.states.values());
+  }
+
+  /**
+   * Validate that all 8 required streams (Binance + Bybit × Spot + Linear Perp × BTC + ETH)
+   * are present, SYNCED, and fresh within maxFeedAgeMs at `nowTs`.
+   */
+  areAllRequiredStreamsSynced(nowTs: number): {
+    ok: boolean;
+    syncedCount: number;
+    requiredCount: number;
+    missingOrStaleKeys: string[];
+  } {
+    const missingOrStaleKeys: string[] = [];
+    let syncedCount = 0;
+
+    for (const req of REQUIRED_PAPER_STREAMS) {
+      const st = this.states.get(req.streamKey);
+      const book = this.books.get(req.streamKey);
+      if (!st || !book || st.status !== 'SYNCED') {
+        missingOrStaleKeys.push(req.streamKey);
+        continue;
+      }
+      const exchangeAgeMs = Math.max(0, nowTs - st.lastExchangeTs);
+      const receiveAgeMs = Math.max(0, nowTs - st.lastReceivedTs);
+      if (exchangeAgeMs > this.maxFeedAgeMs || receiveAgeMs > this.maxFeedAgeMs) {
+        missingOrStaleKeys.push(req.streamKey);
+        continue;
+      }
+      syncedCount += 1;
+    }
+
+    return {
+      ok: missingOrStaleKeys.length === 0 && syncedCount === REQUIRED_PAPER_STREAMS.length,
+      syncedCount,
+      requiredCount: REQUIRED_PAPER_STREAMS.length,
+      missingOrStaleKeys,
+    };
   }
 
   /**
@@ -381,6 +595,68 @@ export class OrderbookSequencer {
         vwapPrice: 0,
         filledQuantityBase: totalBase,
         filledNotionalUsdt: totalNotional,
+        slippageBps: 0,
+      };
+    }
+
+    const vwapPrice = totalNotional / totalBase;
+    const rawSlippage =
+      side === 'buy'
+        ? (vwapPrice - topPrice) / topPrice
+        : (topPrice - vwapPrice) / topPrice;
+
+    return {
+      filled: true,
+      vwapPrice: Number(vwapPrice.toFixed(6)),
+      filledQuantityBase: Number(totalBase.toFixed(8)),
+      filledNotionalUsdt: Number(totalNotional.toFixed(4)),
+      slippageBps: Number((Math.max(0, rawSlippage) * 10000).toFixed(4)),
+    };
+  }
+
+  /**
+   * Compute realistic VWAP fill price across L2 orderbook depth for a target base quantity.
+   * Used for closing/marking-to-market an open position holding an exact base quantity.
+   */
+  static computeVwapFillByBaseQty(
+    book: NormalizedOrderbook,
+    side: 'buy' | 'sell',
+    targetQuantityBase: number
+  ): VwapFillResult {
+    const levels = side === 'buy' ? book.asks : book.bids;
+    if (!levels || levels.length === 0 || targetQuantityBase <= 0) {
+      return {
+        filled: false,
+        vwapPrice: 0,
+        filledQuantityBase: 0,
+        filledNotionalUsdt: 0,
+        slippageBps: 0,
+      };
+    }
+
+    const topPrice = levels[0].price;
+    let remainingBase = targetQuantityBase;
+    let totalBase = 0;
+    let totalNotional = 0;
+
+    for (const level of levels) {
+      if (remainingBase <= 0) break;
+      if (level.price <= 0 || level.quantity <= 0) continue;
+
+      const takeBase = Math.min(remainingBase, level.quantity);
+      const takeNotional = takeBase * level.price;
+
+      totalBase += takeBase;
+      totalNotional += takeNotional;
+      remainingBase -= takeBase;
+    }
+
+    if (remainingBase > 1e-8 || totalBase <= 0) {
+      return {
+        filled: false,
+        vwapPrice: 0,
+        filledQuantityBase: Number(totalBase.toFixed(8)),
+        filledNotionalUsdt: Number(totalNotional.toFixed(4)),
         slippageBps: 0,
       };
     }

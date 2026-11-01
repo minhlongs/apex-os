@@ -14,8 +14,8 @@ import { getDB, type D1Database } from '@/lib/db';
 import { getAuthenticatedUser, resolveDatabase } from '@/lib/auth/session-helper';
 import { error as logError } from '@/lib/logger';
 
-export type PushPlatform = 'ios' | 'android' | 'web';
-export const VALID_PLATFORMS: readonly PushPlatform[] = ['ios', 'android', 'web'] as const;
+type PushPlatform = 'ios' | 'android' | 'web';
+const VALID_PLATFORMS: readonly PushPlatform[] = ['ios', 'android', 'web'] as const;
 
 function getDatabase(): D1Database | null {
   try {

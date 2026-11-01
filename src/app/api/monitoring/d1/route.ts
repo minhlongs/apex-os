@@ -225,7 +225,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<Monitorin
 // ============================================================================
 // Get or update alert configurations
 
-export async function GET_CONFIG(request: NextRequest): Promise<NextResponse> {
+async function GET_CONFIG(_request: NextRequest): Promise<NextResponse> {
   try {
     // @ts-ignore
     const db = typeof DB !== 'undefined' ? DB : null;
@@ -260,7 +260,7 @@ export async function GET_CONFIG(request: NextRequest): Promise<NextResponse> {
 // ============================================================================
 // Update alert configuration
 
-export async function POST_CONFIG(request: NextRequest): Promise<NextResponse> {
+async function POST_CONFIG(request: NextRequest): Promise<NextResponse> {
   try {
     const body = await request.json();
     const { config } = body as { config: Partial<AlertConfig> & { id?: string } };
@@ -325,7 +325,7 @@ export async function POST_CONFIG(request: NextRequest): Promise<NextResponse> {
 // ============================================================================
 // Get metrics history
 
-export async function GET_HISTORY(request: NextRequest): Promise<NextResponse> {
+async function GET_HISTORY(request: NextRequest): Promise<NextResponse> {
   try {
     const url = new URL(request.url);
     const hours = parseInt(url.searchParams.get('hours') ?? '24', 10);
@@ -383,7 +383,7 @@ export async function GET_HISTORY(request: NextRequest): Promise<NextResponse> {
 // ============================================================================
 // Get recent slow queries
 
-export async function GET_SLOW_QUERIES(request: NextRequest): Promise<NextResponse> {
+async function GET_SLOW_QUERIES(request: NextRequest): Promise<NextResponse> {
   try {
     const url = new URL(request.url);
     const hours = parseInt(url.searchParams.get('hours') ?? '24', 10);

@@ -278,6 +278,14 @@ else
   fail "G7b" "Production deployment gate missing assert-staging-isolation.sh enforcement"
 fi
 
+if [[ -f scripts/verify-paper-economic-gate.cjs && -f src/database/migrations/030_paper_trading_triggers_and_outbox_sync.sql ]] && \
+   grep -q "verify-paper-economic-gate.cjs" .github/workflows/deploy.yml && \
+   ! grep -q "ALLOW_PRODUCTION_OVERRIDE" .github/workflows/deploy.yml; then
+  pass "G7c" "Automated 30-day paper economic verifier wired into deploy.yml without manual ALLOW_PRODUCTION_OVERRIDE bypass"
+else
+  fail "G7c" "Missing verify-paper-economic-gate.cjs, migration 030, or ALLOW_PRODUCTION_OVERRIDE still present in deploy.yml"
+fi
+
 echo "============================================================"
 echo " Gate Summary: ${PASS_COUNT} passed, ${FAIL_COUNT} failed"
 echo "============================================================"

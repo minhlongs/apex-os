@@ -21,11 +21,36 @@ export interface NormalizedOrderbook {
   marketType: PaperMarketType;
   sequenceId: number;
   prevSequenceId?: number;
+  firstUpdateId?: number;
   exchangeTs: number;
   receivedTs: number;
+  isDelta?: boolean;
   bids: OrderbookLevel[];
   asks: OrderbookLevel[];
   fundingRateBps?: number;
+  nextFundingTimeMs?: number;
+  fundingEventId?: string;
+  fundingSettlementTs?: number;
+}
+
+export interface FundingSettlementEvent {
+  eventId: string;
+  exchange: PaperExchange;
+  pair: PaperPair;
+  settlementTs: number;
+  fundingRateBps: number;
+  notionalUsdt: number;
+  fundingDeltaUsdt: number;
+}
+
+export type FundingDisposition = 'applied' | 'not-applicable' | 'retry';
+
+export interface FundingDispositionResult {
+  disposition: FundingDisposition;
+  reason: string;
+  eventId: string;
+  settlementTs?: number;
+  appliedDeltaUsdt?: number;
 }
 
 export type SequencerStatus =
@@ -33,6 +58,7 @@ export type SequencerStatus =
   | 'FEED_DESYNC'
   | 'STALE_FEED'
   | 'CLOCK_SKEW'
+  | 'DISCONNECTED'
   | 'UNINITIALIZED';
 
 export interface SequencerStreamState {
@@ -84,6 +110,16 @@ export interface PaperOpenCycle {
   entrySpreadBps: number;
   entryFeesUsdt: number;
   accruedFundingUsdt: number;
+  lastFundingAccrualTs?: number;
+  appliedFundingEventIds?: string[];
+  /** Last recorded unrealized P&L mark for this cycle, in USDT. */
+  lastUnrealizedPnlUsdt?: number;
+  /** Net quote cash delta applied to free+allocated collateral upon opening this cycle. */
+  openCycleCashDeltaUsdt?: number;
+  /** Indicates if this cycle was carried over across a continuous window reset. */
+  isCarryOver?: boolean;
+  /** The unrealized P&L mark already formed before the window reset, in USDT. */
+  baselineUnrealizedPnlUsdt?: number;
 }
 
 export interface PaperClosedCycle {
@@ -116,6 +152,10 @@ export interface PaperClosedCycle {
   modelVersion: string;
   replayObjectKey: string;
   executionMode: 'PAPER';
+  /** True if this cycle was already open prior to window baseline reset. */
+  isCarryOver?: boolean;
+  /** Realized P&L accrued specifically within the current window after baseline. */
+  windowAttributableNetPnlUsdt?: number;
 }
 
 export interface PaperDecisionLog {
@@ -129,6 +169,14 @@ export interface PaperDecisionLog {
   reason: string;
 }
 
+export interface VenueCollateralBalance {
+  exchange: PaperExchange;
+  freeCollateralUsdt: number;
+  allocatedCollateralUsdt: number;
+  baseInventory: Record<PaperPair, number>;
+  baseInventoryCostBasisUsdt?: Record<PaperPair, number>;
+}
+
 export interface PaperStrategySnapshot {
   strategyId: PaperStrategyId;
   strategyName: string;
@@ -137,10 +185,13 @@ export interface PaperStrategySnapshot {
   initialCapitalUsdt: number;
   cashBalanceUsdt: number;
   allocatedNotionalUsdt: number;
+  inventoryValueUsdt?: number;
+  unrealizedPnlUsdt?: number;
   equityUsdt: number;
   peakEquityUsdt: number;
   realizedNetPnlUsdt: number;
   totalFeesPaidUsdt: number;
+  totalRebalanceFeesUsdt?: number;
   totalFundingUsdt: number;
   maxDrawdownPct: number;
   haltedByDrawdown: boolean;
@@ -149,6 +200,9 @@ export interface PaperStrategySnapshot {
   noTradeCount: number;
   desyncHaltCount: number;
   winRatePct: number;
+  venueBalances?: Record<PaperExchange, VenueCollateralBalance>;
+  fundingLedger?: FundingSettlementEvent[];
+  modelConfigHash?: string;
 }
 
 export interface ReplayTick {
@@ -167,20 +221,89 @@ export interface ReplayExecutionResult {
   sequencerStates: SequencerStreamState[];
 }
 
+export interface PaperSerializedStrategyState {
+  cashBalanceUsdt: number;
+  peakEquityUsdt: number;
+  maxDrawdownPct: number;
+  haltedByDrawdown: boolean;
+  realizedNetPnlUsdt: number;
+  totalFeesPaidUsdt: number;
+  totalFundingUsdt: number;
+  totalRebalanceFeesUsdt: number;
+  noTradeCount: number;
+  desyncHaltCount: number;
+  lastUnrealizedPnlUsdt: number;
+  initialInventoryCostBasisUsdt: number;
+  lastMarkPrices?: Record<PaperPair, number>;
+  venueBalances: Record<
+    PaperExchange,
+    {
+      freeCollateralUsdt: number;
+      allocatedCollateralUsdt: number;
+      baseInventory: Record<PaperPair, number>;
+      baseInventoryCostBasisUsdt: Record<PaperPair, number>;
+    }
+  >;
+  openCycles: PaperOpenCycle[];
+  closedCycles: PaperClosedCycle[];
+  fundingLedger: FundingSettlementEvent[];
+  decisions?: PaperDecisionLog[];
+}
+
+export interface PaperCycleArtifact {
+  cycle: PaperClosedCycle;
+  modelVersion: string;
+  engineConfig?: {
+    initialCapitalUsdt: number;
+    maxCycleNotionalUsdt: number;
+    maxOpenCycles: number;
+    singleLegTakerFeeRate: number;
+    minEntryNetSpreadBps: number;
+    exitConvergenceSpreadBps: number;
+    maxDrawdownLimitPct: number;
+  };
+  initialStrategyState?: PaperSerializedStrategyState;
+  finalSnapshot?: PaperStrategySnapshot;
+  initialBooks: {
+    legA: NormalizedOrderbook;
+    legB: NormalizedOrderbook;
+    allStreams?: NormalizedOrderbook[];
+  };
+  triggerBook: NormalizedOrderbook;
+  decision: PaperDecisionLog;
+  cycleTicks: Array<{
+    tickIndex: number;
+    nowTs: number;
+    book: NormalizedOrderbook;
+  }>;
+  decisions: PaperDecisionLog[];
+  fundingLedger: FundingSettlementEvent[];
+  sequencerStates: SequencerStreamState[];
+}
+
+export interface StrategyEconomicAudit {
+  strategyId: PaperStrategyId;
+  observedContinuousDays: number;
+  targetBenchmarkDays: number;
+  daysPassed: boolean;
+  closedCyclesCount: number;
+  targetBenchmarkCycles: number;
+  cyclesPassed: boolean;
+  netPnlUsdt: number;
+  pnlPassed: boolean;
+  maxDrawdownPct: number;
+  maxDrawdownLimitPct: number;
+  drawdownPassed: boolean;
+  isReadyForLive: boolean;
+  verdict: 'GO' | 'NO_GO';
+  researchFinding: string;
+}
+
 export interface EconomicResearchSummary {
-  reportType: 'DESCRIPTIVE_RESEARCH_ONLY';
-  isReleaseBlocker: false;
+  reportType: 'STRICT_ECONOMIC_AUDIT';
+  isReleaseBlocker: true;
+  overallVerdict: 'GO' | 'NO_GO';
   generatedAt: string;
   modelVersion: string;
-  strategies: Array<{
-    strategyId: PaperStrategyId;
-    observedContinuousDays: number;
-    targetBenchmarkDays: number;
-    closedCyclesCount: number;
-    targetBenchmarkCycles: number;
-    netPnlUsdt: number;
-    maxDrawdownPct: number;
-    maxDrawdownLimitPct: number;
-    researchFinding: string;
-  }>;
+  strategies: StrategyEconomicAudit[];
 }

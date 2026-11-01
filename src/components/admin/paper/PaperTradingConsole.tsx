@@ -304,23 +304,28 @@ export function PaperTradingConsole() {
         </div>
       </section>
 
-      {/* Surface 3B: Descriptive Economic Research Report */}
+      {/* Surface 3B: Strict Economic Audit Gate Report */}
       <section
-        aria-label="Descriptive Economic Research Report"
+        aria-label="Strict Economic Audit Gate Report"
         className="rounded-xl border border-slate-800 bg-slate-900/80 p-5 space-y-3"
       >
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base font-semibold text-white">
-              Descriptive Economic Evaluation Report (Research Telemetry)
+              Strict Economic Audit Gate (Mandatory Go-Live Blocker)
             </h2>
             <p className="text-xs text-slate-400">
-              Tracks strategy performance against the 30-day / 100-cycle research horizon without
-              blocking technical platform releases.
+              Go-live requires &ge;30 continuous verified market days, &ge;100 closed cycles, net P&amp;L &gt; 0, and max drawdown &le;2.0%.
             </p>
           </div>
-          <span className="rounded bg-slate-800 px-2.5 py-1 font-mono text-xs text-cyan-300">
-            {economicReport.reportType} · BLOCKER={String(economicReport.isReleaseBlocker)}
+          <span
+            className={`rounded px-2.5 py-1 font-mono text-xs font-bold ${
+              economicReport.overallVerdict === 'GO'
+                ? 'bg-emerald-950 text-emerald-300 border border-emerald-500/40'
+                : 'bg-rose-950 text-rose-300 border border-rose-500/40'
+            }`}
+          >
+            {economicReport.reportType} · VERDICT={economicReport.overallVerdict}
           </span>
         </div>
 
@@ -330,7 +335,18 @@ export function PaperTradingConsole() {
               key={item.strategyId}
               className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs space-y-1"
             >
-              <p className="font-mono font-bold text-cyan-300 uppercase">{item.strategyId}</p>
+              <div className="flex items-center justify-between">
+                <p className="font-mono font-bold text-cyan-300 uppercase">{item.strategyId}</p>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold ${
+                    item.verdict === 'GO'
+                      ? 'bg-emerald-950 text-emerald-300'
+                      : 'bg-rose-950 text-rose-300'
+                  }`}
+                >
+                  {item.verdict}
+                </span>
+              </div>
               <p className="text-slate-300">{item.researchFinding}</p>
             </div>
           ))}
