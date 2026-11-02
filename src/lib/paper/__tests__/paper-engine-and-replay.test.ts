@@ -1800,6 +1800,61 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         expect(gappedDelta.status).toBe('FEED_DESYNC');
       });
 
+      it('C3: a re-delivered delta with the same sequence id is idempotent and does not latch FEED_DESYNC', () => {
+        const sequencer = new OrderbookSequencer();
+        const baseTs = 1761840000000;
+
+        // Bybit WS native snapshot establishes the stream in the WS sequence space
+        const snap = sequencer.resyncSnapshot({
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 8218112,
+          exchangeTs: baseTs,
+          receivedTs: baseTs + 5,
+          isDelta: false,
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68010, quantity: 1 }],
+        }, baseTs + 5);
+        expect(snap.status).toBe('SYNCED');
+
+        const makeDelta = (u: number): NormalizedOrderbook => ({
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: u,
+          prevSequenceId: u - 1,
+          exchangeTs: baseTs + 10,
+          receivedTs: baseTs + 15,
+          isDelta: true,
+          bids: [{ price: 68005, quantity: 1 }],
+          asks: [{ price: 68010, quantity: 1 }],
+        });
+
+        // First delta with u=8218113 bridges the snapshot
+        const d1 = sequencer.ingest(makeDelta(8218113), baseTs + 15);
+        expect(d1.status).toBe('SYNCED');
+        expect(d1.lastSequenceId).toBe(8218113);
+        const bookAfterFirst = sequencer.getBook('bybit', 'BTC/USDT', 'spot');
+
+        // Bybit can re-emit the identical frame; re-applying must stay SYNCED, not FEED_DESYNC
+        const d2 = sequencer.ingest(makeDelta(8218113), baseTs + 20);
+        expect(d2.status).toBe('SYNCED');
+        expect(d2.lastSequenceId).toBe(8218113);
+        expect(d2.gapCount).toBe(0);
+
+        // Re-applying the same delta must not corrupt the merged book (levels are set by price)
+        const bookAfterRepeat = sequencer.getBook('bybit', 'BTC/USDT', 'spot');
+        expect(bookAfterRepeat?.bids.length).toBe(bookAfterFirst?.bids.length);
+        expect(bookAfterRepeat?.bids[0].price).toBe(bookAfterFirst?.bids[0].price);
+        expect(bookAfterRepeat?.bids[0].quantity).toBe(bookAfterFirst?.bids[0].quantity);
+
+        // A genuine forward delta still advances the stream normally
+        const d3 = sequencer.ingest(makeDelta(8218114), baseTs + 25);
+        expect(d3.status).toBe('SYNCED');
+        expect(d3.lastSequenceId).toBe(8218114);
+      });
+
       it('N1: resets window metrics to 0 cycles / 0 PnL after feed gap reset without losing historical cycles', async () => {
         const { PaperTradingDurableObject } = await import('../worker-do');
         const { REQUIRED_PAPER_STREAMS } = await import('../orderbook-sequencer');

@@ -120,6 +120,62 @@ export class OrderbookSequencer {
   }
 
   /**
+   * Parse a Binance full-book partial depth WebSocket message (`@depth20@100ms`):
+   * - Spot format: `{ lastUpdateId, bids, asks }`
+   * - Futures format: `{ e: "depthUpdate", E, T, s, U, u, pu, b, a }`
+   * Both formats carry a full top-20 orderbook snapshot (`isDelta: false`).
+   */
+  static parseBinancePartialDepthSnapshot(
+    msg: {
+      s?: string;
+      E?: number;
+      u?: number;
+      lastUpdateId?: number;
+      b?: Array<[string, string]>;
+      a?: Array<[string, string]>;
+      bids?: Array<[string, string]>;
+      asks?: Array<[string, string]>;
+    },
+    pair: PaperPair,
+    marketType: PaperMarketType,
+    receivedTs: number,
+    fundingRateBps?: number
+  ): NormalizedOrderbook {
+    const rawBids = msg.b ?? msg.bids ?? [];
+    const rawAsks = msg.a ?? msg.asks ?? [];
+    const bids: OrderbookLevel[] = rawBids
+      .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
+      .filter((l) => l.quantity > 0)
+      .sort((a, b) => b.price - a.price);
+    const asks: OrderbookLevel[] = rawAsks
+      .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
+      .filter((l) => l.quantity > 0)
+      .sort((a, b) => a.price - b.price);
+
+    const sequenceId =
+      typeof msg.u === 'number'
+        ? msg.u
+        : typeof msg.lastUpdateId === 'number'
+        ? msg.lastUpdateId
+        : receivedTs;
+    const exchangeTs =
+      typeof msg.E === 'number' && msg.E > 0 ? msg.E : receivedTs;
+
+    return {
+      exchange: 'binance',
+      pair,
+      marketType,
+      sequenceId,
+      exchangeTs,
+      receivedTs,
+      isDelta: false,
+      bids,
+      asks,
+      fundingRateBps,
+    };
+  }
+
+  /**
    * Parse a raw Bybit v5 orderbook WebSocket message into a NormalizedOrderbook.
    */
   static parseBybitDepth(
@@ -295,8 +351,17 @@ export class OrderbookSequencer {
       book.prevSequenceId === undefined &&
       book.sequenceId === existing.lastSequenceId;
 
+    // Idempotent re-delivery: Bybit can re-emit the same `u` for an already applied delta
+    // (repeat frames after a resync or a duplicate WSS message). Re-applying the identical
+    // sequence is not a gap and must not latch FEED_DESYNC, which would halt the stream forever.
+    const isRepeatedAppliedDelta =
+      book.isDelta &&
+      book.sequenceId === existing.lastSequenceId &&
+      (book.prevSequenceId === undefined ||
+        book.prevSequenceId === existing.lastSequenceId - 1);
+
     // Sequence continuity check:
-    // 1. Out-of-order / non-monotonic sequence ID (unless valid repeated snapshot)
+    // 1. Out-of-order / non-monotonic sequence ID (unless valid repeated snapshot or re-delivered delta)
     // 2. Explicit gap via prevSequenceId mismatch or jump > 1
     //    - For Binance Futures (`pu`), `prevSequenceId` must equal `existing.lastSequenceId`
     //    - For Binance Spot (`U - 1`), `expectedPrev` (`U - 1`) must be <= `existing.lastSequenceId`
@@ -310,6 +375,7 @@ export class OrderbookSequencer {
       book.sequenceId >= existing.lastSequenceId + 1;
     const hasSequenceGap =
       !isRepeatedValidSnapshot &&
+      !isRepeatedAppliedDelta &&
       (book.sequenceId <= existing.lastSequenceId ||
         ((book.isDelta === true || book.prevSequenceId !== undefined) &&
           expectedPrev > existing.lastSequenceId &&
