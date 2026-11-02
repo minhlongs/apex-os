@@ -49,6 +49,20 @@ export interface DurableObjectStateLike {
 const PAIRS: PaperPair[] = ['BTC/USDT', 'ETH/USDT'];
 const STRATEGY_IDS: PaperStrategyId[] = ['spot-2exch', 'spot-perp'];
 
+/**
+ * Minimum spacing between durable snapshot persists while the live collector is running.
+ * Live frames arrive far faster than D1 can acknowledge writes, so redundant book-mark
+ * persists are batched to this interval. Lifecycle events bypass it (they always persist).
+ */
+const LIVE_SNAPSHOT_PERSIST_INTERVAL_MS = 1000;
+
+/**
+ * Bookmark a queued orderbook frame so a newer frame on the same stream can cancel it.
+ */
+interface PendingBookTask {
+  superseded: boolean;
+}
+
 export { PAPER_MODEL_VERSION, PAPER_FROZEN_CONFIG_HASH };
 
 interface StrategyWindowBaseline {
@@ -83,6 +97,24 @@ export class PaperTradingDurableObject {
   private gapStartedAtMs: number | null = null;
   private collectorDesiredRunning = false;
   private ingestQueue: Promise<unknown> = Promise.resolve();
+  /**
+   * Timestamp of the last durable (D1 + DO storage) snapshot persist during live streaming.
+   * While the collector is live, orderbook frames arrive at hundreds per second; persisting
+   * every frame's snapshot serially starves the ingest queue and stalls all eight streams.
+   * This throttle only ever delays redundant book-mark persistence: any lifecycle event
+   * (cycle open/close, funding settlement, window reset, disconnect) persists immediately.
+   */
+  private lastLiveSnapshotPersistTsMs = 0;
+  /**
+   * One in-flight frame per stream key while live, so a newer frame can supersede the
+   * older one instead of queueing behind every prior frame of that same stream.
+   */
+  private readonly pendingBookTasks: Map<string, PendingBookTask> = new Map();
+  /**
+   * Whether the frame currently being processed should write its durable state.
+   * Recomputed at the top of every ingest/resync; forced true by lifecycle events.
+   */
+  private frameDurablePersist = true;
   private readonly sessionTicks: Array<{
     tickIndex: number;
     nowTs: number;
@@ -261,6 +293,87 @@ export class PaperTradingDurableObject {
   }
 
   /**
+   * Queue an orderbook frame for sequential processing.
+   *
+   * Full-book snapshot frames (`isDelta === false` without a funding event) are
+   * self-contained: a newer snapshot on the same stream completely replaces the queued
+   * older snapshot, so the older one can be marked superseded instead of doing redundant
+   * work. Delta frames (`isDelta === true`) and frames carrying a `fundingEventId` must
+   * never be dropped because the sequencer validates a contiguous `u` chain and funding
+   * settlement events are one-shot; those rely on the live snapshot-persistence throttle
+   * to drain in sub-millisecond time.
+   */
+  private enqueueBook(book: NormalizedOrderbook, process: () => Promise<unknown>): void {
+    if (this.collector === null || book.isDelta !== false || Boolean(book.fundingEventId)) {
+      void this.enqueue(process);
+      return;
+    }
+    const key = OrderbookSequencer.makeStreamKey(
+      book.exchange,
+      book.pair,
+      book.marketType
+    );
+    const existing = this.pendingBookTasks.get(key);
+    if (existing) {
+      existing.superseded = true;
+    }
+    const entry: PendingBookTask = { superseded: false };
+    this.pendingBookTasks.set(key, entry);
+    void this.enqueue(async () => {
+      if (this.pendingBookTasks.get(key) === entry) {
+        this.pendingBookTasks.delete(key);
+      }
+      if (entry.superseded) return;
+      await process();
+    });
+  }
+
+  /**
+   * Persist a book-mark key only when the current frame is due a durable write.
+   * Redundant during live streaming: the next frame or the alarm heartbeat carries it.
+   */
+  private async putFrameSnapshotKey(key: string, value: unknown): Promise<void> {
+    if (!this.frameDurablePersist) return;
+    await this.state.storage.put(key, value);
+  }
+
+  /**
+   * Decide whether this frame's durable (D1 + storage) writes must actually execute.
+   *
+   * While the live collector is running, orderbook frames arrive far faster than D1 can
+   * acknowledge writes (Bybit ~50 deltas/s per stream, Binance `@depth20@100ms` 10/s per
+   * pair). Persisting every frame serially starves `ingestQueue` and stalls all eight
+   * streams. In-memory state (sequencer, strategy engines, coverage) is always updated
+   * on every frame; only the redundant *snapshot* writes are batched to one per interval.
+   *
+   * Never outside live streaming, so unit tests and replay keep exact history.
+   */
+  private computeFrameDurablePersist(nowTs: number): void {
+    if (this.collector === null) {
+      this.frameDurablePersist = true;
+      return;
+    }
+    if (!this.runStartedAtMs) {
+      this.frameDurablePersist = true;
+      return;
+    }
+    if (nowTs - this.lastLiveSnapshotPersistTsMs >= LIVE_SNAPSHOT_PERSIST_INTERVAL_MS) {
+      this.lastLiveSnapshotPersistTsMs = nowTs;
+      this.frameDurablePersist = true;
+      return;
+    }
+    this.frameDurablePersist = false;
+  }
+
+  /**
+   * Force the current frame's writes to persist. Used for lifecycle events that must never
+   * be lost to batching: cycle open/close, funding settlement, and window resets.
+   */
+  private forceFrameDurablePersist(): void {
+    this.frameDurablePersist = true;
+  }
+
+  /**
    * Initialize and start LiveMarketCollector (WebSocket streams + periodic alarm heartbeat).
    */
   async startLiveCollector(options?: CollectorConfig): Promise<{
@@ -287,24 +400,19 @@ export class PaperTradingDurableObject {
           this.updateCoverage(Date.now(), false);
         },
         onBook: (book: NormalizedOrderbook) => {
-          void this.enqueue(async () => {
+          this.enqueueBook(book, async () => {
             if (book.isDelta === false) {
               await this.resyncStream(book, book.receivedTs);
             } else {
               const res = await this.ingestOrderbook(book, book.receivedTs);
               if (res.streamState.status === 'FEED_DESYNC' && this.collector) {
-                if (book.exchange === 'bybit' && book.marketType === 'spot') {
-                  await this.collector.resyncBybitWsStream(book.pair, 'spot');
+                if (book.exchange === 'bybit') {
+                  await this.collector.resyncBybitWsStream(book.pair, book.marketType);
                 } else {
                   const snapshotRes =
-                    book.exchange === 'binance'
-                      ? book.marketType === 'spot'
-                        ? await this.collector.fetchBinanceSpotDepth(book.pair)
-                        : await this.collector.fetchBinancePerpDepth(book.pair)
-                      : await this.collector.fetchBybitDepth(
-                          book.pair,
-                          book.marketType === 'spot' ? 'spot' : 'linear'
-                        );
+                    book.marketType === 'spot'
+                      ? await this.collector.fetchBinanceSpotDepth(book.pair)
+                      : await this.collector.fetchBinancePerpDepth(book.pair);
                   if (snapshotRes.book) {
                     await this.resyncStream(snapshotRes.book, snapshotRes.book.receivedTs);
                   }
@@ -333,6 +441,8 @@ export class PaperTradingDurableObject {
   async stopLiveCollector(): Promise<void> {
     this.collectorDesiredRunning = false;
     await this.state.storage.put('collector_desired_running', false);
+    this.pendingBookTasks.clear();
+    this.lastLiveSnapshotPersistTsMs = 0;
     if (this.collector) {
       this.collector.close();
       this.collector = null;
@@ -385,6 +495,8 @@ export class PaperTradingDurableObject {
     this.activeCycleTicks.clear();
     this.activeCycleInitialBooks.clear();
     this.activeCycleInitialStates.clear();
+    this.pendingBookTasks.clear();
+    this.lastLiveSnapshotPersistTsMs = 0;
 
     this.tickCounter = 0;
     this.runStartedAtMs = nowTs;
@@ -559,11 +671,12 @@ export class PaperTradingDurableObject {
    */
   private async updateCoverage(nowMs: number, isLive: boolean): Promise<void> {
     this.lastCoverageCheckTsMs = nowMs;
-    await this.state.storage.put('last_coverage_check_ts_ms', nowMs);
+    await this.putFrameSnapshotKey('last_coverage_check_ts_ms', nowMs);
 
     if (isLive) {
       if (this.gapStartedAtMs !== null && nowMs - this.gapStartedAtMs > 15000) {
         // Feed recovered, but the gap exceeded 15s: unrecoverable gap, reset window on fresh live marks
+        this.forceFrameDurablePersist();
         await this.resetContinuousWindow(nowMs);
         this.lastLiveConfirmedTsMs = nowMs;
         this.gapStartedAtMs = null;
@@ -577,6 +690,7 @@ export class PaperTradingDurableObject {
       if (this.lastLiveConfirmedTsMs === null) {
         // First time all 8 streams are confirmed live in this session or after an outage reset:
         // re-anchor window baseline on verified live marks so stale outage marks are never kept as baseline.
+        this.forceFrameDurablePersist();
         await this.resetContinuousWindow(nowMs);
         this.lastLiveConfirmedTsMs = nowMs;
         this.gapStartedAtMs = null;
@@ -590,6 +704,7 @@ export class PaperTradingDurableObject {
       const step = Math.max(0, nowMs - this.lastLiveConfirmedTsMs);
       if (step > 15000) {
         // Unmonitored gap occurred between live checks (> 15s): reset window
+        this.forceFrameDurablePersist();
         await this.resetContinuousWindow(nowMs);
         this.lastLiveConfirmedTsMs = nowMs;
         this.gapStartedAtMs = null;
@@ -602,12 +717,13 @@ export class PaperTradingDurableObject {
 
       // Proven continuous live step <= 15s
       this.continuousCoverageMs += step;
-      await this.state.storage.put('continuous_coverage_ms', this.continuousCoverageMs);
+      await this.putFrameSnapshotKey('continuous_coverage_ms', this.continuousCoverageMs);
 
+      const clearedGap = this.gapStartedAtMs !== null;
       this.lastLiveConfirmedTsMs = nowMs;
       this.gapStartedAtMs = null;
-      await this.state.storage.put('last_live_confirmed_ts_ms', nowMs);
-      if (this.state.storage.delete) {
+      await this.putFrameSnapshotKey('last_live_confirmed_ts_ms', nowMs);
+      if (clearedGap && this.state.storage.delete) {
         await this.state.storage.delete('gap_started_at_ms');
       }
     } else {
@@ -619,6 +735,7 @@ export class PaperTradingDurableObject {
       const outageDuration = Math.max(0, nowMs - this.gapStartedAtMs);
       if (outageDuration > 15000) {
         // Continuous feed loss > 15s: reset continuous window immediately
+        this.forceFrameDurablePersist();
         await this.resetContinuousWindow(nowMs);
         this.lastLiveConfirmedTsMs = null;
         if (this.state.storage.delete) {
@@ -806,9 +923,9 @@ export class PaperTradingDurableObject {
       this.runStartedAtMs = nowTs;
       await this.state.storage.put('run_started_at_ms', this.runStartedAtMs);
     }
-
+    this.computeFrameDurablePersist(nowTs);
     const streamState = this.sequencer.ingest(book, nowTs);
-    await this.state.storage.put('sequencer_state', this.sequencer.serializeState());
+    await this.putFrameSnapshotKey('sequencer_state', this.sequencer.serializeState());
     const tickEntry = {
       tickIndex: this.tickCounter,
       nowTs,
@@ -845,6 +962,7 @@ export class PaperTradingDurableObject {
       // N2: Detect newly opened cycles and persist their initial opening orderbooks, pre-open state, and opening tick
       for (const open of engine.getOpenCycles()) {
         if (!prevOpenKeys.has(open.cycleId)) {
+          this.forceFrameDurablePersist();
           const legABook = this.sequencer.getBook(open.legAExchange, open.pair, open.legAMarket);
           const legBBook = this.sequencer.getBook(open.legBExchange, open.pair, open.legBMarket);
           if (legABook && legBBook) {
@@ -931,11 +1049,13 @@ export class PaperTradingDurableObject {
         }
       }
       try {
-        await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
-        await this.state.storage.put(
-          `strategy_state_${engine.strategyId}`,
-          engine.serializeState()
-        );
+        if (this.frameDurablePersist || book.fundingEventId) {
+          await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
+          await this.state.storage.put(
+            `strategy_state_${engine.strategyId}`,
+            engine.serializeState()
+          );
+        }
       } catch (err) {
         if (engine.strategyId === 'spot-perp' && book.fundingEventId) {
           perpStrategyStatePersistenceFailed = true;
@@ -952,6 +1072,7 @@ export class PaperTradingDurableObject {
     // 3. 'retry': Open position exists but pair sync failed (e.g. HALTED_DESYNC or missing counterpart)
     //    or stream is desynced, or persistence failed. Suppress ACK so collector/broker can replay.
     if (book.fundingEventId) {
+      this.forceFrameDurablePersist();
       const perpEngine = this.strategies.get('spot-perp');
       const streamKey = OrderbookSequencer.makeStreamKey(
         book.exchange,
@@ -1012,11 +1133,11 @@ export class PaperTradingDurableObject {
       }
     }
 
-    await this.state.storage.put('last_tick_counter', this.tickCounter);
-    await this.state.storage.put('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
-    await this.state.storage.put('paper_closed_cycles', this.journal.getClosedCycles());
+    await this.putFrameSnapshotKey('last_tick_counter', this.tickCounter);
+    await this.putFrameSnapshotKey('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
+    await this.putFrameSnapshotKey('paper_closed_cycles', this.journal.getClosedCycles());
 
-    if (this.env?.DB) {
+    if (this.env?.DB && this.frameDurablePersist) {
       await this.syncRunsInD1(nowTs);
     }
 
@@ -1032,9 +1153,10 @@ export class PaperTradingDurableObject {
   ): Promise<ReturnType<OrderbookSequencer['resyncSnapshot']>> {
     await this.ensureRestored();
     this.lastLiveIngestTsMs = nowTs;
-    await this.state.storage.put('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
+    this.computeFrameDurablePersist(nowTs);
+    await this.putFrameSnapshotKey('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
     const result = this.sequencer.resyncSnapshot(book, nowTs);
-    await this.state.storage.put('sequencer_state', this.sequencer.serializeState());
+    await this.putFrameSnapshotKey('sequencer_state', this.sequencer.serializeState());
 
     const tickEntry = {
       tickIndex: this.tickCounter,
@@ -1071,6 +1193,7 @@ export class PaperTradingDurableObject {
       // N2: Detect newly opened cycles and persist their initial opening orderbooks + pre-open state + opening tick
       for (const open of engine.getOpenCycles()) {
         if (!prevOpenKeys.has(open.cycleId)) {
+          this.forceFrameDurablePersist();
           const legABook = this.sequencer.getBook(open.legAExchange, open.pair, open.legAMarket);
           const legBBook = this.sequencer.getBook(open.legBExchange, open.pair, open.legBMarket);
           if (legABook && legBBook) {
@@ -1155,11 +1278,13 @@ export class PaperTradingDurableObject {
       }
 
       try {
-        await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
-        await this.state.storage.put(
-          `strategy_state_${engine.strategyId}`,
-          engine.serializeState()
-        );
+        if (this.frameDurablePersist || book.fundingEventId) {
+          await this.journal.saveStrategySnapshot(engine.getSnapshot(), this.env?.DB);
+          await this.state.storage.put(
+            `strategy_state_${engine.strategyId}`,
+            engine.serializeState()
+          );
+        }
       } catch (err) {
         if (engine.strategyId === 'spot-perp' && book.fundingEventId) {
           perpStrategyStatePersistenceFailed = true;
@@ -1171,6 +1296,7 @@ export class PaperTradingDurableObject {
 
     // N3: Multi-tier persisted funding disposition handling on resync path:
     if (book.fundingEventId) {
+      this.forceFrameDurablePersist();
       const perpEngine = this.strategies.get('spot-perp');
       const streamKey = OrderbookSequencer.makeStreamKey(
         book.exchange,
@@ -1228,9 +1354,9 @@ export class PaperTradingDurableObject {
       }
     }
 
-    await this.state.storage.put('paper_closed_cycles', this.journal.getClosedCycles());
+    await this.putFrameSnapshotKey('paper_closed_cycles', this.journal.getClosedCycles());
 
-    if (this.env?.DB) {
+    if (this.env?.DB && this.frameDurablePersist) {
       await this.syncRunsInD1(nowTs);
     }
 
