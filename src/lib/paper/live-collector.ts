@@ -35,6 +35,8 @@ export interface CollectorConfig {
   maxReconnectDelayMs?: number;
   /** Optional WebSocket factory for deterministic testing or custom runtimes. */
   wsFactory?: (url: string) => WebSocketLike;
+  /** Optional fetch implementation for deterministic unit testing of REST fallback rotation. */
+  fetchImpl?: typeof fetch;
   /** Called for every normalized update, live or bootstrapped. */
   onBook?: (book: NormalizedOrderbook) => void;
   /** Called when a stream drops, before reconnect begins. */
@@ -78,6 +80,24 @@ export interface CollectorStreamStatus {
 
 const DEFAULT_PAIRS: PaperPair[] = ['BTC/USDT', 'ETH/USDT'];
 const FUNDING_STALE_MS = 8 * 60 * 60 * 1000;
+export const BINANCE_PERP_WS_ENDPOINTS: readonly string[] = [
+  'wss://fstream.binance.com/stream',
+  'wss://fstream.binance.me/stream',
+  'wss://fstream1.binance.com/stream',
+  'wss://fstream2.binance.com/stream',
+  'wss://fstream-auth.binance.com/stream',
+];
+export const BINANCE_PERP_REST_BASES: readonly string[] = [
+  'https://fapi.binance.com',
+  'https://www.binance.com',
+  'https://fapi.binance.me',
+  'https://fapi1.binance.com',
+  'https://fapi2.binance.com',
+];
+const BINANCE_PERP_FUNDING_CACHE_TTL_MS = 8000;
+const BYBIT_RESYNC_COOLDOWN_MS = 2000;
+const BINANCE_PERP_FALLBACK_INTERVAL_MS = 400;
+const BINANCE_PERP_FALLBACK_STALE_MS = 450;
 
 export class LiveMarketCollector {
   private readonly binanceWsUrl: string;
@@ -88,12 +108,15 @@ export class LiveMarketCollector {
   private readonly fetchTimeoutMs: number;
   private readonly maxReconnectDelayMs: number;
   private readonly wsFactory?: (url: string) => WebSocketLike;
+  private readonly fetchImpl: typeof fetch;
   private readonly onBook?: CollectorConfig['onBook'];
   private readonly onDisconnect?: CollectorConfig['onDisconnect'];
 
   private readonly sockets = new Map<string, WebSocketLike>();
+  private readonly wsOpenedKeys = new Set<string>();
   private readonly reconnectAttempts = new Map<string, number>();
   private readonly reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly lastResyncAttemptMs = new Map<string, number>();
   private readonly statuses: CollectorStreamStatus[] = [];
   private readonly localBooks = new Map<string, NormalizedOrderbook>();
   private readonly fundingByKey = new Map<
@@ -110,6 +133,10 @@ export class LiveMarketCollector {
   >();
   private readonly bootstrappingKeys = new Set<string>();
   private readonly bufferedDeltas = new Map<string, NormalizedOrderbook[]>();
+  private preferredBinancePerpRestIdx = 0;
+  private preferredBinancePerpWsIdx = 0;
+  private perpFallbackTimer: ReturnType<typeof setInterval> | null = null;
+  private perpFallbackInFlight = false;
   private closed = false;
 
   constructor(config?: CollectorConfig) {
@@ -122,6 +149,7 @@ export class LiveMarketCollector {
     this.fetchTimeoutMs = config?.fetchTimeoutMs ?? 3000;
     this.maxReconnectDelayMs = config?.maxReconnectDelayMs ?? 30000;
     this.wsFactory = config?.wsFactory;
+    this.fetchImpl = config?.fetchImpl ?? ((input, init) => fetch(input, init));
     this.onBook = config?.onBook;
     this.onDisconnect = config?.onDisconnect;
 
@@ -170,13 +198,27 @@ export class LiveMarketCollector {
 
   /**
    * Bootstrap an initial full snapshot via REST for all streams and push to listeners.
-   * Required before consuming delta streams.
+   * When WebSocket streams are active (`sockets.size > 0`), skips `bybit:spot`
+   * REST snapshots so REST `u` (~68.3M) never overwrites Bybit Spot WS `u` (~7.6M);
+   * instead triggers native WS snapshot resync if the stream is stale or disconnected.
    */
   async bootstrapSnapshots(): Promise<CollectorFetchResult[]> {
-    const results = await this.pollAllPairs();
+    const wsActive = this.sockets.size > 0;
+    const results = await this.pollAllPairs({ skipBybitSpot: wsActive });
     for (const res of results) {
       if (res.book) {
         this.recordBookIngest(res.book);
+      }
+    }
+    if (wsActive) {
+      const now = Date.now();
+      for (const pair of this.pairs) {
+        const st = this.statuses.find(
+          (s) => s.exchange === 'bybit' && s.pair === pair && s.marketType === 'spot'
+        );
+        if (!st || !st.connected || st.lastReceiveTs === 0 || now - st.lastReceiveTs > 10000) {
+          await this.resyncBybitWsStream(pair, 'spot');
+        }
       }
     }
     return results;
@@ -244,6 +286,7 @@ export class LiveMarketCollector {
    */
   close(): void {
     this.closed = true;
+    this.stopBinancePerpFallbackPump();
     for (const timer of this.reconnectTimers.values()) {
       clearTimeout(timer);
     }
@@ -256,6 +299,7 @@ export class LiveMarketCollector {
       }
     }
     this.sockets.clear();
+    this.wsOpenedKeys.clear();
     for (const status of this.statuses) {
       status.connected = false;
     }
@@ -265,6 +309,11 @@ export class LiveMarketCollector {
    * Start real-time WebSocket subscriptions for Binance and Bybit, buffering
    * incoming WebSocket deltas while bootstrapping initial REST snapshots and
    * replaying bridged deltas (`u > snapshot.sequenceId`) in sequence order.
+   * Note: Bybit Spot WS (`orderbook.50.{symbol}`) emits its own initial
+   * `"type": "snapshot"` in the WS sequence space (~7.6M), whereas Bybit Spot
+   * REST returns `u` in a distinct sequence space (~68.3M). Therefore we skip
+   * REST snapshot overwrite for `bybit:spot` during WS startup and let its
+   * native WS snapshot drain the buffer directly inside `ingestOrBufferWsBook`.
    */
   async startWebSocketStreams(): Promise<void> {
     this.closed = false;
@@ -283,7 +332,9 @@ export class LiveMarketCollector {
       this.connectBybitWs(pair, 'linear_perp');
     }
 
-    const results = await this.pollAllPairs();
+    this.startBinancePerpFallbackPump();
+
+    const results = await this.pollAllPairs({ skipBybitSpot: true });
     for (const res of results) {
       const key = OrderbookSequencer.makeStreamKey(
         res.exchange,
@@ -292,6 +343,92 @@ export class LiveMarketCollector {
       );
       this.applySnapshotAndDrainBuffer(key, res.book);
     }
+  }
+
+  /**
+   * Request a fresh native WebSocket snapshot from Bybit (`orderbook.50.{symbol}`)
+   * by sending `unsubscribe` + `subscribe` on the active socket (or reconnecting
+   * if the socket is unavailable), with a 2000ms per-stream cooldown.
+   */
+  async resyncBybitWsStream(
+    pair: PaperPair,
+    marketType: PaperMarketType
+  ): Promise<boolean> {
+    const key = OrderbookSequencer.makeStreamKey('bybit', pair, marketType);
+    const now = Date.now();
+    const lastAttempt = this.lastResyncAttemptMs.get(key) ?? 0;
+    if (now - lastAttempt < BYBIT_RESYNC_COOLDOWN_MS) {
+      return false;
+    }
+    this.lastResyncAttemptMs.set(key, now);
+    this.beginBootstrapping(key);
+
+    const symbol = pair.replace('/', '');
+    const topic = `orderbook.50.${symbol}`;
+    const ws = this.sockets.get(key);
+    if (ws) {
+      try {
+        ws.send(JSON.stringify({ op: 'unsubscribe', args: [topic] }));
+        ws.send(JSON.stringify({ op: 'subscribe', args: [topic] }));
+        return true;
+      } catch {
+        try {
+          ws.close();
+        } catch {
+          // Ignore close error
+        }
+        this.sockets.delete(key);
+      }
+    }
+
+    if (!this.closed) {
+      this.connectBybitWs(pair, marketType);
+    }
+    return true;
+  }
+
+  private startBinancePerpFallbackPump(): void {
+    this.stopBinancePerpFallbackPump();
+    this.perpFallbackTimer = setInterval(() => {
+      if (this.closed || this.perpFallbackInFlight) return;
+      const now = Date.now();
+      const stalePairs: PaperPair[] = [];
+      for (const pair of this.pairs) {
+        const key = OrderbookSequencer.makeStreamKey('binance', pair, 'linear_perp');
+        const st = this.statuses.find(
+          (s) =>
+            s.exchange === 'binance' &&
+            s.pair === pair &&
+            s.marketType === 'linear_perp'
+        );
+        const wsOpen = this.wsOpenedKeys.has(key);
+        const ageMs = st && st.lastReceiveTs > 0 ? now - st.lastReceiveTs : Infinity;
+        if (!wsOpen || !st?.connected || ageMs > BINANCE_PERP_FALLBACK_STALE_MS) {
+          stalePairs.push(pair);
+        }
+      }
+      if (stalePairs.length === 0) return;
+
+      this.perpFallbackInFlight = true;
+      void Promise.all(
+        stalePairs.map(async (pair) => {
+          const res = await this.fetchBinancePerpDepth(pair);
+          if (res.book && !this.closed) {
+            this.ingestOrBufferWsBook(res.book);
+          }
+        })
+      ).finally(() => {
+        this.perpFallbackInFlight = false;
+      });
+    }, BINANCE_PERP_FALLBACK_INTERVAL_MS);
+  }
+
+  private stopBinancePerpFallbackPump(): void {
+    if (this.perpFallbackTimer) {
+      clearInterval(this.perpFallbackTimer);
+      this.perpFallbackTimer = null;
+    }
+    this.perpFallbackInFlight = false;
   }
 
   beginBootstrapping(key: string): void {
@@ -331,6 +468,10 @@ export class LiveMarketCollector {
       book.pair,
       book.marketType
     );
+    if (book.isDelta === false) {
+      this.applySnapshotAndDrainBuffer(key, book);
+      return false;
+    }
     if (this.bootstrappingKeys.has(key)) {
       const queue = this.bufferedDeltas.get(key) ?? [];
       queue.push(book);
@@ -437,10 +578,15 @@ export class LiveMarketCollector {
     if (this.closed) return;
     const key = OrderbookSequencer.makeStreamKey('binance', pair, marketType);
     const symbolLower = pair.replace('/', '').toLowerCase();
+    const attempts = this.reconnectAttempts.get(key) ?? 0;
+    const perpEndpointIdx =
+      attempts === 0
+        ? this.preferredBinancePerpWsIdx
+        : (this.preferredBinancePerpWsIdx + attempts) % BINANCE_PERP_WS_ENDPOINTS.length;
     const baseWs =
       marketType === 'spot'
         ? this.binanceWsUrl
-        : 'wss://fstream.binance.com/stream';
+        : BINANCE_PERP_WS_ENDPOINTS[perpEndpointIdx];
     const streams =
       marketType === 'spot'
         ? `${symbolLower}@depth@100ms`
@@ -452,7 +598,11 @@ export class LiveMarketCollector {
       this.sockets.set(key, ws);
 
       ws.addEventListener('open', () => {
+        this.wsOpenedKeys.add(key);
         this.reconnectAttempts.set(key, 0);
+        if (marketType === 'linear_perp') {
+          this.preferredBinancePerpWsIdx = perpEndpointIdx;
+        }
       });
 
       ws.addEventListener('message', (evt) => {
@@ -511,7 +661,24 @@ export class LiveMarketCollector {
 
       const handleDisconnect = (reason: string) => {
         this.sockets.delete(key);
-        this.recordDisconnect('binance', pair, marketType, reason);
+        this.wsOpenedKeys.delete(key);
+        const st = this.statuses.find(
+          (s) =>
+            s.exchange === 'binance' &&
+            s.pair === pair &&
+            s.marketType === marketType
+        );
+        const now = Date.now();
+        const isPerpCoveredByFallback =
+          marketType === 'linear_perp' &&
+          this.perpFallbackTimer !== null &&
+          Boolean(st && st.lastReceiveTs > 0 && now - st.lastReceiveTs <= 1000);
+        if (isPerpCoveredByFallback && st) {
+          st.lastErrorReason = reason;
+          st.reconnectCount += 1;
+        } else {
+          this.recordDisconnect('binance', pair, marketType, reason);
+        }
         this.scheduleReconnect('binance', pair, marketType);
       };
 
@@ -523,7 +690,24 @@ export class LiveMarketCollector {
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      this.recordDisconnect('binance', pair, marketType, reason);
+      this.wsOpenedKeys.delete(key);
+      const st = this.statuses.find(
+        (s) =>
+          s.exchange === 'binance' &&
+          s.pair === pair &&
+          s.marketType === marketType
+      );
+      const now = Date.now();
+      const isPerpCoveredByFallback =
+        marketType === 'linear_perp' &&
+        this.perpFallbackTimer !== null &&
+        Boolean(st && st.lastReceiveTs > 0 && now - st.lastReceiveTs <= 1000);
+      if (isPerpCoveredByFallback && st) {
+        st.lastErrorReason = reason;
+        st.reconnectCount += 1;
+      } else {
+        this.recordDisconnect('binance', pair, marketType, reason);
+      }
       this.scheduleReconnect('binance', pair, marketType);
     }
   }
@@ -540,6 +724,7 @@ export class LiveMarketCollector {
       this.sockets.set(key, ws);
 
       ws.addEventListener('open', () => {
+        this.wsOpenedKeys.add(key);
         this.reconnectAttempts.set(key, 0);
         const args =
           marketType === 'spot'
@@ -613,6 +798,7 @@ export class LiveMarketCollector {
 
       const handleDisconnect = (reason: string) => {
         this.sockets.delete(key);
+        this.wsOpenedKeys.delete(key);
         this.recordDisconnect('bybit', pair, marketType, reason);
         this.scheduleReconnect('bybit', pair, marketType);
       };
@@ -625,6 +811,7 @@ export class LiveMarketCollector {
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
+      this.wsOpenedKeys.delete(key);
       this.recordDisconnect('bybit', pair, marketType, reason);
       this.scheduleReconnect('bybit', pair, marketType);
     }
@@ -659,11 +846,10 @@ export class LiveMarketCollector {
         this.applySnapshotAndDrainBuffer(key, snap.book);
       } else {
         this.connectBybitWs(pair, marketType);
-        const snap = await this.fetchBybitDepth(
-          pair,
-          marketType === 'spot' ? 'spot' : 'linear'
-        );
-        this.applySnapshotAndDrainBuffer(key, snap.book);
+        if (marketType !== 'spot') {
+          const snap = await this.fetchBybitDepth(pair, 'linear');
+          this.applySnapshotAndDrainBuffer(key, snap.book);
+        }
       }
     }, delayMs);
 
@@ -754,87 +940,154 @@ export class LiveMarketCollector {
 
   /**
    * Fetch L2 depth snapshot and funding rate from Binance Linear Perp (fapi).
+   * Rotates across `BINANCE_PERP_REST_BASES` with sticky memoization of the
+   * working endpoint, and caches `premiumIndex` independently (8s TTL) so
+   * funding fetch errors never fail orderbook snapshots.
    */
   async fetchBinancePerpDepth(pair: PaperPair): Promise<CollectorFetchResult> {
     const symbol = pair.replace('/', '');
     const start = Date.now();
-    const depthUrl = `https://fapi.binance.com/fapi/v1/depth?symbol=${symbol}&limit=20`;
-    const premiumIndexUrl = `https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`;
+    const key = OrderbookSequencer.makeStreamKey('binance', pair, 'linear_perp');
 
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
+    let depthData: {
+      lastUpdateId: number;
+      E?: number;
+      bids: Array<[string, string]>;
+      asks: Array<[string, string]>;
+    } | null = null;
+    let workingBase = BINANCE_PERP_REST_BASES[this.preferredBinancePerpRestIdx];
+    let lastError = 'Binance Perp HTTP error';
 
-      const [depthRes, premRes] = await Promise.all([
-        fetch(depthUrl, { signal: controller.signal }).catch((e) => ({ ok: false, status: 0, statusText: String(e), json: async () => null })),
-        fetch(premiumIndexUrl, { signal: controller.signal }).catch(() => null),
-      ]);
-      clearTimeout(timer);
+    for (let offset = 0; offset < BINANCE_PERP_REST_BASES.length; offset++) {
+      const idx =
+        (this.preferredBinancePerpRestIdx + offset) % BINANCE_PERP_REST_BASES.length;
+      const base = BINANCE_PERP_REST_BASES[idx];
+      const depthUrl = `${base}/fapi/v1/depth?symbol=${symbol}&limit=20`;
 
-      if (!depthRes.ok) {
-        return {
-          exchange: 'binance',
-          pair,
-          marketType: 'linear_perp',
-          error: `Binance Perp HTTP ${depthRes.status}`,
-          latencyMs: Date.now() - start,
-        };
-      }
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
+        const depthRes = await this.fetchImpl(depthUrl, { signal: controller.signal }).catch((e) => ({
+          ok: false,
+          status: 0,
+          statusText: String(e),
+          json: async () => null,
+        }));
+        clearTimeout(timer);
 
-      const depthData = (await depthRes.json()) as {
-        lastUpdateId: number;
-        E: number;
-        bids: Array<[string, string]>;
-        asks: Array<[string, string]>;
-      };
-
-      let fundingRateBps = 0.0;
-      if (premRes && 'ok' in premRes && premRes.ok) {
-        try {
-          const premData = (await premRes.json()) as { lastFundingRate?: string };
-          if (premData?.lastFundingRate) {
-            fundingRateBps = Number(premData.lastFundingRate) * 10000;
-          }
-        } catch {
-          // Default to 0.0 bps on failure
-          fundingRateBps = 0.0;
+        if (!depthRes.ok) {
+          lastError = `Binance Perp HTTP ${depthRes.status} (${base})`;
+          continue;
         }
+
+        const parsed = (await depthRes.json()) as {
+          lastUpdateId?: number;
+          E?: number;
+          bids?: Array<[string, string]>;
+          asks?: Array<[string, string]>;
+        } | null;
+
+        if (
+          parsed &&
+          typeof parsed.lastUpdateId === 'number' &&
+          Array.isArray(parsed.bids) &&
+          Array.isArray(parsed.asks)
+        ) {
+          depthData = {
+            lastUpdateId: parsed.lastUpdateId,
+            E: parsed.E,
+            bids: parsed.bids,
+            asks: parsed.asks,
+          };
+          this.preferredBinancePerpRestIdx = idx;
+          workingBase = base;
+          break;
+        }
+        lastError = `Binance Perp invalid depth payload (${base})`;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
       }
+    }
 
-      const now = Date.now();
-      const book: NormalizedOrderbook = {
-        exchange: 'binance',
-        pair,
-        marketType: 'linear_perp',
-        sequenceId: depthData.lastUpdateId,
-        exchangeTs: depthData.E || now,
-        receivedTs: now,
-        isDelta: false,
-        bids: depthData.bids
-          .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-          .sort((a, b) => b.price - a.price),
-        asks: depthData.asks
-          .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
-          .sort((a, b) => a.price - b.price),
-        fundingRateBps,
-      };
-
+    if (!depthData) {
       return {
         exchange: 'binance',
         pair,
         marketType: 'linear_perp',
-        book,
-        latencyMs: Date.now() - start,
-      };
-    } catch (err) {
-      return {
-        exchange: 'binance',
-        pair,
-        marketType: 'linear_perp',
-        error: err instanceof Error ? err.message : String(err),
+        error: lastError,
         latencyMs: Date.now() - start,
       };
     }
+
+    const now = Date.now();
+    const cachedFunding = this.fundingByKey.get(key);
+    if (!cachedFunding || now - cachedFunding.fetchedTs > BINANCE_PERP_FUNDING_CACHE_TTL_MS) {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
+        const premRes = await this.fetchImpl(
+          `${workingBase}/fapi/v1/premiumIndex?symbol=${symbol}`,
+          { signal: controller.signal }
+        ).catch(() => null);
+        clearTimeout(timer);
+
+        if (premRes && 'ok' in premRes && premRes.ok) {
+          const premData = (await premRes.json()) as {
+            lastFundingRate?: string;
+            nextFundingTime?: number;
+            time?: number;
+          };
+          if (premData?.lastFundingRate !== undefined) {
+            const rateBps = Number(premData.lastFundingRate) * 10000;
+            const nextFundingTs =
+              typeof premData.nextFundingTime === 'number' && premData.nextFundingTime > 0
+                ? premData.nextFundingTime
+                : undefined;
+            if (Number.isFinite(rateBps)) {
+              this.updateFundingState(
+                key,
+                'binance',
+                pair,
+                rateBps,
+                premData.time || now,
+                nextFundingTs
+              );
+            }
+          }
+        }
+      } catch {
+        // Decoupled: never fail orderbook depth snapshot on premiumIndex error
+      }
+    }
+
+    const fundingMeta = this.consumeFundingMetadata(key, now);
+    const book: NormalizedOrderbook = {
+      exchange: 'binance',
+      pair,
+      marketType: 'linear_perp',
+      sequenceId: depthData.lastUpdateId,
+      exchangeTs: depthData.E || now,
+      receivedTs: now,
+      isDelta: false,
+      bids: depthData.bids
+        .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
+        .sort((a, b) => b.price - a.price),
+      asks: depthData.asks
+        .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
+        .sort((a, b) => a.price - b.price),
+      fundingRateBps: fundingMeta.fundingRateBps,
+      nextFundingTimeMs: fundingMeta.nextFundingTimeMs,
+      fundingEventId: fundingMeta.fundingEventId,
+      fundingSettlementTs: fundingMeta.fundingSettlementTs,
+    };
+
+    return {
+      exchange: 'binance',
+      pair,
+      marketType: 'linear_perp',
+      book,
+      latencyMs: Date.now() - start,
+    };
   }
 
   /**
@@ -958,13 +1211,17 @@ export class LiveMarketCollector {
 
   /**
    * Fetch all 4 streams across Binance and Bybit for all supported pairs.
+   * When `skipBybitSpot` is true, omits `bybit:spot` REST fetches so REST `u`
+   * never overwrites active Bybit Spot WS sequences.
    */
-  async pollAllPairs(): Promise<CollectorFetchResult[]> {
+  async pollAllPairs(options?: { skipBybitSpot?: boolean }): Promise<CollectorFetchResult[]> {
     const promises: Array<Promise<CollectorFetchResult>> = [];
     for (const pair of this.pairs) {
       promises.push(this.fetchBinanceSpotDepth(pair));
       promises.push(this.fetchBinancePerpDepth(pair));
-      promises.push(this.fetchBybitDepth(pair, 'spot'));
+      if (!options?.skipBybitSpot) {
+        promises.push(this.fetchBybitDepth(pair, 'spot'));
+      }
       promises.push(this.fetchBybitDepth(pair, 'linear'));
     }
     return Promise.all(promises);

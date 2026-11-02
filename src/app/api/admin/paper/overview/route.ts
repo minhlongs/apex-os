@@ -196,14 +196,19 @@ export async function POST(request: NextRequest) {
     }
 
     const body = (await request.json().catch(() => ({}))) as {
-      action?: 'start-collector' | 'stop-collector';
+      action?: 'start-collector' | 'stop-collector' | 'reset-rehearsal';
     };
     const action = body.action;
-    if (action !== 'start-collector' && action !== 'stop-collector') {
+    if (
+      action !== 'start-collector' &&
+      action !== 'stop-collector' &&
+      action !== 'reset-rehearsal'
+    ) {
       return NextResponse.json(
         {
           executionMode: 'PAPER',
-          error: "Invalid action. Expected 'start-collector' or 'stop-collector'.",
+          error:
+            "Invalid action. Expected 'start-collector', 'stop-collector', or 'reset-rehearsal'.",
         },
         { status: 400 }
       );

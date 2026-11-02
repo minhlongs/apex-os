@@ -1168,7 +1168,7 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
     });
 
     describe('7. Adversarial Remediation Verification (V1 through V7)', () => {
-      it('V1: values standing base inventory at live orderbook prices and halts strategy when 50% market drop triggers >=2% drawdown even with 0 open cycles', () => {
+      it('V1: remains market-neutral at 0 open cycles when market crashes 50%, and halts strategy when unhedged post-seed inventory suffers >=2% drawdown', () => {
         const engine = new PaperStrategyEngine({
           strategyId: 'spot-2exch',
           initialCapitalUsdt: 10000,
@@ -1182,8 +1182,9 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         expect(engine.getCurrentEquityUsdt()).toBe(10000);
         expect(engine.isHalted()).toBe(false);
 
-        // Adversarial market crash: BTC drops 50% (68,000 -> 34,000), ETH drops 50% (2,600 -> 1,300)
-        // No open cycles exist!
+        // Adversarial market crash at 0 open cycles: BTC drops 50% (68,000 -> 34,000), ETH drops 50% (2,600 -> 1,300)
+        // Because operational seed inventory is re-anchored to live price on first mark with deltaStandingQty = 0,
+        // 0-cycle price moves produce zero passive beta drawdown!
         sequencer.ingest({
           exchange: 'binance',
           pair: 'BTC/USDT',
@@ -1225,13 +1226,22 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
           asks: [{ price: 1301, quantity: 10 }],
         });
 
-        // Trigger mark-to-market update
-        const mtm = engine.updateMarkToMarketDrawdown(sequencer, now + 10);
+        // Trigger mark-to-market update at 0 open cycles: NAV remains 10,000 USDT (market-neutral)
+        const mtmNeutral = engine.updateMarkToMarketDrawdown(sequencer, now + 10);
+        expect(mtmNeutral.equityUsdt).toBe(10000);
+        expect(mtmNeutral.drawdownPct).toBe(0);
+        expect(mtmNeutral.halted).toBe(false);
 
-        // Standing inventory 4,000 USDT drops to ~2,000 USDT -> total equity ~8,000 USDT (20% drawdown)
-        expect(mtm.equityUsdt).toBeLessThan(8010);
-        expect(mtm.equityUsdt).toBeGreaterThan(7990);
-        expect(mtm.drawdownPct).toBeGreaterThanOrEqual(19.9);
+        // Now simulate an unhedged base inventory deficit (-0.01 BTC below seed) that causes >= 2% NAV loss (~340 USDT)
+        const saved = engine.serializeState();
+        saved.venueBalances.binance.baseInventory['BTC/USDT'] = Number(
+          (saved.venueBalances.binance.baseInventory['BTC/USDT'] - 0.01).toFixed(8)
+        );
+        engine.restoreState(saved);
+
+        const mtm = engine.updateMarkToMarketDrawdown(sequencer, now + 12);
+        expect(mtm.equityUsdt).toBeLessThan(9700);
+        expect(mtm.drawdownPct).toBeGreaterThanOrEqual(2.0);
         expect(mtm.halted).toBe(true);
         expect(engine.isHalted()).toBe(true);
 
@@ -1611,7 +1621,9 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
 
         const initVenue = engine.getSnapshot().venueBalances;
         const binanceInitBtc = initVenue?.binance.baseInventory['BTC/USDT'] ?? 0;
-        expect(binanceInitBtc).toBeGreaterThan(0);
+        expect(binanceInitBtc).toBe(0);
+        expect(initVenue?.binance.freeCollateralUsdt).toBe(5000);
+        expect(initVenue?.bybit.freeCollateralUsdt).toBe(5000);
 
         // Feed wide spread on Binance spot vs linear perp to open cycle
         sequencer.ingest({
@@ -3242,6 +3254,315 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         const staleDisp = store.get('funding_disp_stale_resync_funding_evt_1') as any;
         expect(staleDisp).toBeDefined();
         expect(staleDisp.disposition).toBe('retry');
+      });
+
+      it('R1 (Blocker 1): Bybit Spot WS snapshot (isDelta: false) applies immediately even while in bootstrappingKeys, and FEED_DESYNC triggers resyncBybitWsStream without REST u~68.3M overwrite', async () => {
+        const { LiveMarketCollector } = await import('../live-collector');
+        const receivedBooks: NormalizedOrderbook[] = [];
+        const collector = new LiveMarketCollector({
+          pairs: ['BTC/USDT'],
+          onBook: (b) => receivedBooks.push(b),
+        });
+
+        const key = 'bybit:spot:BTC/USDT';
+        // Simulate stream still marked as bootstrapping when WS snapshot arrives first
+        (collector as any).bootstrappingKeys.add(key);
+
+        const now = Date.now();
+        const wsSnapshot: NormalizedOrderbook = {
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 7671467,
+          exchangeTs: now - 5,
+          receivedTs: now,
+          isDelta: false,
+          bids: [{ price: 68500, quantity: 1.5 }],
+          asks: [{ price: 68502, quantity: 1.5 }],
+        };
+        const wsDelta: NormalizedOrderbook = {
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 7671468,
+          exchangeTs: now - 2,
+          receivedTs: now + 2,
+          isDelta: true,
+          bids: [{ price: 68501, quantity: 2.0 }],
+          asks: [{ price: 68502, quantity: 1.5 }],
+        };
+
+        // Ingest WS snapshot while key is in bootstrappingKeys -> must NOT buffer or drop!
+        (collector as any).ingestOrBufferWsBook(wsSnapshot);
+        expect((collector as any).bootstrappingKeys.has(key)).toBe(false);
+        expect(receivedBooks.length).toBe(1);
+        expect(receivedBooks[0].isDelta).toBe(false);
+        expect(receivedBooks[0].sequenceId).toBe(7671467);
+
+        // Subsequent WS delta applies cleanly in the 7.6M WS sequence space
+        (collector as any).ingestOrBufferWsBook(wsDelta);
+        expect(receivedBooks.length).toBe(2);
+        expect(receivedBooks[1].sequenceId).toBe(7671468);
+
+        // Verify resyncBybitWsStream sends unsubscribe + subscribe on open WS socket and respects 2000ms cooldown
+        const sentPayloads: any[] = [];
+        (collector as any).sockets.set(key, {
+          readyState: 1,
+          send: (msg: string) => sentPayloads.push(JSON.parse(msg)),
+          close: () => {},
+        });
+
+        const firstResync = await collector.resyncBybitWsStream('BTC/USDT', 'spot');
+        expect(firstResync).toBe(true);
+        expect(sentPayloads.length).toBe(2);
+        expect(sentPayloads[0]).toEqual({ op: 'unsubscribe', args: ['orderbook.50.BTCUSDT'] });
+        expect(sentPayloads[1]).toEqual({ op: 'subscribe', args: ['orderbook.50.BTCUSDT'] });
+
+        // Immediate second call within 2000ms cooldown returns false without spamming WS
+        const secondResync = await collector.resyncBybitWsStream('BTC/USDT', 'spot');
+        expect(secondResync).toBe(false);
+        expect(sentPayloads.length).toBe(2);
+
+        collector.close();
+      });
+
+      it('R2 (Blocker 2): Binance Perp rotates across fallback REST bases, caches premiumIndex independently, and pumps 400ms REST snapshots when WS is disconnected', async () => {
+        const { LiveMarketCollector, BINANCE_PERP_REST_BASES } = await import('../live-collector');
+        expect(BINANCE_PERP_REST_BASES.length).toBeGreaterThanOrEqual(4);
+        expect(BINANCE_PERP_REST_BASES).toContain('https://www.binance.com');
+
+        const fetchedUrls: string[] = [];
+        const customFetch: typeof fetch = async (input: RequestInfo | URL) => {
+          const url = String(input);
+          fetchedUrls.push(url);
+          // Simulate primary fapi.binance.com HTTP 451 / network block
+          if (url.startsWith('https://fapi.binance.com')) {
+            return new Response('Restricted location', { status: 451 });
+          }
+          if (url.includes('/fapi/v1/depth')) {
+            return new Response(
+              JSON.stringify({
+                lastUpdateId: 900100,
+                E: Date.now(),
+                bids: [['68400.00', '2.5']],
+                asks: [['68405.00', '2.5']],
+              }),
+              { status: 200 }
+            );
+          }
+          // Simulate premiumIndex failing with 503 to prove decoupled funding does NOT break depth
+          if (url.includes('/fapi/v1/premiumIndex')) {
+            return new Response('Service Unavailable', { status: 503 });
+          }
+          return new Response('{}', { status: 200 });
+        };
+
+        const collector = new LiveMarketCollector({
+          pairs: ['BTC/USDT'],
+          fetchImpl: customFetch,
+        });
+
+        const snap = await collector.fetchBinancePerpDepth('BTC/USDT');
+        expect(snap.book).not.toBeNull();
+        expect(snap.book?.exchange).toBe('binance');
+        expect(snap.book?.marketType).toBe('linear_perp');
+        expect(snap.book?.isDelta).toBe(false);
+        expect(snap.book?.sequenceId).toBe(900100);
+        // Sticky index memoized to fallback endpoint (index 1: www.binance.com)
+        expect((collector as any).preferredBinancePerpRestIdx).toBe(1);
+
+        collector.close();
+      });
+
+      it('R3 (Blocker 3): spot-perp starts 100% USDT and spot-2exch re-anchors operational seed inventory with zero passive beta drawdown at 0 cycles and no open-cycle double-counting', () => {
+        const spotPerp = new PaperStrategyEngine({
+          strategyId: 'spot-perp',
+          initialCapitalUsdt: 10000,
+        });
+        const spot2Exch = new PaperStrategyEngine({
+          strategyId: 'spot-2exch',
+          initialCapitalUsdt: 10000,
+        });
+        const sequencer = new OrderbookSequencer();
+        const now = 1761840000000;
+
+        // 1. Verify spot-perp initial state: 100% USDT (5,000 per venue), 0 baseInventory
+        const perpInit = spotPerp.getSnapshot();
+        expect(perpInit.equityUsdt).toBe(10000);
+        expect(perpInit.venueBalances?.binance.freeCollateralUsdt).toBe(5000);
+        expect(perpInit.venueBalances?.bybit.freeCollateralUsdt).toBe(5000);
+        expect(perpInit.venueBalances?.binance.baseInventory['BTC/USDT']).toBe(0);
+        expect(perpInit.venueBalances?.binance.baseInventory['ETH/USDT']).toBe(0);
+
+        // 2. Ingest live prices far from static reference (e.g. BTC = $95,000, ETH = $1,800) at 0 open cycles
+        for (const exchange of ['binance', 'bybit'] as const) {
+          for (const marketType of ['spot', 'linear_perp'] as const) {
+            sequencer.ingest({
+              exchange,
+              pair: 'BTC/USDT',
+              marketType,
+              sequenceId: 1,
+              exchangeTs: now,
+              receivedTs: now + 2,
+              bids: [{ price: 95000, quantity: 2 }],
+              asks: [{ price: 95005, quantity: 2 }],
+            });
+            sequencer.ingest({
+              exchange,
+              pair: 'ETH/USDT',
+              marketType,
+              sequenceId: 1,
+              exchangeTs: now,
+              receivedTs: now + 2,
+              bids: [{ price: 1800, quantity: 10 }],
+              asks: [{ price: 1801, quantity: 10 }],
+            });
+          }
+        }
+
+        const perpMtm1 = spotPerp.updateMarkToMarketDrawdown(sequencer, now + 5);
+        const spotMtm1 = spot2Exch.updateMarkToMarketDrawdown(sequencer, now + 5);
+        expect(perpMtm1.equityUsdt).toBe(10000);
+        expect(perpMtm1.drawdownPct).toBe(0);
+        expect(spotMtm1.equityUsdt).toBe(10000);
+        expect(spotMtm1.drawdownPct).toBe(0);
+
+        // 3. Subsequent +/- 30% market swing at 0 open cycles still yields 10,000 USDT and 0% drawdown
+        for (const exchange of ['binance', 'bybit'] as const) {
+          sequencer.ingest({
+            exchange,
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 2,
+            exchangeTs: now + 50,
+            receivedTs: now + 52,
+            bids: [{ price: 66000, quantity: 2 }],
+            asks: [{ price: 66005, quantity: 2 }],
+          });
+          sequencer.ingest({
+            exchange,
+            pair: 'ETH/USDT',
+            marketType: 'spot',
+            sequenceId: 2,
+            exchangeTs: now + 50,
+            receivedTs: now + 52,
+            bids: [{ price: 2400, quantity: 10 }],
+            asks: [{ price: 2401, quantity: 10 }],
+          });
+        }
+        const spotMtm2 = spot2Exch.updateMarkToMarketDrawdown(sequencer, now + 60);
+        expect(spotMtm2.equityUsdt).toBe(10000);
+        expect(spotMtm2.drawdownPct).toBe(0);
+        expect(spotMtm2.halted).toBe(false);
+
+        // 4. Open a spot-2exch cycle and verify open-cycle base legs are NOT double-counted in standingInventoryMarkToMarketUsdt
+        sequencer.ingest({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 3,
+          exchangeTs: now + 100,
+          receivedTs: now + 102,
+          bids: [{ price: 66000, quantity: 2 }],
+          asks: [{ price: 66005, quantity: 2 }],
+        });
+        sequencer.ingest({
+          exchange: 'bybit',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 3,
+          exchangeTs: now + 100,
+          receivedTs: now + 102,
+          bids: [{ price: 66350, quantity: 2 }],
+          asks: [{ price: 66355, quantity: 2 }],
+        });
+
+        const openDec = spot2Exch.evaluatePair(sequencer, 'BTC/USDT', 3, now + 105);
+        expect(openDec.decision).toBe('OPEN_CYCLE');
+        // Standing inventory MTM remains exactly 4,000 USDT while cycle is open because effectiveStandingQty subtracts openCycleBaseDelta
+        expect(spot2Exch.getSnapshot().inventoryValueUsdt).toBe(4000);
+      });
+
+      it('R4 (reset-rehearsal): clears haltedByDrawdown, resets both strategies to 10,000 USDT and 0% drawdown, and transitions to LIVE_VERIFIED on 8/8 SYNCED', async () => {
+        const store = new Map<string, unknown>();
+        const doInstance = new PaperTradingDurableObject({
+          storage: {
+            get: async (k) => store.get(k) as any,
+            put: async (k, v) => {
+              store.set(k, v);
+            },
+            delete: async (k) => {
+              store.delete(k);
+            },
+          },
+        });
+        await doInstance.ensureRestored();
+
+        // Corrupt state to simulate pre-fix poisoned staging DO (haltedByDrawdown = true, maxDrawdownPct = 7.98)
+        for (const sid of ['spot-2exch', 'spot-perp'] as const) {
+          const eng = ((doInstance as any).strategies as Map<string, PaperStrategyEngine>).get(sid)!;
+          const st = eng.serializeState();
+          st.haltedByDrawdown = true;
+          st.maxDrawdownPct = 7.98;
+          st.cashBalanceUsdt = 5200;
+          eng.restoreState(st);
+          store.set(`strategy_state_${sid}`, eng.serializeState());
+        }
+
+        const beforeStatus = (await (
+          await doInstance.fetch(new Request('http://internal/status'))
+        ).json()) as any;
+        expect(beforeStatus.strategies['spot-2exch'].haltedByDrawdown).toBe(true);
+        expect(beforeStatus.strategies['spot-perp'].haltedByDrawdown).toBe(true);
+
+        // Execute POST /reset-rehearsal (with restartCollector: false so unit test does not open live sockets)
+        const resetTs = Date.now();
+        const resetRes = await doInstance.fetch(
+          new Request('http://internal/reset-rehearsal', {
+            method: 'POST',
+            body: JSON.stringify({ nowTs: resetTs, restartCollector: false }),
+          })
+        );
+        expect(resetRes.status).toBe(200);
+        const resetData = (await resetRes.json()) as any;
+        expect(resetData.reset).toBe(true);
+        expect(resetData.strategies['spot-2exch'].equityUsdt).toBe(10000);
+        expect(resetData.strategies['spot-2exch'].maxDrawdownPct).toBe(0);
+        expect(resetData.strategies['spot-2exch'].haltedByDrawdown).toBe(false);
+        expect(resetData.strategies['spot-perp'].equityUsdt).toBe(10000);
+        expect(resetData.strategies['spot-perp'].maxDrawdownPct).toBe(0);
+        expect(resetData.strategies['spot-perp'].haltedByDrawdown).toBe(false);
+
+        // Now ingest all 8 streams at live prices -> baselineProvenance transitions to LIVE_VERIFIED and equity stays 10,000
+        const { REQUIRED_PAPER_STREAMS } = await import('../orderbook-sequencer');
+        const liveTs = Date.now();
+        for (const s of REQUIRED_PAPER_STREAMS) {
+          const mid = s.pair === 'BTC/USDT' ? 74500 : 2320;
+          await doInstance.ingestOrderbook(
+            {
+              exchange: s.exchange,
+              pair: s.pair,
+              marketType: s.marketType,
+              sequenceId: 1,
+              exchangeTs: liveTs - 5,
+              receivedTs: liveTs,
+              bids: [{ price: mid, quantity: 2 }],
+              asks: [{ price: mid + 2, quantity: 2 }],
+            },
+            liveTs
+          );
+        }
+
+        const afterLive = (await (
+          await doInstance.fetch(new Request('http://internal/status'))
+        ).json()) as any;
+        expect(afterLive.isLive).toBe(true);
+        expect(afterLive.windowMetrics['spot-2exch'].baselineProvenance).toBe('LIVE_VERIFIED');
+        expect(afterLive.windowMetrics['spot-perp'].baselineProvenance).toBe('LIVE_VERIFIED');
+        expect(afterLive.strategies['spot-2exch'].equityUsdt).toBe(10000);
+        expect(afterLive.strategies['spot-2exch'].haltedByDrawdown).toBe(false);
+        expect(afterLive.strategies['spot-perp'].equityUsdt).toBe(10000);
+        expect(afterLive.strategies['spot-perp'].haltedByDrawdown).toBe(false);
       });
     });
   });

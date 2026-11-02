@@ -387,6 +387,11 @@ export class PaperJournal {
     return Array.from(this.memoryByIdempotency.values());
   }
 
+  clearInMemoryState(): void {
+    this.memoryByIdempotency.clear();
+    this.snapshots.clear();
+  }
+
   async loadFromD1(db: D1Database): Promise<number> {
     const res = await db
       .prepare('SELECT * FROM paper_trade_journal ORDER BY exit_ts ASC')
