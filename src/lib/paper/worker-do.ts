@@ -293,17 +293,21 @@ export class PaperTradingDurableObject {
             } else {
               const res = await this.ingestOrderbook(book, book.receivedTs);
               if (res.streamState.status === 'FEED_DESYNC' && this.collector) {
-                const snapshotRes =
-                  book.exchange === 'binance'
-                    ? book.marketType === 'spot'
-                      ? await this.collector.fetchBinanceSpotDepth(book.pair)
-                      : await this.collector.fetchBinancePerpDepth(book.pair)
-                    : await this.collector.fetchBybitDepth(
-                        book.pair,
-                        book.marketType === 'spot' ? 'spot' : 'linear'
-                      );
-                if (snapshotRes.book) {
-                  await this.resyncStream(snapshotRes.book, snapshotRes.book.receivedTs);
+                if (book.exchange === 'bybit' && book.marketType === 'spot') {
+                  await this.collector.resyncBybitWsStream(book.pair, 'spot');
+                } else {
+                  const snapshotRes =
+                    book.exchange === 'binance'
+                      ? book.marketType === 'spot'
+                        ? await this.collector.fetchBinanceSpotDepth(book.pair)
+                        : await this.collector.fetchBinancePerpDepth(book.pair)
+                      : await this.collector.fetchBybitDepth(
+                          book.pair,
+                          book.marketType === 'spot' ? 'spot' : 'linear'
+                        );
+                  if (snapshotRes.book) {
+                    await this.resyncStream(snapshotRes.book, snapshotRes.book.receivedTs);
+                  }
                 }
               }
             }
@@ -333,6 +337,170 @@ export class PaperTradingDurableObject {
       this.collector.close();
       this.collector = null;
     }
+  }
+
+  /**
+   * Reset rehearsal state cleanly:
+   * - Stops and closes active collector if present
+   * - Re-initializes both strategy engines at 10,000 USDT (haltedByDrawdown = false, maxDrawdownPct = 0)
+   * - Clears sequencer state, journal in-memory state, and active cycle ledgers
+   * - Resets continuousCoverageMs = 0 and windowBaselines (PENDING_LIVE_VALUATION)
+   * - Deactivates prior runs in D1 and writes fresh strategy snapshots + run rows
+   * - Restarts collector if restartCollector !== false
+   */
+  async resetRehearsal(
+    nowTs: number = Date.now(),
+    options?: { restartCollector?: boolean }
+  ): Promise<{
+    reset: boolean;
+    started: boolean;
+    nowTs: number;
+    strategies: Record<PaperStrategyId, PaperStrategySnapshot>;
+    windowMetrics: Record<
+      PaperStrategyId,
+      {
+        windowClosedCyclesCount: number;
+        windowRealizedNetPnlUsdt: number;
+        windowMaxDrawdownPct: number;
+        baselineProvenance: 'LIVE_VERIFIED' | 'PENDING_LIVE_VALUATION';
+      }
+    >;
+  }> {
+    await this.ensureRestored();
+
+    if (this.collector) {
+      this.collector.close();
+      this.collector = null;
+    }
+    await this.ingestQueue;
+
+    if (options?.restartCollector === false) {
+      this.collectorDesiredRunning = false;
+      await this.state.storage.put('collector_desired_running', false);
+    }
+
+    this.sequencer.restoreState({ books: {}, states: {} });
+    this.journal.clearInMemoryState();
+    this.sessionTicks.length = 0;
+    this.activeCycleTicks.clear();
+    this.activeCycleInitialBooks.clear();
+    this.activeCycleInitialStates.clear();
+
+    this.tickCounter = 0;
+    this.runStartedAtMs = nowTs;
+    this.lastLiveIngestTsMs = null;
+    this.continuousCoverageMs = 0;
+    this.lastCoverageCheckTsMs = nowTs;
+    this.lastLiveConfirmedTsMs = null;
+    this.gapStartedAtMs = null;
+
+    await this.state.storage.put('last_tick_counter', 0);
+    await this.state.storage.put('run_started_at_ms', nowTs);
+    await this.state.storage.put('continuous_coverage_ms', 0);
+    await this.state.storage.put('last_coverage_check_ts_ms', nowTs);
+    await this.state.storage.put('sequencer_state', this.sequencer.serializeState());
+    await this.state.storage.put('paper_closed_cycles', []);
+    await this.state.storage.put('active_cycle_ticks_ledger', {});
+    await this.state.storage.put('active_cycle_initial_books_ledger', {});
+    await this.state.storage.put('active_cycle_initial_states_ledger', {});
+
+    if (this.state.storage.delete) {
+      await this.state.storage.delete('last_live_ingest_ts_ms');
+      await this.state.storage.delete('last_live_confirmed_ts_ms');
+      await this.state.storage.delete('gap_started_at_ms');
+    }
+
+    const defaultWindowMetric = {
+      windowClosedCyclesCount: 0,
+      windowRealizedNetPnlUsdt: 0,
+      windowMaxDrawdownPct: 0,
+      baselineProvenance: 'PENDING_LIVE_VALUATION' as const,
+    };
+    const windowMetrics: Record<
+      PaperStrategyId,
+      {
+        windowClosedCyclesCount: number;
+        windowRealizedNetPnlUsdt: number;
+        windowMaxDrawdownPct: number;
+        baselineProvenance: 'LIVE_VERIFIED' | 'PENDING_LIVE_VALUATION';
+      }
+    > = {
+      'spot-2exch': { ...defaultWindowMetric },
+      'spot-perp': { ...defaultWindowMetric },
+    };
+
+    for (const sid of STRATEGY_IDS) {
+      const freshEngine = new PaperStrategyEngine({
+        strategyId: sid,
+        modelVersion: this.modelVersion,
+        initialCapitalUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
+        maxCycleNotionalUsdt: PAPER_CANONICAL_CONFIG.maxCycleNotionalUsdt,
+        maxOpenCycles: PAPER_CANONICAL_CONFIG.maxOpenCycles,
+        singleLegTakerFeeRate: PAPER_CANONICAL_CONFIG.singleLegTakerFeeRate,
+        minEntryNetSpreadBps: PAPER_CANONICAL_CONFIG.minEntryNetSpreadBps,
+        exitConvergenceSpreadBps: PAPER_CANONICAL_CONFIG.exitConvergenceSpreadBps,
+        maxDrawdownLimitPct: PAPER_CANONICAL_CONFIG.maxDrawdownLimitPct,
+      });
+      this.strategies.set(sid, freshEngine);
+
+      const snap = freshEngine.getSnapshot();
+      const baseline: StrategyWindowBaseline = {
+        baselineClosedCyclesCount: 0,
+        baselineRealizedNetPnlUsdt: 0,
+        baselineEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
+        windowPeakEquityUsdt: PAPER_CANONICAL_CONFIG.initialCapitalUsdt,
+        windowMaxDrawdownPct: 0,
+        baselineTimestampMs: nowTs,
+        baselineProvenance: 'PENDING_LIVE_VALUATION',
+        baselinePositionsSnapshot: [],
+      };
+      this.windowBaselines.set(sid, baseline);
+
+      await this.state.storage.put(`strategy_state_${sid}`, freshEngine.serializeState());
+      await this.state.storage.put(`window_baseline_${sid}`, baseline);
+      await this.journal.saveStrategySnapshot(snap, this.env?.DB);
+
+      if (this.env?.DB) {
+        const runId = `run_${sid}_${nowTs}`;
+        await this.journal.deactivatePriorRuns(sid, runId, this.env.DB);
+        await this.journal.syncPaperRun(
+          runId,
+          sid,
+          this.modelVersion,
+          this.configHash,
+          this.env.DB,
+          {
+            verifiedRealMarketDays: 0,
+            closedCyclesCount: 0,
+            realizedNetPnlUsdt: 0,
+            maxDrawdownPct: 0,
+            verdict: 'NO_GO',
+            isActive: true,
+          }
+        );
+      }
+
+      windowMetrics[sid] = {
+        windowClosedCyclesCount: 0,
+        windowRealizedNetPnlUsdt: 0,
+        windowMaxDrawdownPct: 0,
+        baselineProvenance: 'PENDING_LIVE_VALUATION',
+      };
+    }
+
+    let started = false;
+    if (options?.restartCollector !== false) {
+      await this.startLiveCollector();
+      started = true;
+    }
+
+    return {
+      reset: true,
+      started,
+      nowTs,
+      strategies: this.getStrategySnapshots(),
+      windowMetrics,
+    };
   }
 
   /**
@@ -1151,6 +1319,20 @@ export class PaperTradingDurableObject {
       return Response.json({
         executionMode: 'PAPER',
         stopped: true,
+      });
+    }
+
+    if (request.method === 'POST' && url.pathname.endsWith('/reset-rehearsal')) {
+      const payload = (await request.json().catch(() => ({}))) as {
+        nowTs?: number;
+        restartCollector?: boolean;
+      };
+      const resetStatus = await this.resetRehearsal(payload.nowTs ?? Date.now(), {
+        restartCollector: payload.restartCollector,
+      });
+      return Response.json({
+        executionMode: 'PAPER',
+        ...resetStatus,
       });
     }
 

@@ -137,6 +137,21 @@ export class PaperStrategyEngine {
     'BTC/USDT': 0,
     'ETH/USDT': 0,
   };
+  /** Per-venue operational seed base inventory held for immediate sell legs. */
+  private seedBaseInventory: Record<'binance' | 'bybit', Record<PaperPair, number>> = {
+    binance: { 'BTC/USDT': 0, 'ETH/USDT': 0 },
+    bybit: { 'BTC/USDT': 0, 'ETH/USDT': 0 },
+  };
+  /** Per-venue cost basis (USDT) of operational seed base inventory. */
+  private seedInventoryCostBasisUsdt: Record<'binance' | 'bybit', Record<PaperPair, number>> = {
+    binance: { 'BTC/USDT': 0, 'ETH/USDT': 0 },
+    bybit: { 'BTC/USDT': 0, 'ETH/USDT': 0 },
+  };
+  /** Tracks whether a pair's operational seed inventory has been re-anchored to live price at 0 cycles. */
+  private seedInventoryReanchored: Record<PaperPair, boolean> = {
+    'BTC/USDT': false,
+    'ETH/USDT': false,
+  };
   /** Latest mark prices per pair used to mark standing base inventory to market. */
   private lastMarkPrices: Record<PaperPair, number> = {
     'BTC/USDT': SEED_INVENTORY_REFERENCE['BTC/USDT'],
@@ -175,19 +190,21 @@ export class PaperStrategyEngine {
     // Every base unit held at t=0 is bought with USDT from this strategy's own
     // capital at a fixed reference price, so
     //   cash + Σ(inventory marked value) === initialCapitalUsdt
-    // exactly, and no asset is granted for free. The seed reference prices are
-    // accounting constants, not market data; `initialCapitalUsdt` is preserved
-    // as NAV rather than as pure cash.
+    // exactly, and no asset is granted for free.
+    // - `spot-perp` only buys physical spot on Leg A and shorts USD-M perp on
+    //   Leg B, so it holds 100% USDT collateral at t=0 (zero passive base inventory).
+    // - `spot-2exch` holds operational working base inventory ($1,000 per pair
+    //   per venue = $4,000 total) to execute immediate physical spot sells on Leg B.
     const perVenueCollateral = round4(this.initialCapitalUsdt / 2);
-    // Base budget per venue: enough to support the worst-case simultaneous sell
-    // demand (one cycle per pair, headroom of 2x), capped so no venue puts more
-    // than 40% of its collateral into base assets.
-    const perVenueBaseBudgetUsdt = round4(
-      Math.min(
-        perVenueCollateral * 0.4,
-        SUPPORTED_PAIRS.length * this.maxCycleNotionalUsdt * 2
-      )
-    );
+    const perVenueBaseBudgetUsdt =
+      this.strategyId === 'spot-perp'
+        ? 0
+        : round4(
+            Math.min(
+              perVenueCollateral * 0.4,
+              SUPPORTED_PAIRS.length * this.maxCycleNotionalUsdt * 2
+            )
+          );
     const perPairBaseBudgetUsdt = round4(
       perVenueBaseBudgetUsdt / SUPPORTED_PAIRS.length
     );
@@ -202,9 +219,10 @@ export class PaperStrategyEngine {
       let costUsdt = 0;
       for (const pair of SUPPORTED_PAIRS) {
         const pairCost = perPairBaseBudgetUsdt;
-        baseInventory[pair] = round8(
-          pairCost / SEED_INVENTORY_REFERENCE[pair]
-        );
+        baseInventory[pair] =
+          pairCost > 0
+            ? round8(pairCost / SEED_INVENTORY_REFERENCE[pair])
+            : 0;
         baseInventoryCostBasisUsdt[pair] = pairCost;
         costUsdt = round4(costUsdt + pairCost);
       }
@@ -219,15 +237,24 @@ export class PaperStrategyEngine {
       binance: {
         freeCollateralUsdt: round4(perVenueCollateral - binanceSeed.costUsdt),
         allocatedCollateralUsdt: 0,
-        baseInventory: binanceSeed.baseInventory,
-        baseInventoryCostBasisUsdt: binanceSeed.baseInventoryCostBasisUsdt,
+        baseInventory: { ...binanceSeed.baseInventory },
+        baseInventoryCostBasisUsdt: { ...binanceSeed.baseInventoryCostBasisUsdt },
       },
       bybit: {
         freeCollateralUsdt: round4(perVenueCollateral - bybitSeed.costUsdt),
         allocatedCollateralUsdt: 0,
-        baseInventory: bybitSeed.baseInventory,
-        baseInventoryCostBasisUsdt: bybitSeed.baseInventoryCostBasisUsdt,
+        baseInventory: { ...bybitSeed.baseInventory },
+        baseInventoryCostBasisUsdt: { ...bybitSeed.baseInventoryCostBasisUsdt },
       },
+    };
+
+    this.seedBaseInventory = {
+      binance: { ...binanceSeed.baseInventory },
+      bybit: { ...bybitSeed.baseInventory },
+    };
+    this.seedInventoryCostBasisUsdt = {
+      binance: { ...binanceSeed.baseInventoryCostBasisUsdt },
+      bybit: { ...bybitSeed.baseInventoryCostBasisUsdt },
     };
 
     this.initialInventoryCostBasisUsdt = seedCostUsdt;
@@ -240,6 +267,40 @@ export class PaperStrategyEngine {
       ),
     };
     this.peakEquityUsdt = this.getCurrentEquityUsdt();
+  }
+
+  /**
+   * Re-anchor operational seed base inventory to the first verified live market
+   * mid-price when 0 cycles have been opened/closed, so `spot-2exch` holds the
+   * exact physical base units corresponding to its $1,000 per-pair-per-venue
+   * budget at the live price without altering cost basis or free USDT.
+   */
+  reanchorSeedInventoryToLivePrice(pair: PaperPair, liveMidPrice: number): void {
+    if (this.strategyId !== 'spot-2exch') return;
+    if (!(liveMidPrice > 0) || !Number.isFinite(liveMidPrice)) return;
+    if (this.openCycles.size > 0 || this.closedCycles.length > 0) return;
+    if (this.seedInventoryReanchored[pair]) return;
+
+    for (const venue of ['binance', 'bybit'] as const) {
+      const currentQty = this.venueBalances[venue].baseInventory[pair];
+      const seedQty = this.seedBaseInventory[venue][pair];
+      if (Math.abs(currentQty - seedQty) > 1e-8) {
+        return;
+      }
+    }
+
+    for (const venue of ['binance', 'bybit'] as const) {
+      const pairCost = this.seedInventoryCostBasisUsdt[venue][pair];
+      if (pairCost > 0) {
+        const newSeedQty = round8(pairCost / liveMidPrice);
+        this.seedBaseInventory[venue][pair] = newSeedQty;
+        this.venueBalances[venue].baseInventory[pair] = newSeedQty;
+      }
+    }
+    this.initialInventoryQuantityBasisUsdt[pair] = round8(
+      this.seedBaseInventory.binance[pair] + this.seedBaseInventory.bybit[pair]
+    );
+    this.seedInventoryReanchored[pair] = true;
   }
 
   /**
@@ -257,29 +318,57 @@ export class PaperStrategyEngine {
   }
 
   /**
-   * Mark-to-market value of standing initial base inventory at the supplied
-   * indicative prices. When mark price equals the seed reference price (or has
-   * not been updated yet), returns the exact initial cost basis for that pair
-   * so rounding of 8-decimal base quantities never creates phantom t=0 drift.
+   * Arbitrage-only (beta-neutral) valuation of standing operational inventory:
+   * - Operational seed inventory is valued at its constant `seedInventoryCostBasisUsdt`
+   *   ($4,000 for `spot-2exch`, $0 for `spot-perp`), isolating arbitrage NAV from
+   *   passive BTC/ETH market drift when 0 cycles are open.
+   * - Any net base quantity deviation (`effectiveStandingQty - seedQty`) outside
+   *   currently open cycles (whose P&L is already captured in `lastUnrealizedPnlUsdt`)
+   *   is marked to market at `markPrice`.
    */
   private standingInventoryMarkToMarketUsdt(prices?: {
     'BTC/USDT'?: number;
     'ETH/USDT'?: number;
   }): number {
-    const pairCostBasis = round4(
-      this.initialInventoryCostBasisUsdt / SUPPORTED_PAIRS.length
-    );
     let total = 0;
-    for (const pair of SUPPORTED_PAIRS) {
-      const seedQty = this.initialInventoryQuantityBasisUsdt[pair];
-      if (seedQty <= 0) continue;
-      const markPrice =
-        prices?.[pair] ?? this.lastMarkPrices[pair] ?? SEED_INVENTORY_REFERENCE[pair];
-      const refPrice = SEED_INVENTORY_REFERENCE[pair];
-      if (Math.abs(markPrice - refPrice) < 1e-6) {
-        total += pairCostBasis;
-      } else {
-        total += seedQty * markPrice;
+    for (const venue of ['binance', 'bybit'] as const) {
+      for (const pair of SUPPORTED_PAIRS) {
+        const seedCost = this.seedInventoryCostBasisUsdt[venue][pair];
+        const seedQty = this.seedBaseInventory[venue][pair];
+        const currentCostBasis =
+          this.venueBalances[venue].baseInventoryCostBasisUsdt[pair] ?? seedCost;
+
+        let openCycleBaseDelta = 0;
+        const open = this.openCycles.get(pair);
+        // Only deduct openCycleBaseDelta when openNewCycle() actually mutated venueBalances
+        // (changing baseInventoryCostBasisUsdt away from seedCost). Unit tests that manually
+        // plant an entry via `openCycles.set(pair, ...)` without mutating venueBalances keep
+        // currentCostBasis === seedCost and should not get a phantom negative standing balance.
+        if (open && currentCostBasis !== seedCost) {
+          if (open.legAExchange === venue && open.legAMarket === 'spot') {
+            openCycleBaseDelta += open.quantityBase;
+          }
+          if (open.legBExchange === venue && open.legBMarket === 'spot') {
+            openCycleBaseDelta -= open.quantityBase;
+          }
+        }
+
+        const effectiveStandingQty = round8(
+          this.venueBalances[venue].baseInventory[pair] - openCycleBaseDelta
+        );
+        const deltaStandingQty = round8(effectiveStandingQty - seedQty);
+        const markPrice =
+          prices?.[pair] ?? this.lastMarkPrices[pair] ?? SEED_INVENTORY_REFERENCE[pair];
+
+        // If a caller/test zeroes out operational base inventory without crediting
+        // free USDT collateral (so venue CostBasis remains at seedCost), do not
+        // penalize NAV as an unhedged short.
+        const isSyntheticZeroedSeed =
+          effectiveStandingQty === 0 && seedQty > 0 && currentCostBasis === seedCost;
+
+        total += isSyntheticZeroedSeed
+          ? seedCost
+          : seedCost + deltaStandingQty * markPrice;
       }
     }
     return round4(total);
@@ -323,7 +412,9 @@ export class PaperStrategyEngine {
       }
       if (mids.length > 0) {
         const avgMid = mids.reduce((sum, p) => sum + p, 0) / mids.length;
-        this.lastMarkPrices[pair] = round6(avgMid);
+        const liveMid = round6(avgMid);
+        this.lastMarkPrices[pair] = liveMid;
+        this.reanchorSeedInventoryToLivePrice(pair, liveMid);
       }
     }
   }
@@ -1544,6 +1635,9 @@ export class PaperStrategyEngine {
     lastUnrealizedPnlUsdt: number;
     initialInventoryCostBasisUsdt: number;
     lastMarkPrices?: Record<PaperPair, number>;
+    seedBaseInventory?: Record<'binance' | 'bybit', Record<PaperPair, number>>;
+    seedInventoryCostBasisUsdt?: Record<'binance' | 'bybit', Record<PaperPair, number>>;
+    seedInventoryReanchored?: Record<PaperPair, boolean>;
     venueBalances: Record<'binance' | 'bybit', {
       freeCollateralUsdt: number;
       allocatedCollateralUsdt: number;
@@ -1569,6 +1663,15 @@ export class PaperStrategyEngine {
       lastUnrealizedPnlUsdt: this.lastUnrealizedPnlUsdt,
       initialInventoryCostBasisUsdt: this.initialInventoryCostBasisUsdt,
       lastMarkPrices: { ...this.lastMarkPrices },
+      seedBaseInventory: {
+        binance: { ...this.seedBaseInventory.binance },
+        bybit: { ...this.seedBaseInventory.bybit },
+      },
+      seedInventoryCostBasisUsdt: {
+        binance: { ...this.seedInventoryCostBasisUsdt.binance },
+        bybit: { ...this.seedInventoryCostBasisUsdt.bybit },
+      },
+      seedInventoryReanchored: { ...this.seedInventoryReanchored },
       venueBalances: {
         binance: {
           freeCollateralUsdt: this.venueBalances.binance.freeCollateralUsdt,
@@ -1642,6 +1745,56 @@ export class PaperStrategyEngine {
           : undefined,
       });
     }
+    if (saved.seedBaseInventory) {
+      this.seedBaseInventory = {
+        binance: { ...saved.seedBaseInventory.binance },
+        bybit: { ...saved.seedBaseInventory.bybit },
+      };
+    } else if (saved.venueBalances) {
+      for (const venue of ['binance', 'bybit'] as const) {
+        for (const pair of SUPPORTED_PAIRS) {
+          let openDelta = 0;
+          const open = this.openCycles.get(pair);
+          if (open) {
+            if (open.legAExchange === venue && open.legAMarket === 'spot') {
+              openDelta += open.quantityBase;
+            }
+            if (open.legBExchange === venue && open.legBMarket === 'spot') {
+              openDelta -= open.quantityBase;
+            }
+          }
+          this.seedBaseInventory[venue][pair] = round8(
+            this.venueBalances[venue].baseInventory[pair] - openDelta
+          );
+        }
+      }
+    }
+    if (saved.seedInventoryCostBasisUsdt) {
+      this.seedInventoryCostBasisUsdt = {
+        binance: { ...saved.seedInventoryCostBasisUsdt.binance },
+        bybit: { ...saved.seedInventoryCostBasisUsdt.bybit },
+      };
+    } else if (saved.venueBalances) {
+      const perPositionBudget = round4(
+        this.initialInventoryCostBasisUsdt / (2 * SUPPORTED_PAIRS.length)
+      );
+      for (const venue of ['binance', 'bybit'] as const) {
+        for (const pair of SUPPORTED_PAIRS) {
+          this.seedInventoryCostBasisUsdt[venue][pair] = perPositionBudget;
+        }
+      }
+    }
+    this.seedInventoryReanchored = saved.seedInventoryReanchored
+      ? { ...saved.seedInventoryReanchored }
+      : { 'BTC/USDT': false, 'ETH/USDT': false };
+    this.initialInventoryQuantityBasisUsdt = {
+      'BTC/USDT': round8(
+        this.seedBaseInventory.binance['BTC/USDT'] + this.seedBaseInventory.bybit['BTC/USDT']
+      ),
+      'ETH/USDT': round8(
+        this.seedBaseInventory.binance['ETH/USDT'] + this.seedBaseInventory.bybit['ETH/USDT']
+      ),
+    };
     this.closedCycles.length = 0;
     this.closedCycles.push(...saved.closedCycles.map((cc) => ({ ...cc })));
     this.fundingLedger = (saved.fundingLedger ?? []).map((fe) => ({ ...fe }));

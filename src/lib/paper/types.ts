@@ -235,6 +235,9 @@ export interface PaperSerializedStrategyState {
   lastUnrealizedPnlUsdt: number;
   initialInventoryCostBasisUsdt: number;
   lastMarkPrices?: Record<PaperPair, number>;
+  seedBaseInventory?: Record<PaperExchange, Record<PaperPair, number>>;
+  seedInventoryCostBasisUsdt?: Record<PaperExchange, Record<PaperPair, number>>;
+  seedInventoryReanchored?: Record<PaperPair, boolean>;
   venueBalances: Record<
     PaperExchange,
     {
