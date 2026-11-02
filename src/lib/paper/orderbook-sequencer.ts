@@ -153,11 +153,18 @@ export class OrderbookSequencer {
       .sort((a, b) => a.price - b.price);
 
     const sequenceId =
-      typeof msg.u === 'number'
+      typeof msg.u === 'number' && Number.isFinite(msg.u) && msg.u > 0
         ? msg.u
-        : typeof msg.lastUpdateId === 'number'
+        : typeof msg.lastUpdateId === 'number' &&
+          Number.isFinite(msg.lastUpdateId) &&
+          msg.lastUpdateId > 0
         ? msg.lastUpdateId
-        : receivedTs;
+        : null;
+    if (sequenceId === null) {
+      throw new Error(
+        `Invalid Binance partial depth snapshot on ${pair} (${marketType}): missing numeric sequenceId (u or lastUpdateId)`
+      );
+    }
     const exchangeTs =
       typeof msg.E === 'number' && msg.E > 0 ? msg.E : receivedTs;
 
@@ -445,6 +452,13 @@ export class OrderbookSequencer {
     );
     const existing = this.states.get(key);
     const feedAgeMs = Math.max(0, nowTs - book.exchangeTs);
+    if (
+      existing &&
+      existing.status === 'SYNCED' &&
+      book.sequenceId < existing.lastSequenceId
+    ) {
+      return existing;
+    }
     const status = feedAgeMs > this.maxFeedAgeMs ? 'STALE_FEED' : 'SYNCED';
 
     const resyncedState: SequencerStreamState = {

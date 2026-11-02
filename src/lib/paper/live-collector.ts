@@ -755,8 +755,6 @@ export class LiveMarketCollector {
               );
               if (bybitFunding && Number.isFinite(bybitFunding.rateBps)) {
                 resolvedFundingRateBps = bybitFunding.rateBps;
-              } else {
-                resolvedFundingRateBps = 1.0;
               }
             }
             const book =
@@ -1254,8 +1252,6 @@ export class LiveMarketCollector {
       );
       if (bybitFunding && Number.isFinite(bybitFunding.rateBps)) {
         resolvedFundingRateBps = bybitFunding.rateBps;
-      } else {
-        resolvedFundingRateBps = 1.0;
       }
     }
 

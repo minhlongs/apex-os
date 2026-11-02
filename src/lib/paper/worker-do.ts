@@ -397,7 +397,8 @@ export class PaperTradingDurableObject {
         onDisconnect: (exchange, pair, marketType, reason) => {
           this.sequencer.markDisconnected(exchange, pair, marketType, reason);
           // Invalidate continuous coverage when a stream drops
-          this.updateCoverage(Date.now(), false);
+          this.forceFrameDurablePersist();
+          void this.updateCoverage(Date.now(), false);
         },
         onBook: (book: NormalizedOrderbook) => {
           this.enqueueBook(book, async () => {
@@ -989,6 +990,7 @@ export class PaperTradingDurableObject {
       if (currentClosed.length > prevClosedCount) {
         for (const c of currentClosed) {
           if (!prevClosedKeys.has(c.idempotencyKey)) {
+            this.forceFrameDurablePersist();
             await this.journal.recordClosedCycle(c, this.env?.DB, this.env?.STORAGE);
             if (this.env?.STORAGE) {
               const cycleTicks =
@@ -1133,6 +1135,7 @@ export class PaperTradingDurableObject {
       }
     }
 
+    await this.putFrameSnapshotKey('sequencer_state', this.sequencer.serializeState());
     await this.putFrameSnapshotKey('last_tick_counter', this.tickCounter);
     await this.putFrameSnapshotKey('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
     await this.putFrameSnapshotKey('paper_closed_cycles', this.journal.getClosedCycles());
@@ -1152,11 +1155,14 @@ export class PaperTradingDurableObject {
     nowTs: number = book.receivedTs
   ): Promise<ReturnType<OrderbookSequencer['resyncSnapshot']>> {
     await this.ensureRestored();
+    this.tickCounter += 1;
     this.lastLiveIngestTsMs = nowTs;
+    if (!this.runStartedAtMs) {
+      this.runStartedAtMs = nowTs;
+      await this.state.storage.put('run_started_at_ms', this.runStartedAtMs);
+    }
     this.computeFrameDurablePersist(nowTs);
-    await this.putFrameSnapshotKey('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
     const result = this.sequencer.resyncSnapshot(book, nowTs);
-    await this.putFrameSnapshotKey('sequencer_state', this.sequencer.serializeState());
 
     const tickEntry = {
       tickIndex: this.tickCounter,
@@ -1223,6 +1229,7 @@ export class PaperTradingDurableObject {
       if (currentClosed.length > prevClosedCount) {
         for (const c of currentClosed) {
           if (!prevClosedKeys.has(c.idempotencyKey)) {
+            this.forceFrameDurablePersist();
             await this.journal.recordClosedCycle(c, this.env?.DB, this.env?.STORAGE);
             if (this.env?.STORAGE) {
               const cycleTicks =
@@ -1354,6 +1361,9 @@ export class PaperTradingDurableObject {
       }
     }
 
+    await this.putFrameSnapshotKey('sequencer_state', this.sequencer.serializeState());
+    await this.putFrameSnapshotKey('last_tick_counter', this.tickCounter);
+    await this.putFrameSnapshotKey('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
     await this.putFrameSnapshotKey('paper_closed_cycles', this.journal.getClosedCycles());
 
     if (this.env?.DB && this.frameDurablePersist) {
