@@ -1748,6 +1748,73 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         expect(status31Days.verifiedRealMarketDays).toBe(0);
       });
 
+      it('C3: a sustained outage resets the window exactly once, not once per subsequent tick', async () => {
+        const { PaperTradingDurableObject } = await import('../worker-do');
+        const { REQUIRED_PAPER_STREAMS } = await import('../orderbook-sequencer');
+        const store = new Map<string, unknown>();
+        const doInstance = new PaperTradingDurableObject({
+          storage: {
+            get: async (k) => store.get(k) as any,
+            put: async (k, v) => { store.set(k, v); },
+            delete: async (k) => { store.delete(k); },
+          },
+        });
+        await doInstance.ensureRestored();
+
+        const baseTs = 1761840000000;
+        for (const s of REQUIRED_PAPER_STREAMS) {
+          const mid = s.pair === 'BTC/USDT' ? 68000 : 2600;
+          await doInstance.ingestOrderbook({
+            exchange: s.exchange,
+            pair: s.pair,
+            marketType: s.marketType,
+            sequenceId: 10,
+            exchangeTs: baseTs - 5,
+            receivedTs: baseTs,
+            bids: [{ price: mid, quantity: 1 }],
+            asks: [{ price: mid + 5, quantity: 1 }],
+          }, baseTs);
+        }
+        expect(doInstance.isCollectorLive(baseTs)).toBe(true);
+
+        // First tick past the 15s boundary legitimately forfeits the window once.
+        const firstOutageTick = baseTs + 20000;
+        await doInstance.ingestOrderbook({
+          exchange: 'binance',
+          pair: 'BTC/USDT',
+          marketType: 'spot',
+          sequenceId: 100,
+          exchangeTs: firstOutageTick - 5,
+          receivedTs: firstOutageTick,
+          bids: [{ price: 68000, quantity: 1 }],
+          asks: [{ price: 68005, quantity: 1 }],
+        }, firstOutageTick);
+
+        const afterFirstForfeiture = (await (await doInstance.fetch(new Request('http://internal/status'))).json() as any);
+        expect(afterFirstForfeiture.continuousCoverageMs).toBe(0);
+        const runStartAfterForfeiture = afterFirstForfeiture.runStartedAtMs;
+
+        // Sustained partial outage: one stream keeps ticking, so the feed stays non-live.
+        // The window is already forfeited, so no further tick may rewrite it.
+        for (let i = 1; i <= 20; i++) {
+          const tickTs = baseTs + 20000 + i * 250;
+          await doInstance.ingestOrderbook({
+            exchange: 'binance',
+            pair: 'BTC/USDT',
+            marketType: 'spot',
+            sequenceId: 100 + i,
+            exchangeTs: tickTs - 5,
+            receivedTs: tickTs,
+            bids: [{ price: 68000, quantity: 1 }],
+            asks: [{ price: 68005, quantity: 1 }],
+          }, tickTs);
+        }
+
+        const status = (await (await doInstance.fetch(new Request('http://internal/status'))).json()) as any;
+        expect(status.continuousCoverageMs).toBe(0);
+        expect(status.runStartedAtMs).toBe(runStartAfterForfeiture);
+      });
+
       it('C2: OrderbookSequencer preserves authentic delta metadata and correctly verifies range continuity or flags FEED_DESYNC', () => {
         const sequencer = new OrderbookSequencer();
         const baseTs = 1761840000000;

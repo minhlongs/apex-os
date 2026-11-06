@@ -106,6 +106,12 @@ export class PaperTradingDurableObject {
    */
   private lastLiveSnapshotPersistTsMs = 0;
   /**
+   * Set once a sustained outage has already forfeited the active window. Without this latch
+   * every subsequent non-live frame re-triggers the reset, rewriting `run_started_at_ms` and
+   * minting a fresh paper_trading_runs row per tick (observed: 323 rows in 8 hours).
+   */
+  private windowForfeitedByOutage = false;
+  /**
    * One in-flight frame per stream key while live, so a newer frame can supersede the
    * older one instead of queueing behind every prior frame of that same stream.
    */
@@ -205,6 +211,12 @@ export class PaperTradingDurableObject {
     const storedGapStarted = await this.state.storage.get<number>('gap_started_at_ms');
     if (storedGapStarted !== undefined) {
       this.gapStartedAtMs = storedGapStarted;
+    }
+    const storedWindowForfeited = await this.state.storage.get<boolean>(
+      'window_forfeited_by_outage'
+    );
+    if (storedWindowForfeited !== undefined) {
+      this.windowForfeitedByOutage = storedWindowForfeited;
     }
     const storedDesiredRunning = await this.state.storage.get<boolean>('collector_desired_running');
     if (storedDesiredRunning !== undefined) {
@@ -521,7 +533,9 @@ export class PaperTradingDurableObject {
       await this.state.storage.delete('last_live_ingest_ts_ms');
       await this.state.storage.delete('last_live_confirmed_ts_ms');
       await this.state.storage.delete('gap_started_at_ms');
+      await this.state.storage.delete('window_forfeited_by_outage');
     }
+    this.windowForfeitedByOutage = false;
 
     const defaultWindowMetric = {
       windowClosedCyclesCount: 0,
@@ -675,6 +689,15 @@ export class PaperTradingDurableObject {
     await this.putFrameSnapshotKey('last_coverage_check_ts_ms', nowMs);
 
     if (isLive) {
+      if (this.windowForfeitedByOutage) {
+        // The window was already forfeited during a prior outage; a new window starts
+        // only once the full 8-stream feed is verified live again.
+        this.windowForfeitedByOutage = false;
+        if (this.state.storage.delete) {
+          await this.state.storage.delete('window_forfeited_by_outage');
+        }
+      }
+
       if (this.gapStartedAtMs !== null && nowMs - this.gapStartedAtMs > 15000) {
         // Feed recovered, but the gap exceeded 15s: unrecoverable gap, reset window on fresh live marks
         this.forceFrameDurablePersist();
@@ -735,9 +758,15 @@ export class PaperTradingDurableObject {
       }
       const outageDuration = Math.max(0, nowMs - this.gapStartedAtMs);
       if (outageDuration > 15000) {
-        // Continuous feed loss > 15s: reset continuous window immediately
-        this.forceFrameDurablePersist();
-        await this.resetContinuousWindow(nowMs);
+        // Continuous feed loss > 15s: reset continuous window immediately.
+        // Only the first such reset must tear the window down; the latch keeps this
+        // idempotent so later frames do not rewrite the window or mint extra run rows.
+        if (!this.windowForfeitedByOutage) {
+          this.windowForfeitedByOutage = true;
+          await this.state.storage.put('window_forfeited_by_outage', true);
+          this.forceFrameDurablePersist();
+          await this.resetContinuousWindow(nowMs);
+        }
         this.lastLiveConfirmedTsMs = null;
         if (this.state.storage.delete) {
           await this.state.storage.delete('last_live_confirmed_ts_ms');
