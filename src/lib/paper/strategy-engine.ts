@@ -577,6 +577,10 @@ export class PaperStrategyEngine {
     nowTs: number,
     replayBatchId = 'live-buffer'
   ): PaperDecisionLog {
+    if (this.openCycles.size === 0 && this.decisions.length > 500) {
+      this.decisions.splice(0, this.decisions.length - 200);
+    }
+
     // Always evaluate Mark-To-Market and drawdown on existing positions
     this.updateMarkToMarketDrawdown(sequencer, nowTs);
 
@@ -1696,9 +1700,20 @@ export class PaperStrategyEngine {
           ? [...oc.appliedFundingEventIds]
           : undefined,
       })),
-      closedCycles: this.closedCycles.map((cc) => ({ ...cc })),
-      fundingLedger: this.fundingLedger.map((fe) => ({ ...fe })),
-      decisions: this.decisions.slice(-2000).map((d) => ({ ...d })),
+      closedCycles: this.closedCycles.slice(-200).map((cc) => ({ ...cc })),
+      fundingLedger: this.fundingLedger.slice(-200).map((fe) => ({ ...fe })),
+      decisions: (() => {
+        if (this.openCycles.size === 0) return [];
+        const openDecisions = this.decisions.filter((d) => {
+          const open = this.openCycles.get(d.pair);
+          return open !== undefined && d.timestamp >= open.entryTs;
+        });
+        const bounded =
+          openDecisions.length > 555
+            ? [openDecisions[0], ...openDecisions.slice(-554)]
+            : openDecisions;
+        return bounded.map((d) => ({ ...d }));
+      })(),
     };
   }
 
