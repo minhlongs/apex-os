@@ -3859,6 +3859,65 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
             expect(run.verified_real_market_days).toBeGreaterThan(0);
             expect(run.heartbeatCount).toBeGreaterThanOrEqual(2);
           }
+
+          // Verify Bybit REST (~59.1M) -> Bybit native WS snapshot (~8.5M) sequence transition
+          // and contiguous WS delta (~8.5M + 1) acceptance without FEED_DESYNC
+          const snapTs = Date.now();
+          const bybitWsSnap = OrderbookSequencer.parseBybitDepth(
+            {
+              topic: 'orderbook.50.BTCUSDT',
+              type: 'snapshot',
+              ts: snapTs,
+              data: {
+                s: 'BTCUSDT',
+                b: [['68405.00', '3.0']],
+                a: [['68406.00', '3.0']],
+                u: 8500100,
+              },
+            },
+            'spot',
+            snapTs
+          );
+          expect(bybitWsSnap.isWsSnapshot).toBe(true);
+          const wsSnapState = (coldDO2 as any).sequencer.resyncSnapshot(bybitWsSnap, snapTs);
+          expect(wsSnapState.status).toBe('SYNCED');
+          expect(wsSnapState.lastSequenceId).toBe(8500100);
+
+          const deltaTs = snapTs + 10;
+          const bybitWsDelta = OrderbookSequencer.parseBybitDepth(
+            {
+              topic: 'orderbook.50.BTCUSDT',
+              type: 'delta',
+              ts: deltaTs,
+              data: {
+                s: 'BTCUSDT',
+                b: [['68405.50', '1.5']],
+                a: [],
+                u: 8500101,
+              },
+            },
+            'spot',
+            deltaTs
+          );
+          const wsDeltaState = (coldDO2 as any).sequencer.ingest(bybitWsDelta, deltaTs);
+          expect(wsDeltaState.status).toBe('SYNCED');
+          expect(wsDeltaState.lastSequenceId).toBe(8500101);
+
+          // Verify cold-start `GET /status` awaits collector restoration instead of
+          // returning before `startWebSocketStreams()` and `setAlarm()` complete, so an
+          // isolate eviction during bootstrap can never leave the DO unscheduled.
+          const coldDO3 = new PaperTradingDurableObject(mockState, { DB: mockDb });
+          scheduledAlarmTime = null;
+          const statusRequest = new Request('https://do/status');
+          const statusRes = await coldDO3.fetch(statusRequest);
+          expect(statusRes.status).toBe(200);
+          expect(scheduledAlarmTime).toBeGreaterThan(Date.now() - 1000);
+          const statusBody: any = await statusRes.json();
+          expect(statusBody.requiredStreamCount).toBe(8);
+          expect(statusBody.sequencerStates.length).toBe(8);
+          if ((coldDO3 as any).collector) {
+            (coldDO3 as any).collector.close();
+          }
         } finally {
           globalThis.fetch = originalFetch;
           (globalThis as any).WebSocket = OriginalWebSocket;

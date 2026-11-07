@@ -52,6 +52,7 @@ export interface BybitOrderbookMessage {
   topic: string;
   type: 'snapshot' | 'delta';
   ts: number;
+  cts?: number;
   data: {
     s: string;
     b: Array<[string, string]>;
@@ -201,15 +202,18 @@ export class OrderbookSequencer {
       .map(([p, q]) => ({ price: Number(p), quantity: Number(q) }))
       .sort((a, b) => a.price - b.price);
 
+    const isWsSnapshot = msg.type === 'snapshot';
+
     return {
       exchange: 'bybit',
       pair,
       marketType,
       sequenceId: msg.data.u,
-      prevSequenceId: msg.type === 'snapshot' ? undefined : msg.data.u - 1,
+      prevSequenceId: isWsSnapshot ? undefined : msg.data.u - 1,
       exchangeTs: msg.ts,
       receivedTs,
       isDelta: msg.type === 'delta',
+      isWsSnapshot,
       bids,
       asks,
       fundingRateBps,
@@ -455,6 +459,7 @@ export class OrderbookSequencer {
     if (
       existing &&
       existing.status === 'SYNCED' &&
+      !book.isWsSnapshot &&
       book.sequenceId < existing.lastSequenceId
     ) {
       return existing;

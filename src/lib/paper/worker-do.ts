@@ -291,12 +291,18 @@ export class PaperTradingDurableObject {
     this.initialized = true;
 
     // V3: If collector was desired running before restart and is not currently present,
-    // automatically recreate and start it. Track the promise so `alarm()` can await it
-    // instead of racing a second `startLiveCollector()` call.
-    if (this.collectorDesiredRunning && !this.collector && !this.collectorRestorePromise) {
-      this.collectorRestorePromise = this.startLiveCollector().finally(() => {
-        this.collectorRestorePromise = null;
-      });
+    // automatically recreate and start it. Track the promise so `alarm()`, `startLiveCollector()`,
+    // `resetRehearsal()`, and `GET /status` can await it instead of racing a second
+    // `startLiveCollector()` call or returning before `setAlarm()` is registered.
+    if (this.collectorDesiredRunning) {
+      if (this.state.storage.setAlarm) {
+        await this.state.storage.setAlarm(Date.now() + 15000);
+      }
+      if (!this.collector && !this.collectorRestorePromise) {
+        this.collectorRestorePromise = this.startLiveCollectorInternal().finally(() => {
+          this.collectorRestorePromise = null;
+        });
+      }
     }
   }
 
@@ -402,7 +408,29 @@ export class PaperTradingDurableObject {
     streamStatuses: ReturnType<LiveMarketCollector['getStreamStatuses']>;
   }> {
     await this.ensureRestored();
+    if (this.collectorRestorePromise) {
+      try {
+        await this.collectorRestorePromise;
+      } catch {
+        // Fall through to retry below
+      }
+    }
+    if (this.collector && !options) {
+      if (this.state.storage.setAlarm) {
+        await this.state.storage.setAlarm(Date.now() + 15000);
+      }
+      return {
+        started: true,
+        streamStatuses: this.collector.getStreamStatuses(),
+      };
+    }
+    return this.startLiveCollectorInternal(options);
+  }
 
+  private async startLiveCollectorInternal(options?: CollectorConfig): Promise<{
+    started: boolean;
+    streamStatuses: ReturnType<LiveMarketCollector['getStreamStatuses']>;
+  }> {
     this.collectorDesiredRunning = true;
     await this.state.storage.put('collector_desired_running', true);
 
@@ -411,15 +439,27 @@ export class PaperTradingDurableObject {
       await this.state.storage.put('run_started_at_ms', this.runStartedAtMs);
     }
 
+    // Register DO alarm immediately before long REST/WS bootstrap so isolate eviction
+    // during cold start can never leave the DO without a scheduled heartbeat alarm.
+    if (this.state.storage.setAlarm) {
+      await this.state.storage.setAlarm(Date.now() + 15000);
+    }
+
     if (!this.collector) {
       this.collector = new LiveMarketCollector({
         ...options,
         pairs: PAIRS,
         onDisconnect: (exchange, pair, marketType, reason) => {
-          this.sequencer.markDisconnected(exchange, pair, marketType, reason);
-          // Invalidate continuous coverage when a stream drops
-          this.forceFrameDurablePersist();
-          void this.updateCoverage(Date.now(), false);
+          void this.enqueue(async () => {
+            this.sequencer.markDisconnected(exchange, pair, marketType, reason);
+            // Invalidate continuous coverage when a stream drops
+            this.forceFrameDurablePersist();
+            const now = Date.now();
+            await this.updateCoverage(now, false);
+            if (this.env?.DB && this.frameDurablePersist) {
+              await this.syncRunsInD1(now);
+            }
+          });
         },
         onBook: (book: NormalizedOrderbook) => {
           this.enqueueBook(book, async () => {
@@ -507,6 +547,13 @@ export class PaperTradingDurableObject {
     >;
   }> {
     await this.ensureRestored();
+    if (this.collectorRestorePromise) {
+      try {
+        await this.collectorRestorePromise;
+      } catch {
+        // Ignore restore errors when resetting rehearsal state
+      }
+    }
 
     if (this.collector) {
       this.collector.close();
@@ -1566,6 +1613,13 @@ export class PaperTradingDurableObject {
 
     // Default GET /status
     await this.ensureRestored();
+    if (this.collectorRestorePromise) {
+      try {
+        await this.collectorRestorePromise;
+      } catch {
+        // Inspect whatever state was restored if bootstrap encountered an error
+      }
+    }
     const now = Date.now();
     const isLive = this.isCollectorLive(now);
     const verifiedRealMarketDays = isLive

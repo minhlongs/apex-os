@@ -129,6 +129,8 @@ export class LiveMarketCollector {
 
   private readonly sockets = new Map<string, WebSocketLike>();
   private readonly wsOpenedKeys = new Set<string>();
+  private readonly wsReceiveCounts = new Map<string, number>();
+  private readonly lastWsReceiveTs = new Map<string, number>();
   private readonly reconnectAttempts = new Map<string, number>();
   private readonly reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly lastResyncAttemptMs = new Map<string, number>();
@@ -219,6 +221,10 @@ export class LiveMarketCollector {
    * Only when true must REST snapshots (`u` ~59M–68M) be skipped to avoid sequence-space
    * collision; on cold start or before WS emits its native snapshot, REST snapshots are
    * required so all 8 streams synchronize within `maxFeedAgeMs`.
+   *
+   * Uses `wsReceiveCounts` and `lastWsReceiveTs` (updated strictly on genuine WebSocket
+   * messages, never on REST snapshot polls) so REST bootstrap ingests never masquerade
+   * as active WebSocket streaming.
    */
   private isBybitWsActivelyStreaming(
     marketType: 'spot' | 'linear_perp',
@@ -230,9 +236,11 @@ export class LiveMarketCollector {
       const st = this.statuses.find(
         (s) => s.exchange === 'bybit' && s.pair === pair && s.marketType === marketType
       );
+      const wsCount = this.wsReceiveCounts.get(key) ?? 0;
+      const lastWsTs = this.lastWsReceiveTs.get(key) ?? 0;
       return (
         this.wsOpenedKeys.has(key) &&
-        Boolean(st && st.connected && st.receiveCount > 0 && now - st.lastReceiveTs <= maxAgeMs)
+        Boolean(st && st.connected && wsCount > 0 && lastWsTs > 0 && now - lastWsTs <= maxAgeMs)
       );
     });
   }
@@ -256,7 +264,7 @@ export class LiveMarketCollector {
       if (res.book) {
         const synchronizedBook: NormalizedOrderbook = {
           ...res.book,
-          exchangeTs: Math.max(res.book.exchangeTs, syncedAt - 50),
+          exchangeTs: Math.min(res.book.exchangeTs, syncedAt),
           receivedTs: syncedAt,
         };
         this.recordBookIngest(synchronizedBook);
@@ -266,10 +274,12 @@ export class LiveMarketCollector {
       const now = Date.now();
       for (const pair of this.pairs) {
         for (const marketType of ['spot', 'linear_perp'] as const) {
+          const key = OrderbookSequencer.makeStreamKey('bybit', pair, marketType);
           const st = this.statuses.find(
             (s) => s.exchange === 'bybit' && s.pair === pair && s.marketType === marketType
           );
-          if (!st || !st.connected || st.lastReceiveTs === 0 || now - st.lastReceiveTs > 10000) {
+          const lastWsTs = this.lastWsReceiveTs.get(key) ?? 0;
+          if (!st || !st.connected || lastWsTs === 0 || now - lastWsTs > 10000) {
             await this.resyncBybitWsStream(pair, marketType);
           }
         }
@@ -354,6 +364,8 @@ export class LiveMarketCollector {
     }
     this.sockets.clear();
     this.wsOpenedKeys.clear();
+    this.wsReceiveCounts.clear();
+    this.lastWsReceiveTs.clear();
     for (const status of this.statuses) {
       status.connected = false;
     }
@@ -385,6 +397,8 @@ export class LiveMarketCollector {
     }
     this.sockets.clear();
     this.wsOpenedKeys.clear();
+    this.wsReceiveCounts.clear();
+    this.lastWsReceiveTs.clear();
     this.closed = false;
 
     for (const pair of this.pairs) {
@@ -423,7 +437,7 @@ export class LiveMarketCollector {
       if (res.book && (!st || !st.connected || st.receiveCount === 0)) {
         const synchronizedBook: NormalizedOrderbook = {
           ...res.book,
-          exchangeTs: Math.max(res.book.exchangeTs, syncedAt - 50),
+          exchangeTs: Math.min(res.book.exchangeTs, syncedAt),
           receivedTs: syncedAt,
         };
         if (res.exchange === 'bybit') {
@@ -824,6 +838,8 @@ export class LiveMarketCollector {
               book.fundingEventId = fundingMeta.fundingEventId;
               book.fundingSettlementTs = fundingMeta.fundingSettlementTs;
             }
+            this.wsReceiveCounts.set(key, (this.wsReceiveCounts.get(key) ?? 0) + 1);
+            this.lastWsReceiveTs.set(key, now);
             this.ingestOrBufferWsBook(book);
           }
         } catch (err) {
@@ -967,6 +983,8 @@ export class LiveMarketCollector {
               book.fundingEventId = fundingMeta.fundingEventId;
               book.fundingSettlementTs = fundingMeta.fundingSettlementTs;
             }
+            this.wsReceiveCounts.set(key, (this.wsReceiveCounts.get(key) ?? 0) + 1);
+            this.lastWsReceiveTs.set(key, now);
             this.ingestOrBufferWsBook(book);
           }
         } catch (err) {
@@ -1344,7 +1362,7 @@ export class LiveMarketCollector {
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), this.fetchTimeoutMs);
-      const res = await fetch(url, { signal: controller.signal });
+      const res = await this.fetchImpl(url, { signal: controller.signal });
       clearTimeout(timer);
 
       if (!res.ok) {
@@ -1387,7 +1405,7 @@ export class LiveMarketCollector {
           fundingRateBps = cached.rateBps;
         } else {
           try {
-            const tickerRes = await fetch(
+            const tickerRes = await this.fetchImpl(
               `${this.bybitRestUrl}/v5/market/tickers?category=linear&symbol=${symbol}`
             );
             if (tickerRes.ok) {
