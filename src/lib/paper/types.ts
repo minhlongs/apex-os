@@ -25,6 +25,8 @@ export interface NormalizedOrderbook {
   exchangeTs: number;
   receivedTs: number;
   isDelta?: boolean;
+  /** True when snapshot originated from a native WebSocket snapshot frame (e.g. Bybit v5 WS `type: "snapshot"`). */
+  isWsSnapshot?: boolean;
   bids: OrderbookLevel[];
   asks: OrderbookLevel[];
   fundingRateBps?: number;
