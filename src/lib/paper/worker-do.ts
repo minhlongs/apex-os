@@ -57,6 +57,25 @@ const STRATEGY_IDS: PaperStrategyId[] = ['spot-2exch', 'spot-perp'];
 const LIVE_SNAPSHOT_PERSIST_INTERVAL_MS = 1000;
 
 /**
+ * Spacing between live heartbeat alarms. The 30-day continuous window is forfeited when
+ * the eight-stream feed stays unverified for more than COVERAGE_OUTAGE_THRESHOLD_MS, so the
+ * alarm must fire well inside that bound or a single delayed wake-up resets the window.
+ */
+const LIVE_HEARTBEAT_ALARM_INTERVAL_MS = 5000;
+
+/**
+ * Maximum serialized byte length that Cloudflare accepts for a single storage key/value pair.
+ * A put exceeding it throws `RangeError` at runtime, which previously killed the alarm chain.
+ */
+const DO_MAX_STORAGE_VALUE_BYTES = 131072;
+
+/**
+ * Ceiling we keep every individual put under, leaving headroom for V8 serializer overhead.
+ */
+const DO_STORAGE_SAFE_VALUE_BYTES = 110000;
+
+
+/**
  * Bookmark a queued orderbook frame so a newer frame on the same stream can cancel it.
  */
 interface PendingBookTask {
@@ -266,7 +285,19 @@ export class PaperTradingDurableObject {
     >('active_cycle_ticks_ledger');
     if (storedActiveTicks) {
       for (const [cycleId, ticks] of Object.entries(storedActiveTicks)) {
-        this.activeCycleTicks.set(cycleId, ticks);
+        const fullTicks = [...ticks];
+        const overflowCount =
+          (await this.state.storage.get<number>(`active_cycle_ticks_overflow_count_${cycleId}`)) ??
+          0;
+        for (let i = 0; i < overflowCount; i++) {
+          const chunk = await this.state.storage.get<
+            Array<{ tickIndex: number; nowTs: number; book: NormalizedOrderbook }>
+          >(`active_cycle_ticks_overflow_${cycleId}_${i}`);
+          if (chunk && Array.isArray(chunk)) {
+            fullTicks.push(...chunk);
+          }
+        }
+        this.activeCycleTicks.set(cycleId, fullTicks);
       }
     }
 
@@ -296,7 +327,7 @@ export class PaperTradingDurableObject {
     // `startLiveCollector()` call or returning before `setAlarm()` is registered.
     if (this.collectorDesiredRunning) {
       if (this.state.storage.setAlarm) {
-        await this.state.storage.setAlarm(Date.now() + 15000);
+        await this.state.storage.setAlarm(Date.now() + LIVE_HEARTBEAT_ALARM_INTERVAL_MS);
       }
       if (!this.collector && !this.collectorRestorePromise) {
         this.collectorRestorePromise = this.startLiveCollectorInternal().finally(() => {
@@ -417,7 +448,7 @@ export class PaperTradingDurableObject {
     }
     if (this.collector && !options) {
       if (this.state.storage.setAlarm) {
-        await this.state.storage.setAlarm(Date.now() + 15000);
+        await this.state.storage.setAlarm(Date.now() + LIVE_HEARTBEAT_ALARM_INTERVAL_MS);
       }
       return {
         started: true,
@@ -442,7 +473,7 @@ export class PaperTradingDurableObject {
     // Register DO alarm immediately before long REST/WS bootstrap so isolate eviction
     // during cold start can never leave the DO without a scheduled heartbeat alarm.
     if (this.state.storage.setAlarm) {
-      await this.state.storage.setAlarm(Date.now() + 15000);
+      await this.state.storage.setAlarm(Date.now() + LIVE_HEARTBEAT_ALARM_INTERVAL_MS);
     }
 
     if (!this.collector) {
@@ -492,7 +523,7 @@ export class PaperTradingDurableObject {
 
     // Schedule next DO alarm in 15s for health monitoring & outbox reconciliation
     if (this.state.storage.setAlarm) {
-      await this.state.storage.setAlarm(Date.now() + 15000);
+      await this.state.storage.setAlarm(Date.now() + LIVE_HEARTBEAT_ALARM_INTERVAL_MS);
     }
 
     return {
@@ -703,47 +734,56 @@ export class PaperTradingDurableObject {
    * - Schedules next alarm if collector is desired running or present
    */
   async alarm(): Promise<void> {
-    await this.ensureRestored();
-    if (this.collectorRestorePromise) {
-      try {
-        await this.collectorRestorePromise;
-      } catch (err) {
-        console.error('[PaperTradingDO] Alarm failed to await collector restore:', err);
+    try {
+      await this.ensureRestored();
+      if (this.collectorRestorePromise) {
+        try {
+          await this.collectorRestorePromise;
+        } catch (err) {
+          console.error('[PaperTradingDO] Alarm failed to await collector restore:', err);
+        }
       }
-    }
 
-    // Recreate collector if desired running but missing
-    if (this.collectorDesiredRunning && !this.collector) {
-      try {
-        await this.startLiveCollector();
-      } catch (err) {
-        console.error('[PaperTradingDO] Alarm failed to restore collector:', err);
+      const alarmStartTs = Date.now();
+
+      // Recreate collector if desired running but missing
+      if (this.collectorDesiredRunning && !this.collector) {
+        try {
+          await this.startLiveCollector();
+        } catch (err) {
+          console.error('[PaperTradingDO] Alarm failed to restore collector:', err);
+        }
       }
-    }
 
-    if (this.collector) {
-      if (!this.collector.isHealthy(10000) || !this.isCollectorLive(Date.now())) {
-        await this.collector.bootstrapSnapshots();
+      if (this.collector) {
+        if (!this.collector.isHealthy(10000) || !this.isCollectorLive(Date.now())) {
+          await this.collector.bootstrapSnapshots();
+        }
       }
-    }
 
-    // Drain any queued snapshot/delta ingestion tasks before evaluating live coverage
-    // and capture a post-ingestion timestamp so REST bootstrap latency never ages out the check.
-    await this.ingestQueue;
-    const now = Date.now();
-    this.forceFrameDurablePersist();
+      // Drain any queued snapshot/delta ingestion tasks before evaluating live coverage
+      // and capture a post-ingestion timestamp so REST bootstrap latency never ages out the check.
+      await this.ingestQueue;
+      const now =
+        this.lastLiveIngestTsMs !== null &&
+        this.lastLiveIngestTsMs >= alarmStartTs &&
+        this.isCollectorLive(this.lastLiveIngestTsMs)
+          ? this.lastLiveIngestTsMs
+          : Date.now();
+      this.forceFrameDurablePersist();
 
-    const isLive = this.isCollectorLive(now);
-    await this.updateCoverage(now, isLive);
+      const isLive = this.isCollectorLive(now);
+      await this.updateCoverage(now, isLive);
 
-    if (this.env?.DB) {
-      await this.journal.reconcileOutbox(this.env.DB, this.env.STORAGE);
-      await this.syncRunsInD1(now);
-    }
-
-    // Reschedule next alarm if collector is active or desired running
-    if ((this.collector || this.collectorDesiredRunning) && this.state.storage.setAlarm) {
-      await this.state.storage.setAlarm(Date.now() + 15000);
+      if (this.env?.DB) {
+        await this.journal.reconcileOutbox(this.env.DB, this.env.STORAGE);
+        await this.syncRunsInD1(now);
+      }
+    } finally {
+      // Reschedule next alarm if collector is active or desired running
+      if ((this.collector || this.collectorDesiredRunning) && this.state.storage.setAlarm) {
+        await this.state.storage.setAlarm(Date.now() + LIVE_HEARTBEAT_ALARM_INTERVAL_MS);
+      }
     }
   }
 
@@ -816,10 +856,13 @@ export class PaperTradingDurableObject {
       }
 
       // Proven continuous live step <= 15s
+      const clearedGap = this.gapStartedAtMs !== null;
+      if (clearedGap || step >= LIVE_SNAPSHOT_PERSIST_INTERVAL_MS) {
+        this.forceFrameDurablePersist();
+      }
       this.continuousCoverageMs += step;
       await this.putFrameSnapshotKey('continuous_coverage_ms', this.continuousCoverageMs);
 
-      const clearedGap = this.gapStartedAtMs !== null;
       this.lastLiveConfirmedTsMs = nowMs;
       this.gapStartedAtMs = null;
       await this.putFrameSnapshotKey('last_live_confirmed_ts_ms', nowMs);
@@ -1243,7 +1286,7 @@ export class PaperTradingDurableObject {
     await this.putFrameSnapshotKey('sequencer_state', this.sequencer.serializeState());
     await this.putFrameSnapshotKey('last_tick_counter', this.tickCounter);
     await this.putFrameSnapshotKey('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
-    await this.putFrameSnapshotKey('paper_closed_cycles', this.journal.getClosedCycles());
+    await this.putFrameSnapshotKey('paper_closed_cycles', this.journal.getClosedCycles().slice(-200));
 
     if (this.env?.DB && this.frameDurablePersist) {
       await this.syncRunsInD1(nowTs);
@@ -1469,7 +1512,7 @@ export class PaperTradingDurableObject {
     await this.putFrameSnapshotKey('sequencer_state', this.sequencer.serializeState());
     await this.putFrameSnapshotKey('last_tick_counter', this.tickCounter);
     await this.putFrameSnapshotKey('last_live_ingest_ts_ms', this.lastLiveIngestTsMs);
-    await this.putFrameSnapshotKey('paper_closed_cycles', this.journal.getClosedCycles());
+    await this.putFrameSnapshotKey('paper_closed_cycles', this.journal.getClosedCycles().slice(-200));
 
     if (this.env?.DB && this.frameDurablePersist) {
       await this.syncRunsInD1(nowTs);
@@ -1484,6 +1527,15 @@ export class PaperTradingDurableObject {
     book: NormalizedOrderbook;
   }): Promise<void> {
     let hasOpen = false;
+    const compactTickItem = {
+      tickIndex: tickItem.tickIndex,
+      nowTs: tickItem.nowTs,
+      book: {
+        ...tickItem.book,
+        bids: tickItem.book.bids.slice(0, 5),
+        asks: tickItem.book.asks.slice(0, 5),
+      },
+    };
     for (const engine of this.strategies.values()) {
       const openList = engine.getOpenCycles();
       if (openList.length > 0) {
@@ -1494,7 +1546,7 @@ export class PaperTradingDurableObject {
             list = [];
             this.activeCycleTicks.set(oc.cycleId, list);
           }
-          list.push(tickItem);
+          list.push(compactTickItem);
         }
       }
     }
@@ -1509,7 +1561,19 @@ export class PaperTradingDurableObject {
       Array<{ tickIndex: number; nowTs: number; book: NormalizedOrderbook }>
     > = {};
     for (const [cid, ticks] of this.activeCycleTicks.entries()) {
-      obj[cid] = ticks;
+      obj[cid] = ticks.slice(0, 555);
+      if (ticks.length > 555) {
+        const overflow = ticks.slice(555);
+        const chunkSize = 400;
+        const chunkCount = Math.ceil(overflow.length / chunkSize);
+        for (let i = 0; i < chunkCount; i++) {
+          await this.state.storage.put(
+            `active_cycle_ticks_overflow_${cid}_${i}`,
+            overflow.slice(i * chunkSize, (i + 1) * chunkSize)
+          );
+        }
+        await this.state.storage.put(`active_cycle_ticks_overflow_count_${cid}`, chunkCount);
+      }
     }
     await this.state.storage.put('active_cycle_ticks_ledger', obj);
   }

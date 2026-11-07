@@ -3733,10 +3733,17 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
           }),
         };
 
+        const v8 = require('node:v8');
         const mockState: any = {
           storage: {
             get: async (k: string) => store.get(k),
             put: async (k: string, v: unknown) => {
+              const byteLen = v8.serialize(v).length;
+              if (byteLen > 131072) {
+                throw new RangeError(
+                  `Values cannot be larger than 131072 bytes. A value of size ${byteLen} was provided for key ${k}.`
+                );
+              }
               store.set(k, v);
             },
             delete: async (k: string) => {
@@ -3918,6 +3925,36 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
           if ((coldDO3 as any).collector) {
             (coldDO3 as any).collector.close();
           }
+
+          // Verify >900 NO_TRADE ticks never exceed Cloudflare's 131,072-byte DO value limit
+          // on `resetContinuousWindow` or `serializeState()`
+          const baseTs = Date.now();
+          for (let i = 1; i <= 460; i++) {
+            const t = baseTs + i * 100;
+            for (const pair of ['BTC/USDT', 'ETH/USDT'] as const) {
+              for (const exchange of ['binance', 'bybit'] as const) {
+                for (const marketType of ['spot', 'linear_perp'] as const) {
+                  await coldDO3.resyncStream(
+                    {
+                      exchange,
+                      pair,
+                      marketType,
+                      sequenceId: 99000000 + i,
+                      exchangeTs: t,
+                      receivedTs: t,
+                      isDelta: false,
+                      bids: [{ price: pair === 'BTC/USDT' ? 68400 : 2620, quantity: 2.5 }],
+                      asks: [{ price: pair === 'BTC/USDT' ? 68402 : 2620.5, quantity: 2.5 }],
+                    },
+                    t
+                  );
+                }
+              }
+            }
+          }
+          await (coldDO3 as any).resetContinuousWindow(baseTs + 50000);
+          const serializedSpot2Exch = store.get('strategy_state_spot-2exch');
+          expect(v8.serialize(serializedSpot2Exch).length).toBeLessThanOrEqual(131072);
         } finally {
           globalThis.fetch = originalFetch;
           (globalThis as any).WebSocket = OriginalWebSocket;
