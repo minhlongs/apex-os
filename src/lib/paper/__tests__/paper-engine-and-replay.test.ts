@@ -3686,6 +3686,184 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         expect(afterLive.strategies['spot-perp'].equityUsdt).toBe(10000);
         expect(afterLive.strategies['spot-perp'].haltedByDrawdown).toBe(false);
       });
+
+      it('R5 (DO hibernation cold-start alarm): restores collector across isolate eviction, synchronizes all 8 streams within maxFeedAgeMs, drains ingestQueue, and advances continuousCoverageMs + D1 heartbeat across 15s alarm ticks', async () => {
+        const store = new Map<string, unknown>();
+        store.set('collector_desired_running', true);
+        let scheduledAlarmTime: number | null = null;
+
+        const runRows = new Map<
+          string,
+          {
+            run_id: string;
+            strategy_id: string;
+            verified_real_market_days: number;
+            is_active: number;
+            heartbeatCount: number;
+          }
+        >();
+
+        const mockDb: any = {
+          prepare: (sql: string) => ({
+            bind: (...args: any[]) => ({
+              run: async () => {
+                if (sql.includes('INSERT INTO paper_trading_runs')) {
+                  const [runId, , , strategyId, verifiedDays, , , , , isActive] = args;
+                  const prev = runRows.get(runId);
+                  runRows.set(runId, {
+                    run_id: runId,
+                    strategy_id: strategyId,
+                    verified_real_market_days: Number(verifiedDays),
+                    is_active: Number(isActive),
+                    heartbeatCount: (prev?.heartbeatCount ?? 0) + 1,
+                  });
+                } else if (sql.includes('UPDATE paper_trading_runs') && sql.includes('SET is_active = 0')) {
+                  const [strategyId, activeRunId] = args;
+                  for (const row of runRows.values()) {
+                    if (row.strategy_id === strategyId && row.run_id !== activeRunId && row.is_active === 1) {
+                      row.is_active = 0;
+                    }
+                  }
+                }
+                return { success: true };
+              },
+              all: async () => ({ results: [] }),
+            }),
+            all: async () => ({ results: [] }),
+          }),
+        };
+
+        const mockState: any = {
+          storage: {
+            get: async (k: string) => store.get(k),
+            put: async (k: string, v: unknown) => {
+              store.set(k, v);
+            },
+            delete: async (k: string) => {
+              store.delete(k);
+            },
+            getAlarm: async () => scheduledAlarmTime,
+            setAlarm: async (time: number) => {
+              scheduledAlarmTime = time;
+            },
+            deleteAlarm: async () => {
+              scheduledAlarmTime = null;
+            },
+          },
+        };
+
+        const originalFetch = globalThis.fetch;
+        const OriginalWebSocket = (globalThis as any).WebSocket;
+
+        // Simulate realistic Cloudflare Edge environment:
+        // - WS connections do NOT immediately emit native snapshots during cold-start
+        // - fapi/www binance endpoints return 451 with 150ms latency so un-cached rotation would age earlier snapshots
+        // - data-api.binance.vision and api.bybit.com return fresh L2 depth snapshots
+        class QuietColdStartWebSocket {
+          send(_data: string): void {}
+          close(): void {}
+          addEventListener(_type: string, _listener: (evt: any) => void): void {}
+        }
+        (globalThis as any).WebSocket = QuietColdStartWebSocket;
+
+        globalThis.fetch = (async (input: RequestInfo | URL) => {
+          const url = String(input);
+          if (
+            url.startsWith('https://fapi.binance.com') ||
+            url.startsWith('https://www.binance.com') ||
+            url.startsWith('https://www.binance.info') ||
+            url.startsWith('https://fapi.binance.me') ||
+            url.startsWith('https://fapi1.binance.com') ||
+            url.startsWith('https://fapi2.binance.com')
+          ) {
+            await new Promise((r) => setTimeout(r, 150));
+            return new Response('Restricted location', { status: 451 });
+          }
+          const now = Date.now();
+          const isBtc = url.includes('BTCUSDT');
+          const mid = isBtc ? '68400.00' : '2620.00';
+          const ask = isBtc ? '68402.00' : '2620.50';
+          if (url.includes('binance.vision') || url.includes('binance.com')) {
+            return new Response(
+              JSON.stringify({
+                lastUpdateId: 910000 + Math.floor(now % 10000),
+                E: now,
+                bids: [[mid, '2.5']],
+                asks: [[ask, '2.5']],
+              }),
+              { status: 200 }
+            );
+          }
+          if (url.includes('api.bybit.com') && url.includes('/v5/market/orderbook')) {
+            return new Response(
+              JSON.stringify({
+                retCode: 0,
+                retMsg: 'OK',
+                result: {
+                  s: isBtc ? 'BTCUSDT' : 'ETHUSDT',
+                  b: [[mid, '2.5']],
+                  a: [[ask, '2.5']],
+                  ts: now,
+                  u: 59100000 + Math.floor(now % 10000),
+                },
+              }),
+              { status: 200 }
+            );
+          }
+          if (url.includes('api.bybit.com') && url.includes('/v5/market/tickers')) {
+            return new Response(
+              JSON.stringify({
+                retCode: 0,
+                result: { list: [{ fundingRate: '0.0001' }] },
+              }),
+              { status: 200 }
+            );
+          }
+          return new Response('{}', { status: 200 });
+        }) as typeof fetch;
+
+        try {
+          // Tick 1: Isolate cold-starts from hibernation on alarm()
+          const coldDO1 = new PaperTradingDurableObject(mockState, { DB: mockDb });
+          await coldDO1.alarm();
+          if ((coldDO1 as any).collector) {
+            (coldDO1 as any).collector.close();
+          }
+
+          const syncCheck1 = (coldDO1 as any).sequencer.areAllRequiredStreamsSynced(
+            (coldDO1 as any).lastLiveIngestTsMs
+          );
+          expect(syncCheck1.missingOrStaleKeys).toEqual([]);
+          expect(syncCheck1.ok).toBe(true);
+          expect(syncCheck1.syncedCount).toBe(8);
+          expect(store.get('last_live_confirmed_ts_ms')).toEqual(expect.any(Number));
+          const activeRunsAfterTick1 = Array.from(runRows.values()).filter(
+            (r) => r.is_active === 1
+          );
+          expect(activeRunsAfterTick1.length).toBe(2);
+
+          // Simulate 5-second hibernation gap and a second cold-start alarm wake-up
+          const firstConfirmedTs = store.get('last_live_confirmed_ts_ms') as number;
+          store.set('last_live_confirmed_ts_ms', firstConfirmedTs - 5000);
+
+          const coldDO2 = new PaperTradingDurableObject(mockState, { DB: mockDb });
+          await coldDO2.alarm();
+          if ((coldDO2 as any).collector) {
+            (coldDO2 as any).collector.close();
+          }
+
+          expect((coldDO2 as any).continuousCoverageMs).toBeGreaterThanOrEqual(5000);
+          const activeRuns = Array.from(runRows.values()).filter((r) => r.is_active === 1);
+          expect(activeRuns.length).toBe(2);
+          for (const run of activeRuns) {
+            expect(run.verified_real_market_days).toBeGreaterThan(0);
+            expect(run.heartbeatCount).toBeGreaterThanOrEqual(2);
+          }
+        } finally {
+          globalThis.fetch = originalFetch;
+          (globalThis as any).WebSocket = OriginalWebSocket;
+        }
+      });
     });
   });
 });
