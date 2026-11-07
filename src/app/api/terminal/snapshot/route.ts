@@ -36,9 +36,16 @@ export async function GET() {
     '0xd90e2f925da726b50c4ed8d0fb90ad053324f31b',
     'ethereum'
   );
+  const hmacSecret = process.env.TERMINAL_HMAC_SECRET;
+  if (!hmacSecret) {
+    return NextResponse.json(
+      { error: 'TERMINAL_HMAC_SECRET not configured on server' },
+      { status: 500 }
+    );
+  }
   const sampleHmacDigest = await WebhookCrypto.computeSignature(
     WEBHOOK_SANDBOX_PRESETS[0].samplePayload,
-    'apex_os_edge_hmac_secret'
+    hmacSecret
   );
   const r2RootProofDigest = await sha256Hash(
     R2_MERKLE_SNAPSHOTS[0].r2ObjectKey + ':' + R2_MERKLE_SNAPSHOTS[0].merkleRootHash
@@ -46,7 +53,8 @@ export async function GET() {
 
   return NextResponse.json(
     {
-      status: 'LIVE_EDGE_SYNCED',
+      status: 'PAPER_SANDBOX_ONLINE',
+      mode: 'DEMO_SANDBOX',
       syncedAt: new Date().toISOString(),
       project: STITCH_PROJECT_METADATA,
       liveEngineVerification: {

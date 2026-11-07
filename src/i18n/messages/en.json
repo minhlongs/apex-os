@@ -4,52 +4,71 @@
     "dashboard": "Dashboard",
     "affiliates": "Affiliates",
     "signals": "Signals",
-    "copyTrading": "Copy Trading",
+    "copyTrading": "Quant Attribution",
     "pricing": "Pricing",
     "login": "Log In",
     "signup": "Sign Up",
-    "deals": "Deals"
+    "deals": "Deals",
+    "insights": "Quant Insights",
+    "terminal": "Terminal",
+    "alerts": "Alerts",
+    "settings": "Settings"
   },
   "landing": {
-    "heroTitle": "Copy the best traders. Automatically.",
-    "heroSubtitle": "First AI-powered copy-trading platform for SEA. Connect with master traders, auto-copy trades, maximize profits.",
-    "ctaPrimary": "Start Free",
-    "ctaSecondary": "View Demo",
+    "heroBadge": "Non-Custodial Fee Arbitrage & Liquidity Attribution",
+    "heroTitle": "Recover Every Basis Point (bps). Non-Custodial Quant Execution.",
+    "heroSubtitle": "The first institutional crypto basis-point fee recovery hub and 3-tier liquidity attribution engine for SEA. Zero-secret API Key ID verification across Binance, Bybit, OKX, and KuCoin.",
+    "ctaPrimary": "Launch Terminal",
+    "ctaSecondary": "Explore Research Insights",
+    "ctaDeals": "Explore Fee Matrix",
     "features": {
-      "title": "Why ApexOS?",
+      "title": "Institutional Infrastructure Built for Quantitative Edge",
       "aiSignals": {
-        "title": "AI Signals",
-        "desc": "Machine learning analyzes markets 24/7"
+        "title": "Sub-Second Attribution",
+        "desc": "Real-time trade matching engine powered by signed HMAC-SHA256 exchange webhooks under 1 second."
       },
       "copyTrading": {
-        "title": "Copy Trading",
-        "desc": "Auto-copy trades from master traders"
+        "title": "Basis-Point (bps) Recovery",
+        "desc": "Recover 2.7 to 12.0 bps in Taker/Maker friction, lifting portfolio mathematical expectancy without directional risk."
       },
       "riskManage": {
-        "title": "Risk Management",
-        "desc": "Automatic stop-loss, take-profit"
+        "title": "Zero-Secret Architecture",
+        "desc": "Pure read-only API Key ID verification. Zero API secrets stored, zero trade permissions, zero withdrawal risk."
       },
       "paperTrade": {
-        "title": "Paper Trading",
-        "desc": "Test strategies risk-free"
+        "title": "D1 Double-Entry Ledger",
+        "desc": "Cryptographic double-entry accounting on Cloudflare D1 with verifiable audit trails and zero leakage."
       },
       "referral": {
-        "title": "Referral Rebates",
-        "desc": "Earn commissions by referring friends"
+        "title": "3-Tier Desk Economics",
+        "desc": "Earn 30% direct Tier 1, 10% Tier 2 sub-desks, and 5% Tier 3 network volume with automated weekly settlements."
       },
       "multiExchange": {
-        "title": "Multi-Exchange",
-        "desc": "Binance, Bybit, OKX — all in one"
+        "title": "Stellar USDC Settlement",
+        "desc": "Sub-cent weekly automated treasury settlements directly to non-custodial wallets via the Stellar blockchain."
       }
     },
     "stats": {
-      "users": "Users",
-      "volume": "Trading Volume",
-      "masters": "Master Traders"
+      "users": "Active Desks",
+      "volume": "30-Day Attribution Volume",
+      "masters": "Supported Exchanges"
     },
     "footer": {
-      "rights": "© 2026 ApexOS. All rights reserved."
+      "rights": "© 2026 ApexOS Quantitative Engineering. All rights reserved."
     }
+  },
+  "insights": {
+    "badge": "ApexOS Quantitative Research",
+    "title": "Quantitative Execution & Microstructure Insights",
+    "subtitle": "Peer-reviewed analysis on basis-point fee drag, non-custodial API attribution, and multi-tier liquidity desk economics.",
+    "readArticle": "Read Full Analysis",
+    "backToList": "Back to Research Hub",
+    "readingTime": "{minutes} min read",
+    "keyMetrics": "Key Quantitative Metrics",
+    "publishedOn": "Published {date}",
+    "ctaTitle": "Ready to eliminate execution fee drag?",
+    "ctaDesc": "Connect your read-only API Key ID in seconds and recover basis-point liquidity friction across Binance, Bybit, OKX, and KuCoin.",
+    "ctaButton": "Launch Terminal"
   },
   "auth": {
     "loginTitle": "Log In",
@@ -72,7 +91,10 @@
     "shortPassword": "Password must be at least 8 characters",
     "passwordMismatch": "Passwords do not match",
     "termsRequired": "Please agree to the terms",
-    "generic": "Something went wrong. Please try again."
+    "generic": "Something went wrong. Please try again.",
+    "title": "Errors",
+    "loadFailed": "Failed to load data",
+    "retry": "Retry"
   },
   "stitch": {
     "common": {
@@ -298,12 +320,12 @@
     "loading": "Loading..."
   },
   "deals": {
-    "title": "All Deals",
-    "subtitle": "Browse exclusive offers and cashback deals from top exchanges",
+    "title": "Institutional Fee & Rebate Deals",
+    "subtitle": "Live basis-point fee recovery matrix and exchange tier agreements across top liquidity venues.",
     "filters": {
       "title": "Filters",
       "search": "Search deals...",
-      "searchPlaceholder": "Search deals...",
+      "searchPlaceholder": "Search deals by pair or exchange...",
       "allExchanges": "All Exchanges",
       "allCategories": "All Categories",
       "allTypes": "All Types",
@@ -317,7 +339,7 @@
       "binance": "Binance",
       "bybit": "Bybit",
       "okx": "OKX",
-      "ftx": "FTX",
+      "kucoin": "KuCoin",
       "coinbase": "Coinbase",
       "kraken": "Kraken"
     },
@@ -340,10 +362,10 @@
     },
     "card": {
       "viewDeal": "View Deal",
-      "cashback": "Cashback",
+      "cashback": "Rebate (bps / %)",
       "type": "Type",
       "category": "Category",
-      "posted": "Posted",
+      "posted": "Updated",
       "noDescription": "No description available"
     },
     "pagination": {
@@ -358,6 +380,14 @@
     },
     "error": "Failed to load deals. Please try again.",
     "backToDeals": "Back to Deals",
+    "cashback": {
+      "title": "Rebate Rate",
+      "subtitle": "Credited directly to ledger"
+    },
+    "cookieDuration": {
+      "title": "Attribution Window",
+      "days": "days"
+    },
     "stats": {
       "symbol": "Trading Pair",
       "leverage": "Leverage",
@@ -374,142 +404,142 @@
       "high": "High Risk"
     },
     "cta": {
-      "subtitle": "You will be redirected to",
-      "description": "the exchange to place your trade",
-      "claimDeal": "Claim Deal",
+      "subtitle": "Direct exchange matching router",
+      "description": "Zero-Secret Key ID binding automatically applies upon connection.",
+      "claimDeal": "Claim Deal & Link Key ID",
       "redirecting": "Redirecting..."
     },
     "share": {
-      "title": "Share This Deal",
-      "description": "Share this link with friends to earn commissions together",
+      "title": "Share Liquidity Link",
+      "description": "Share this link with trading partners and sub-desks to capture multi-tier attribution.",
       "copyLink": "Copy Link",
       "copied": "Copied!",
       "note": {
-        "title": "About Commissions",
-        "description": "You'll earn commissions when your referrals sign up and trade through this link."
+        "title": "About Desk Attribution",
+        "description": "All volume generated through this link is attributed under your Tier-1 desk (30%) in D1."
       }
     },
     "footer": {
-      "disclaimer": "ApexOS is not an exchange. This deal is provided by our partner and subject to their terms.",
+      "disclaimer": "ApexOS is an institutional execution & attribution technology provider, not an exchange or broker.",
       "published": "Published {date}"
     }
   },
   "affiliates": {
-    "title": "Affiliate Dashboard",
-    "subtitle": "Track your referrals, earnings, and commissions",
+    "title": "Liquidity Desk Attribution Hub",
+    "subtitle": "Monitor your multi-tier partner network, attributed turnover, and Stellar USDC treasury settlements",
     "stats": {
-      "lifetimeEarnings": "Lifetime Earnings",
-      "pendingEarnings": "Pending Earnings",
-      "totalReferrals": "Total Referrals",
-      "conversionRate": "Conversion Rate",
-      "activeReferrals": "Active Referrals",
+      "lifetimeEarnings": "Lifetime Rebates & Commissions",
+      "pendingEarnings": "Pending Settlement",
+      "totalReferrals": "Total Linked Desks",
+      "conversionRate": "Attribution Rate",
+      "activeReferrals": "Active Desks",
       "thisMonth": "This Month",
       "last30Days": "Last 30 Days"
     },
     "code": {
-      "title": "Your Affiliate Code",
-      "subtitle": "Share this code to earn commissions",
-      "yourCode": "Your Referral Code",
+      "title": "Desk Attribution Key / URL",
+      "subtitle": "Share your desk attribution code with community members and sub-traders",
+      "yourCode": "Your Desk Attribution ID",
       "copy": "Copy Code",
       "copied": "Copied!",
       "shareLink": "Share Link",
-      "generateNew": "Generate New Code"
+      "generateNew": "Generate New ID"
     },
     "tiers": {
-      "title": "Commission Tiers",
-      "subtitle": "Earn commissions on up to 3 levels of referrals",
+      "title": "3-Tier Desk Structure",
+      "subtitle": "Automated attribution across 3 hierarchical execution levels",
       "tier1": {
-        "name": "Level 1",
-        "description": "Direct referrals",
+        "name": "Tier 1 Desk",
+        "description": "Directly linked trading desks & traders",
         "rate": "30%"
       },
       "tier2": {
-        "name": "Level 2",
-        "description": "2nd-level referrals",
+        "name": "Tier 2 Sub-Desk",
+        "description": "Sub-affiliates and secondary partner desks",
         "rate": "10%"
       },
       "tier3": {
-        "name": "Level 3",
-        "description": "3rd-level referrals",
+        "name": "Tier 3 Network",
+        "description": "Broader network & community flow",
         "rate": "5%"
       }
     },
     "referralTree": {
-      "title": "Referral Tree",
-      "subtitle": "Your affiliate network structure",
+      "title": "Desk Attribution Hierarchy",
+      "subtitle": "Your multi-tier liquidity desk network",
       "expandAll": "Expand All",
       "collapseAll": "Collapse All",
-      "empty": "No referrals yet. Share your code to start building your network!",
-      "level": "Level",
+      "empty": "No linked desks yet. Distribute your desk link to start mapping trade flow!",
+      "level": "Tier",
       "direct": "Direct",
       "indirect": "Indirect",
-      "totalReferrals": "Total referrals: {count}",
-      "conversions": "{count, plural, one {conversion} other {conversions}}"
+      "totalReferrals": "Total linked desks: {count}",
+      "conversions": "{count, plural, one {trade attribution} other {trade attributions}}"
     },
     "conversions": {
-      "title": "Recent Conversions",
-      "subtitle": "Latest conversions from your referrals",
-      "empty": "No conversions yet",
+      "title": "Recent Trade Attributions",
+      "subtitle": "Sub-second verified trade webhooks across linked exchanges",
+      "empty": "No trade attributions recorded yet",
       "columns": {
-        "date": "Date",
-        "customer": "Customer",
-        "deal": "Deal",
-        "amount": "Amount",
-        "commission": "Commission",
-        "level": "Level",
-        "status": "Status"
+        "date": "Execution Time",
+        "customer": "Desk / Key ID",
+        "deal": "Exchange Venue",
+        "amount": "Turnover Volume",
+        "commission": "Attributed Rebate",
+        "level": "Tier",
+        "status": "Attribution Status"
       }
     },
     "payouts": {
-      "title": "Payout History",
-      "subtitle": "Your withdrawal and payment records",
-      "empty": "No payouts yet",
+      "title": "Treasury Settlement Records",
+      "subtitle": "Automated non-custodial payouts via Stellar USDC and localized rails",
+      "empty": "No settlement records yet",
       "columns": {
-        "date": "Date",
-        "amount": "Amount",
+        "date": "Settlement Date",
+        "amount": "Gross Amount",
         "netAmount": "Net Amount",
-        "method": "Method",
+        "method": "Settlement Rail",
         "status": "Status",
-        "transactionId": "Transaction ID",
-        "fee": "Fee",
-        "notes": "Notes"
+        "transactionId": "Ledger Tx Hash",
+        "fee": "Network Fee",
+        "notes": "Memo"
       },
       "methods": {
         "bank_transfer": "Bank Transfer",
-        "crypto": "Cryptocurrency",
+        "crypto": "Stellar USDC",
         "paypal": "PayPal",
         "stripe": "Stripe",
         "momo": "MoMo",
-        "sepay": "SePay",
+        "sepay": "VietQR SePay",
         "vnpay": "VNPay"
       },
       "stats": {
-        "totalPayouts": "Total Payouts",
-        "totalPaid": "Total Paid",
-        "pendingAmount": "Pending Amount",
-        "totalFees": "Total Fees"
+        "totalPayouts": "Total Batches",
+        "totalPaid": "Settled Volume",
+        "pendingAmount": "Pending Treasury Balance",
+        "totalFees": "Cumulative Network Fees"
       },
       "filters": {
         "allStatus": "All Statuses",
-        "searchPlaceholder": "Search by transaction ID or method...",
+        "searchPlaceholder": "Search by transaction hash or rail...",
         "apply": "Apply Filters",
         "clear": "Clear Filters"
       },
       "status": {
-        "pending": "Pending",
-        "processing": "Processing",
-        "completed": "Completed",
-        "failed": "Failed",
-        "cancelled": "Cancelled"
+        "pending": "Pending Batch",
+        "processing": "Broadcasting",
+        "completed": "Settled on Ledger",
+        "failed": "Broadcast Error",
+        "cancelled": "Reverted"
       }
     },
     "status": {
-      "pending": "Pending",
-      "approved": "Approved",
-      "rejected": "Rejected",
-      "refunded": "Refunded",
-      "processing": "Processing",
-      "completed": "Completed",
+      "pending": "Pending Matching",
+      "approved": "Verified",
+      "rejected": "Flagged",
+      "refunded": "Adjusted",
+      "processing": "Settling",
+      "completed": "Settled",
       "failed": "Failed"
     }
   },
@@ -1018,6 +1048,88 @@
           "testnetDescription": "Testnet uses free test USDC via Friendbot. Safe for development."
         }
       }
+    },
+    "dashboard": {
+      "title": "Conversions",
+      "subtitle": "Track your conversion history and earnings",
+      "filters": {
+        "allStatus": "All Statuses",
+        "allTypes": "All Types",
+        "searchPlaceholder": "Search deals or customers...",
+        "apply": "Apply Filters",
+        "clear": "Clear Filters"
+      },
+      "status": {
+        "pending": "Pending",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "refunded": "Refunded"
+      },
+      "types": {
+        "sale": "Sale",
+        "lead": "Lead",
+        "signup": "Signup",
+        "install": "Install"
+      },
+      "columns": {
+        "date": "Date",
+        "deal": "Deal",
+        "customer": "Customer",
+        "orderId": "Order ID",
+        "revenue": "Revenue",
+        "commission": "Commission",
+        "level": "Level",
+        "type": "Type",
+        "status": "Status"
+      },
+      "empty": {
+        "title": "No conversions found",
+        "description": "When your referrals complete deals, they will appear here."
+      },
+      "stats": {
+        "totalConversions": "Total Conversions",
+        "totalEarnings": "Total Earnings",
+        "totalRevenue": "Total Revenue",
+        "avgOrderValue": "Avg. Order Value"
+      }
+    },
+    "notifications": {
+      "pageTitle": "Notification Preferences",
+      "pageDescription": "Manage how you receive alerts and notifications",
+      "channelPreferences": "Channel Preferences",
+      "channelPreferencesDesc": "Choose which channels you want to receive notifications on",
+      "channelDescriptions": {
+        "email": "Receive notifications via email",
+        "slack": "Receive notifications in Slack workspace",
+        "telegram": "Receive notifications via Telegram bot"
+      },
+      "severityThreshold": "Severity Threshold",
+      "severityThresholdDesc": "Select the minimum severity level for notifications you want to receive",
+      "selectSeverity": "Select severity threshold",
+      "severityOptions": {
+        "all": "All notifications (Info, Warning, Critical)",
+        "warningAndCritical": "Warning & Critical only",
+        "criticalOnly": "Critical only"
+      },
+      "emailSettings": "Email Settings",
+      "emailSettingsDesc": "Configure your email notification address",
+      "emailAddress": "Email Address",
+      "emailPlaceholder": "your-email@example.com",
+      "emailHelp": "Leave empty to use your account email address",
+      "quietHours": "Quiet Hours",
+      "quietHoursDesc": "Set hours when notifications should be suppressed",
+      "enableQuietHours": "Enable quiet hours",
+      "startTime": "Start time",
+      "endTime": "End time",
+      "weeklySummary": "Weekly Summary",
+      "weeklySummaryDesc": "Receive a weekly summary of your earnings and activity",
+      "receiveWeeklySummary": "Receive weekly summary",
+      "saveChanges": "Save changes",
+      "saving": "Saving...",
+      "settingsSaved": "Settings saved successfully",
+      "saveError": "Failed to save settings",
+      "notAuthenticated": "Not authenticated",
+      "loginRequired": "Please log in to manage your notifications"
     }
   },
   "dashboard": {
@@ -1101,5 +1213,95 @@
     "saveError": "Failed to save settings",
     "notAuthenticated": "Not authenticated",
     "loginRequired": "Please log in to manage your notifications"
+  },
+  "conversions": {
+    "failureRate": "Failure rate",
+    "last24h": "Last 24 hours",
+    "last7d": "Last 7 days",
+    "last30d": "Last 30 days",
+    "statusBreakdown": "Status breakdown",
+    "title": "Conversion History",
+    "subtitle": "Track every verified trade and its commission breakdown",
+    "filters": {
+      "clear": "Clear filters",
+      "searchPlaceholder": "Search by deal or order ID"
+    },
+    "status": {
+      "all": "All statuses",
+      "pending": "Pending",
+      "approved": "Approved",
+      "paid": "Paid",
+      "rejected": "Rejected"
+    },
+    "conversion_type": {
+      "all": "All types",
+      "direct": "Direct",
+      "tier2": "Tier 2",
+      "tier3": "Tier 3"
+    },
+    "columns": {
+      "date": "Date",
+      "deal": "Deal",
+      "orderId": "Order ID",
+      "type": "Type",
+      "level": "Level",
+      "revenue": "Revenue",
+      "commission": "Commission",
+      "status": "Status"
+    },
+    "stats": {
+      "totalConversions": "Total conversions",
+      "totalRevenue": "Total revenue",
+      "totalEarnings": "Total earnings",
+      "avgOrderValue": "Average order value"
+    },
+    "empty": {
+      "title": "No conversions yet",
+      "description": "Your verified trades will appear here once they are matched."
+    },
+    "sortBy": {
+      "date": "Sort by date",
+      "revenue": "Sort by revenue"
+    },
+    "sortOrder": {
+      "asc": "Ascending",
+      "desc": "Descending"
+    },
+    "search": "Search",
+    "limit": "Per page",
+    "page": "Page"
+  },
+  "common": {
+    "loading": "Loading…",
+    "autoRefresh": "Auto-refresh",
+    "autoRefreshNote": "Data refreshes every 30 seconds",
+    "cancel": "Cancel",
+    "connected": "Connected",
+    "dataRefresh": "Data refreshed",
+    "disconnected": "Disconnected",
+    "lastRefresh": "Last refresh",
+    "optional": "Optional",
+    "refresh": "Refresh",
+    "retry": "Retry",
+    "silencedUntil": "Silenced until",
+    "updating": "Updating"
+  },
+  "payouts": {
+    "byMethod": "By method",
+    "cancelled": "Cancelled",
+    "completed": "Completed",
+    "failed": "Failed",
+    "failureRate": "Failure rate",
+    "failureReasons": "Failure reasons",
+    "noData": "No data",
+    "noFailures": "No failures",
+    "pending": "Pending",
+    "processing": "Processing",
+    "successRate": "Success rate",
+    "total": "Total",
+    "totalAmount": "Total amount",
+    "totalFees": "Total fees",
+    "title": "Payout Records",
+    "subtitle": "Review settled USDC payouts and their Stellar transactions"
   }
 }

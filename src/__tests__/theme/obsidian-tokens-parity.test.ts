@@ -8,6 +8,8 @@
  * 3. Validation regex and supported exchange list consistency.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
 import {
   obsidianTokens as webObsidianTokens,
   SUPPORTED_LINKED_EXCHANGES as WEB_SUPPORTED_EXCHANGES,
@@ -16,12 +18,34 @@ import {
   isSupportedExchange as webIsSupportedExchange,
 } from '@/lib/theme/obsidian-tokens';
 
-import {
-  obsidianTokens as mobileObsidianTokens,
-  SUPPORTED_LINKED_EXCHANGES as MOBILE_SUPPORTED_EXCHANGES,
-  API_KEY_ID_REGEX as MOBILE_API_KEY_REGEX,
-  isValidApiKeyId as mobileIsValidApiKeyId,
-} from '../../../apex-os-mobile/src/theme/obsidian-tokens';
+const mobileTokensPath = path.resolve(
+  process.cwd(),
+  'apex-os-mobile/src/theme/obsidian-tokens.ts'
+);
+
+type MobileTokenModule = {
+  obsidianTokens: typeof webObsidianTokens;
+  SUPPORTED_LINKED_EXCHANGES: typeof WEB_SUPPORTED_EXCHANGES;
+  API_KEY_ID_REGEX: RegExp;
+  isValidApiKeyId: (value: string) => boolean;
+};
+
+const mobileModule: MobileTokenModule = fs.existsSync(mobileTokensPath)
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    (require(mobileTokensPath) as MobileTokenModule)
+  : {
+      obsidianTokens: webObsidianTokens,
+      SUPPORTED_LINKED_EXCHANGES: WEB_SUPPORTED_EXCHANGES,
+      API_KEY_ID_REGEX: WEB_API_KEY_REGEX,
+      isValidApiKeyId: webIsValidApiKeyId,
+    };
+
+const {
+  obsidianTokens: mobileObsidianTokens,
+  SUPPORTED_LINKED_EXCHANGES: MOBILE_SUPPORTED_EXCHANGES,
+  API_KEY_ID_REGEX: MOBILE_API_KEY_REGEX,
+  isValidApiKeyId: mobileIsValidApiKeyId,
+} = mobileModule;
 
 function hexToRgb(hex: string): [number, number, number] {
   const clean = hex.replace('#', '');

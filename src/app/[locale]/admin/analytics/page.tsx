@@ -2,6 +2,7 @@
 // @ts-nocheck - Temporary: fix type errors separately
 
 import { useState, useEffect, useCallback } from 'react';
+import { useParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 import {
   AreaChart,
@@ -151,7 +152,9 @@ function TimeRangeSelector({
   );
 }
 
-export default function AdminAnalyticsPage({ locale }: { locale: string }) {
+export default function AdminAnalyticsPage() {
+  const params = useParams();
+  const locale = (params?.locale as string) || 'en';
   const t = useTranslations('admin.analytics');
   const tBusinessKpi = useTranslations('admin.businessKpi');
   const [timeRange, setTimeRange] = useState<TimeRange>('7d');

@@ -13,9 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDB, type D1Database } from '@/lib/db';
 import { getAuthenticatedUser, resolveDatabase } from '@/lib/auth/session-helper';
 import { error as logError } from '@/lib/logger';
-
-export type PushPlatform = 'ios' | 'android' | 'web';
-export const VALID_PLATFORMS: readonly PushPlatform[] = ['ios', 'android', 'web'] as const;
+import { VALID_PLATFORMS, type PushPlatform } from '@/lib/notifications/push-platform';
 
 function getDatabase(): D1Database | null {
   try {

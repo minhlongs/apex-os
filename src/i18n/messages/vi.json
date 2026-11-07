@@ -1,323 +1,345 @@
 {
   "nav": {
-    "home": "Home",
-    "dashboard": "Dashboard",
-    "affiliates": "Affiliates",
-    "signals": "Signals",
-    "copyTrading": "Copy Trading",
-    "pricing": "Pricing",
-    "login": "Log In",
-    "signup": "Sign Up",
-    "deals": "Deals"
+    "home": "Trang chủ",
+    "dashboard": "Trung tâm điều khiển",
+    "affiliates": "Bàn giao dịch",
+    "signals": "Tín hiệu",
+    "copyTrading": "Đối soát định lượng",
+    "pricing": "Bảng phí",
+    "login": "Đăng nhập",
+    "signup": "Đăng ký",
+    "deals": "Ưu đãi & Phí",
+    "insights": "Nghiên cứu Định lượng",
+    "terminal": "Terminal",
+    "alerts": "Cảnh báo",
+    "settings": "Cài đặt"
   },
   "landing": {
-    "heroTitle": "Copy the best traders. Automatically.",
-    "heroSubtitle": "First AI-powered copy-trading platform for SEA. Connect with master traders, auto-copy trades, maximize profits.",
-    "ctaPrimary": "Start Free",
-    "ctaSecondary": "View Demo",
+    "heroBadge": "Phân bổ phí không lưu ký & đối soát thanh khoản vi mô",
+    "heroTitle": "Thu hồi từng điểm cơ bản (bps). Thực thi định lượng không lưu ký.",
+    "heroSubtitle": "Hạ tầng định lượng đầu tiên kết nối phục hồi phí điểm cơ bản (bps) và động cơ đối soát thanh khoản 3 tầng (30%/10%/5%) cho khu vực Đông Nam Á. Xác minh API Key ID không lưu ký trên Binance, Bybit, OKX và KuCoin.",
+    "ctaPrimary": "Kích hoạt Terminal",
+    "ctaSecondary": "Tra cứu Nghiên cứu",
+    "ctaDeals": "Xem ma trận phân bổ bps",
     "features": {
-      "title": "Why ApexOS?",
+      "title": "Hạ tầng định lượng cho lợi thế giao dịch",
       "aiSignals": {
-        "title": "AI Signals",
-        "desc": "Machine learning analyzes markets 24/7"
+        "title": "Đối soát dưới 1 giây",
+        "desc": "Động cơ đối chiếu lệnh theo thời gian thực, xử lý webhook trao đổi ký HMAC-SHA256 chỉ trong chưa đến 1 giây."
       },
       "copyTrading": {
-        "title": "Copy Trading",
-        "desc": "Auto-copy trades from master traders"
+        "title": "Thu hồi điểm cơ bản (bps)",
+        "desc": "Thu về 2.7 – 12.0 bps chi phí Taker/Maker, nâng kỳ vọng toán học của danh mục mà không tăng thêm rủi ro hướng đi."
       },
       "riskManage": {
-        "title": "Risk Management",
-        "desc": "Automatic stop-loss, take-profit"
+        "title": "Kiến trúc Zero-Secret",
+        "desc": "Xác minh API Key ID chỉ đọc. Không lưu Secret, không cấp quyền Trade, không có rủi ro rút tiền."
       },
       "paperTrade": {
-        "title": "Paper Trading",
-        "desc": "Test strategies risk-free"
+        "title": "Sổ cái kép trên D1",
+        "desc": "Kế toán kép mật mã học trên Cloudflare D1, đối soát minh bạch và không rò rỉ dòng tiền."
       },
       "referral": {
-        "title": "Referral Rebates",
-        "desc": "Earn commissions by referring friends"
+        "title": "Kinh tế bàn 3 tầng",
+        "desc": "Nhận 30% Tier 1, 10% Tier 2 và 5% Tier 3 từ toàn bộ mạng lưới, tất toán tự động hàng tuần."
       },
       "multiExchange": {
-        "title": "Multi-Exchange",
-        "desc": "Binance, Bybit, OKX — all in one"
+        "title": "Quyết toán Stellar USDC",
+        "desc": "Tự động tất toán về ví không lưu ký hàng tuần qua blockchain Stellar với mức phí mạng không đáng kể."
       }
     },
     "stats": {
-      "users": "Users",
-      "volume": "Trading Volume",
-      "masters": "Master Traders"
+      "users": "Bàn giao dịch hoạt động",
+      "volume": "Khối lượng đối soát 30 ngày",
+      "masters": "Sàn liên kết"
     },
     "footer": {
-      "rights": "© 2026 ApexOS. All rights reserved."
+      "rights": "© 2026 Bộ Kỹ thuật Định lượng ApexOS. Mọi quyền được bảo lưu."
     }
   },
+  "insights": {
+    "badge": "Trung tâm Nghiên cứu Định lượng",
+    "title": "Nghiên cứu Cấu trúc Thị trường & Thực thi Định lượng",
+    "subtitle": "Phân tích học thuật về lực cản phí điểm cơ bản (bps), đối soát API không lưu ký và kinh tế bàn thanh khoản đa tầng.",
+    "readArticle": "Đọc phân tích đầy đủ",
+    "backToList": "Quay lại Trung tâm Nghiên cứu",
+    "readingTime": "Đọc trong {minutes} phút",
+    "keyMetrics": "Chỉ số định lượng then chốt",
+    "publishedOn": "Xuất bản ngày {date}",
+    "ctaTitle": "Sẵn sàng loại bỏ lực cản phí thực thi?",
+    "ctaDesc": "Kết nối API Key ID chỉ đọc trong vài giây và bắt đầu thu hồi phí vi mô trên Binance, Bybit, OKX và KuCoin.",
+    "ctaButton": "Kích hoạt Terminal"
+  },
   "auth": {
-    "loginTitle": "Log In",
-    "signupTitle": "Create Account",
+    "loginTitle": "Đăng nhập",
+    "signupTitle": "Tạo tài khoản",
     "email": "Email",
-    "password": "Password",
-    "confirmPassword": "Confirm Password",
-    "fullName": "Full Name",
-    "forgotPassword": "Forgot password?",
-    "noAccount": "Don't have an account?",
-    "hasAccount": "Already have an account?",
-    "termsAgree": "I agree to the Terms of Service",
-    "submitLogin": "Log In",
-    "submitSignup": "Sign Up",
-    "successLogin": "Login successful",
-    "successSignup": "Account created successfully"
+    "password": "Mật khẩu",
+    "confirmPassword": "Xác nhận mật khẩu",
+    "fullName": "Họ và tên",
+    "forgotPassword": "Quên mật khẩu?",
+    "noAccount": "Chưa có tài khoản?",
+    "hasAccount": "Đã có tài khoản?",
+    "termsAgree": "Tôi đồng ý với Điều khoản Dịch vụ",
+    "submitLogin": "Đăng nhập",
+    "submitSignup": "Đăng ký",
+    "successLogin": "Đăng nhập thành công",
+    "successSignup": "Tạo tài khoản thành công"
   },
   "errors": {
-    "invalidEmail": "Invalid email address",
-    "shortPassword": "Password must be at least 8 characters",
-    "passwordMismatch": "Passwords do not match",
-    "termsRequired": "Please agree to the terms",
-    "generic": "Something went wrong. Please try again."
+    "invalidEmail": "Địa chỉ email không hợp lệ",
+    "shortPassword": "Mật khẩu phải có ít nhất 8 ký tự",
+    "passwordMismatch": "Mật khẩu không khớp",
+    "termsRequired": "Vui lòng đồng ý với điều khoản",
+    "generic": "Đã xảy ra lỗi. Vui lòng thử lại.",
+    "title": "Lỗi",
+    "loadFailed": "Không tải được dữ liệu",
+    "retry": "Thử lại"
   },
   "stitch": {
     "common": {
-      "loading": "Loading...",
-      "error": "An error occurred",
-      "success": "Success!",
-      "cancel": "Cancel",
-      "close": "Close",
-      "confirm": "Confirm",
-      "save": "Save",
-      "submit": "Submit",
-      "back": "Back",
-      "next": "Next",
-      "previous": "Previous",
-      "continue": "Continue",
-      "done": "Done",
-      "retry": "Retry",
-      "search": "Search",
-      "filter": "Filter",
-      "sort": "Sort",
-      "view": "View",
-      "edit": "Edit",
-      "delete": "Delete",
-      "create": "Create",
-      "update": "Update",
-      "add": "Add",
-      "remove": "Remove",
-      "clear": "Clear",
-      "reset": "Reset",
-      "apply": "Apply",
-      "preview": "Preview",
-      "export": "Export",
-      "download": "Download",
-      "upload": "Upload",
-      "copy": "Copy",
-      "paste": "Paste",
-      "cut": "Cut",
-      "select_all": "Select All",
-      "select_none": "Select None",
-      "required": "Required",
-      "optional": "Optional",
-      "yes": "Yes",
-      "no": "No",
+      "loading": "Đang tải...",
+      "error": "Đã xảy ra lỗi",
+      "success": "Thành công!",
+      "cancel": "Hủy",
+      "close": "Đóng",
+      "confirm": "Xác nhận",
+      "save": "Lưu",
+      "submit": "Gửi",
+      "back": "Quay lại",
+      "next": "Tiếp",
+      "previous": "Trước",
+      "continue": "Tiếp tục",
+      "done": "Hoàn tất",
+      "retry": "Thử lại",
+      "search": "Tìm kiếm",
+      "filter": "Lọc",
+      "sort": "Sắp xếp",
+      "view": "Xem",
+      "edit": "Sửa",
+      "delete": "Xóa",
+      "create": "Tạo",
+      "update": "Cập nhật",
+      "add": "Thêm",
+      "remove": "Bỏ",
+      "clear": "Xóa trắng",
+      "reset": "Đặt lại",
+      "apply": "Áp dụng",
+      "preview": "Xem trước",
+      "export": "Xuất",
+      "download": "Tải về",
+      "upload": "Tải lên",
+      "copy": "Sao chép",
+      "paste": "Dán",
+      "cut": "Cắt",
+      "select_all": "Chọn tất cả",
+      "select_none": "Bỏ chọn tất cả",
+      "required": "Bắt buộc",
+      "optional": "Tùy chọn",
+      "yes": "Có",
+      "no": "Không",
       "ok": "OK",
-      "more": "More",
-      "less": "Less",
-      "show": "Show",
-      "hide": "Hide",
-      "expand": "Expand",
-      "collapse": "Collapse",
-      "open": "Open",
-      "close_window": "Close Window",
-      "minimize": "Minimize",
-      "maximize": "Maximize"
+      "more": "Thêm",
+      "less": "Ít hơn",
+      "show": "Hiển thị",
+      "hide": "Ẩn",
+      "expand": "Mở rộng",
+      "collapse": "Thu gọn",
+      "open": "Mở",
+      "close_window": "Đóng cửa sổ",
+      "minimize": "Thu nhỏ",
+      "maximize": "Phóng to"
     },
     "buttons": {
-      "primary": "Primary",
-      "secondary": "Secondary",
-      "tertiary": "Tertiary",
-      "ghost": "Ghost",
-      "link": "Link",
-      "icon": "Icon Button",
-      "submit": "Submit",
-      "cancel": "Cancel",
-      "confirm": "Confirm",
-      "delete_confirm": "Delete Confirm",
-      "save_changes": "Save Changes",
-      "discard": "Discard",
-      "proceed": "Proceed",
-      "skip": "Skip",
-      "finish": "Finish",
-      "complete": "Complete"
+      "primary": "Nút chính",
+      "secondary": "Nút phụ",
+      "tertiary": "Nút cấp ba",
+      "ghost": "Nút trong suốt",
+      "link": "Liên kết",
+      "icon": "Nút biểu tượng",
+      "submit": "Gửi",
+      "cancel": "Hủy",
+      "confirm": "Xác nhận",
+      "delete_confirm": "Xác nhận xóa",
+      "save_changes": "Lưu thay đổi",
+      "discard": "Bỏ qua",
+      "proceed": "Tiến hành",
+      "skip": "Bỏ qua",
+      "finish": "Kết thúc",
+      "complete": "Hoàn thành"
     },
     "forms": {
-      "title": "Form",
-      "description": "Please fill out the form below",
-      "name": "Name",
+      "title": "Biểu mẫu",
+      "description": "Vui lòng điền thông tin bên dưới",
+      "name": "Tên",
       "email": "Email",
-      "password": "Password",
-      "confirm_password": "Confirm Password",
-      "phone": "Phone Number",
-      "address": "Address",
-      "city": "City",
-      "country": "Country",
-      "state": "State/Province",
-      "zip_code": "ZIP/Postal Code",
-      "url": "URL",
-      "description_label": "Description",
-      "search_placeholder": "Search...",
-      "input_placeholder": "Enter text...",
-      "select_placeholder": "Select an option...",
-      "textarea_placeholder": "Enter your message...",
-      "helper_text": "Helper text",
-      "error_required": "This field is required",
-      "error_email": "Please enter a valid email address",
-      "error_min_length": "Minimum {min} characters required",
-      "error_max_length": "Maximum {max} characters allowed",
-      "error_pattern": "Invalid format",
-      "error_match": "Fields do not match",
-      "success_message": "Form submitted successfully!",
-      "submitting": "Submitting..."
+      "password": "Mật khẩu",
+      "confirm_password": "Xác nhận mật khẩu",
+      "phone": "Số điện thoại",
+      "address": "Địa chỉ",
+      "city": "Thành phố",
+      "country": "Quốc gia",
+      "state": "Tỉnh/Bang",
+      "zip_code": "Mã bưu chính",
+      "url": "Liên kết",
+      "description_label": "Mô tả",
+      "search_placeholder": "Tìm kiếm...",
+      "input_placeholder": "Nhập nội dung...",
+      "select_placeholder": "Chọn một tùy chọn...",
+      "textarea_placeholder": "Nhập tin nhắn...",
+      "helper_text": "Văn bản trợ giúp",
+      "error_required": "Trường này là bắt buộc",
+      "error_email": "Vui lòng nhập địa chỉ email hợp lệ",
+      "error_min_length": "Yêu cầu tối thiểu {min} ký tự",
+      "error_max_length": "Cho phép tối đa {max} ký tự",
+      "error_pattern": "Định dạng không hợp lệ",
+      "error_match": "Các trường không khớp",
+      "success_message": "Gửi biểu mẫu thành công!",
+      "submitting": "Đang gửi..."
     },
     "tables": {
-      "title": "Table",
-      "empty": "No data available",
-      "loading": "Loading data...",
-      "error": "Failed to load data",
-      "refresh": "Refresh",
+      "title": "Bảng",
+      "empty": "Không có dữ liệu",
+      "loading": "Đang tải dữ liệu...",
+      "error": "Tải dữ liệu thất bại",
+      "refresh": "Làm mới",
       "columns": {
-        "name": "Name",
-        "date": "Date",
-        "status": "Status",
-        "actions": "Actions",
-        "id": "ID",
-        "created": "Created",
-        "updated": "Updated",
-        "description": "Description",
-        "type": "Type",
-        "amount": "Amount"
+        "name": "Tên",
+        "date": "Ngày",
+        "status": "Trạng thái",
+        "actions": "Hành động",
+        "id": "Mã",
+        "created": "Ngày tạo",
+        "updated": "Ngày cập nhật",
+        "description": "Mô tả",
+        "type": "Loại",
+        "amount": "Số tiền"
       },
       "actions": {
-        "view": "View",
-        "edit": "Edit",
-        "delete": "Delete",
-        "duplicate": "Duplicate",
-        "export": "Export",
-        "filter": "Filter"
+        "view": "Xem",
+        "edit": "Sửa",
+        "delete": "Xóa",
+        "duplicate": "Nhân bản",
+        "export": "Xuất",
+        "filter": "Lọc"
       },
       "pagination": {
-        "showing": "Showing {from} to {to} of {total} entries",
-        "previous": "Previous",
-        "next": "Next",
-        "first": "First",
-        "last": "Last"
+        "showing": "Hiển thị {from} đến {to} trong {total} bản ghi",
+        "previous": "Trước",
+        "next": "Sau",
+        "first": "Đầu",
+        "last": "Cuối"
       }
     },
     "cards": {
-      "title": "Card",
-      "view_more": "View More",
-      "learn_more": "Learn More",
-      "get_started": "Get Started",
-      "read_more": "Read More",
-      "details": "Details",
-      "overview": "Overview",
+      "title": "Thẻ",
+      "view_more": "Xem thêm",
+      "learn_more": "Tìm hiểu thêm",
+      "get_started": "Bắt đầu",
+      "read_more": "Đọc thêm",
+      "details": "Chi tiết",
+      "overview": "Tổng quan",
       "stats": {
-        "views": "Views",
-        "likes": "Likes",
-        "shares": "Shares",
-        "downloads": "Downloads"
+        "views": "Lượt xem",
+        "likes": "Lượt thích",
+        "shares": "Lượt chia sẻ",
+        "downloads": "Lượt tải"
       }
     },
     "dialogs": {
-      "title": "Dialog",
-      "confirm_title": "Confirm Action",
-      "delete_confirm_title": "Delete Item",
-      "delete_confirm_message": "Are you sure you want to delete this item? This action cannot be undone.",
-      "unsaved_changes_title": "Unsaved Changes",
-      "unsaved_changes_message": "You have unsaved changes. Are you sure you want to leave?",
-      "close": "Close",
-      "dismiss": "Dismiss",
-      "confirm": "Confirm",
-      "cancel": "Cancel"
+      "title": "Hộp thoại",
+      "confirm_title": "Xác nhận hành động",
+      "delete_confirm_title": "Xóa mục",
+      "delete_confirm_message": "Bạn có chắc muốn xóa mục này? Hành động này không thể hoàn tác.",
+      "unsaved_changes_title": "Thay đổi chưa lưu",
+      "unsaved_changes_message": "Bạn có thay đổi chưa được lưu. Bạn có muốn rời đi?",
+      "close": "Đóng",
+      "dismiss": "Bỏ qua",
+      "confirm": "Xác nhận",
+      "cancel": "Hủy"
     },
     "navigation": {
-      "home": "Home",
-      "back": "Back",
-      "forward": "Forward",
-      "up": "Up",
-      "down": "Down",
-      "first_page": "First Page",
-      "last_page": "Last Page",
-      "page": "Page",
-      "of": "of",
-      "go_to_page": "Go to page"
+      "home": "Trang chủ",
+      "back": "Quay lại",
+      "forward": "Tiến tới",
+      "up": "Lên",
+      "down": "Xuống",
+      "first_page": "Trang đầu",
+      "last_page": "Trang cuối",
+      "page": "Trang",
+      "of": "của",
+      "go_to_page": "Đến trang"
     },
     "status": {
-      "pending": "Pending",
-      "processing": "Processing...",
-      "active": "Active",
-      "inactive": "Inactive",
-      "draft": "Draft",
-      "published": "Published",
-      "archived": "Archived",
-      "completed": "Completed",
-      "failed": "Failed",
-      "cancelled": "Cancelled",
-      "success": "Success",
-      "error": "Error",
-      "warning": "Warning",
-      "info": "Information"
+      "pending": "Chờ xử lý",
+      "processing": "Đang xử lý...",
+      "active": "Đang hoạt động",
+      "inactive": "Ngừng hoạt động",
+      "draft": "Bản nháp",
+      "published": "Đã xuất bản",
+      "archived": "Đã lưu trữ",
+      "completed": "Đã hoàn thành",
+      "failed": "Thất bại",
+      "cancelled": "Đã hủy",
+      "success": "Thành công",
+      "error": "Lỗi",
+      "warning": "Cảnh báo",
+      "info": "Thông tin"
     },
     "empty": {
-      "title": "No Data",
-      "description": "There is no data to display at this time.",
-      "create_first": "Create your first item",
-      "check_filters": "Try adjusting your filters",
-      "go_back": "Go Back"
+      "title": "Không có dữ liệu",
+      "description": "Hiện không có dữ liệu để hiển thị.",
+      "create_first": "Tạo mục đầu tiên",
+      "check_filters": "Thử điều chỉnh bộ lọc",
+      "go_back": "Quay lại"
     },
     "search": {
-      "placeholder": "Search...",
-      "no_results": "No results found",
-      "try_different": "Try different keywords",
-      "results_count": "{count} result(s) found",
-      "searching": "Searching..."
+      "placeholder": "Tìm kiếm...",
+      "no_results": "Không tìm thấy kết quả",
+      "try_different": "Thử từ khóa khác",
+      "results_count": "Tìm thấy {count} kết quả",
+      "searching": "Đang tìm..."
     },
     "file_upload": {
-      "drop_text": "Drop files here or click to browse",
-      "uploading": "Uploading...",
-      "upload_success": "Upload complete",
-      "upload_failed": "Upload failed",
-      "max_size_exceeded": "File size exceeds limit",
-      "invalid_type": "Invalid file type",
-      "remove": "Remove file"
+      "drop_text": "Kéo tệp vào đây hoặc nhấn để chọn",
+      "uploading": "Đang tải lên...",
+      "upload_success": "Tải lên hoàn tất",
+      "upload_failed": "Tải lên thất bại",
+      "max_size_exceeded": "Kích thước tệp vượt quá giới hạn",
+      "invalid_type": "Loại tệp không hợp lệ",
+      "remove": "Xóa tệp"
     },
     "tooltips": {
-      "save": "Save changes",
-      "delete": "Delete item",
-      "edit": "Edit item",
-      "share": "Share",
-      "download": "Download",
-      "more_options": "More options"
+      "save": "Lưu thay đổi",
+      "delete": "Xóa mục",
+      "edit": "Sửa mục",
+      "share": "Chia sẻ",
+      "download": "Tải về",
+      "more_options": "Thêm tùy chọn"
     },
-    "loading": "Loading..."
+    "loading": "Đang tải..."
   },
   "deals": {
-    "title": "All Deals",
-    "subtitle": "Browse exclusive offers and cashback deals from top exchanges",
+    "title": "Ưu Đãi & Phí Thực Thi",
+    "subtitle": "Ma trận phục hồi phí theo thời gian thực và thỏa thuận hạng mức phí trên các sàn thanh khoản hàng đầu.",
     "filters": {
-      "title": "Filters",
-      "search": "Search deals...",
-      "searchPlaceholder": "Search deals...",
-      "allExchanges": "All Exchanges",
-      "allCategories": "All Categories",
-      "allTypes": "All Types",
-      "exchange": "Exchange",
-      "category": "Category",
-      "type": "Deal Type",
-      "clearAll": "Clear all",
-      "apply": "Apply Filters"
+      "title": "Bộ lọc",
+      "search": "Tìm kiếm ưu đãi...",
+      "searchPlaceholder": "Tìm theo cặp giao dịch hoặc sàn...",
+      "allExchanges": "Tất cả sàn",
+      "allCategories": "Tất cả danh mục",
+      "allTypes": "Tất cả loại",
+      "exchange": "Sàn giao dịch",
+      "category": "Danh mục",
+      "type": "Loại ưu đãi",
+      "clearAll": "Xóa tất cả",
+      "apply": "Áp dụng bộ lọc"
     },
     "exchanges": {
       "binance": "Binance",
       "bybit": "Bybit",
       "okx": "OKX",
-      "ftx": "FTX",
+      "kucoin": "KuCoin",
       "coinbase": "Coinbase",
       "kraken": "Kraken"
     },
@@ -325,201 +347,209 @@
       "spot": "Spot",
       "futures": "Futures",
       "options": "Options",
-      "margin": "Margin Trading"
+      "margin": "Margin"
     },
     "types": {
-      "product": "Product",
-      "service": "Service",
-      "subscription": "Subscription",
-      "course": "Course"
+      "product": "Sản phẩm",
+      "service": "Dịch vụ",
+      "subscription": "Định kỳ",
+      "course": "Khóa học"
     },
     "risk": {
-      "low": "Low",
-      "medium": "Medium",
-      "high": "High"
+      "low": "Thấp",
+      "medium": "Trung bình",
+      "high": "Cao"
     },
     "card": {
-      "viewDeal": "View Deal",
-      "cashback": "Cashback",
-      "type": "Type",
-      "category": "Category",
-      "posted": "Posted",
-      "noDescription": "No description available"
+      "viewDeal": "Xem ưu đãi",
+      "cashback": "Hoàn phí (bps / %)",
+      "type": "Loại",
+      "category": "Danh mục",
+      "posted": "Cập nhật",
+      "noDescription": "Không có mô tả"
     },
     "pagination": {
-      "showing": "Showing {from} to {to} of {total} deals",
-      "previous": "Previous",
-      "next": "Next"
+      "showing": "Hiển thị {from} đến {to} trong {total} ưu đãi",
+      "previous": "Trước",
+      "next": "Sau"
     },
     "empty": {
-      "title": "No deals found",
-      "description": "Try adjusting your filters to find more opportunities",
-      "clearFilters": "Clear all filters"
+      "title": "Không tìm thấy ưu đãi",
+      "description": "Thử điều chỉnh bộ lọc để tìm thêm cơ hội",
+      "clearFilters": "Xóa tất cả bộ lọc"
     },
-    "error": "Failed to load deals. Please try again.",
-    "backToDeals": "Back to Deals",
+    "error": "Tải ưu đãi thất bại. Vui lòng thử lại.",
+    "backToDeals": "Quay lại Ưu đãi",
+    "cashback": {
+      "title": "Tỷ lệ hoàn phí",
+      "subtitle": "Ghi nhận trực tiếp vào sổ cái"
+    },
+    "cookieDuration": {
+      "title": "Cửa sổ đối soát",
+      "days": "ngày"
+    },
     "stats": {
-      "symbol": "Trading Pair",
-      "leverage": "Leverage",
-      "entryPrice": "Entry Price",
-      "clicks": "Clicks"
+      "symbol": "Cặp giao dịch",
+      "leverage": "Đòn bẩy",
+      "entryPrice": "Giá vào lệnh",
+      "clicks": "Lượt nhấp"
     },
     "levels": {
-      "stopLoss": "Stop Loss",
-      "takeProfit": "Take Profit"
+      "stopLoss": "Cắt lỗ",
+      "takeProfit": "Chốt lời"
     },
     "riskLevel": {
-      "low": "Low Risk",
-      "medium": "Medium Risk",
-      "high": "High Risk"
+      "low": "Rủi ro thấp",
+      "medium": "Rủi ro trung bình",
+      "high": "Rủi ro cao"
     },
     "cta": {
-      "subtitle": "You will be redirected to",
-      "description": "the exchange to place your trade",
-      "claimDeal": "Claim Deal",
-      "redirecting": "Redirecting..."
+      "subtitle": "Bộ định tuyến khớp lệnh trực tiếp trên sàn",
+      "description": "Liên kết API Key ID không lưu ký được áp dụng tự động khi kết nối.",
+      "claimDeal": "Nhận ưu đãi & Liên kết Key ID",
+      "redirecting": "Đang chuyển hướng..."
     },
     "share": {
-      "title": "Share This Deal",
-      "description": "Share this link with friends to earn commissions together",
-      "copyLink": "Copy Link",
-      "copied": "Copied!",
+      "title": "Chia sẻ liên kết thanh khoản",
+      "description": "Chia sẻ liên kết này với đối tác và bàn phụ để ghi nhận đối soát đa tầng.",
+      "copyLink": "Sao chép liên kết",
+      "copied": "Đã sao chép!",
       "note": {
-        "title": "About Commissions",
-        "description": "You'll earn commissions when your referrals sign up and trade through this link."
+        "title": "Về đối soát bàn giao dịch",
+        "description": "Toàn bộ khối lượng phát sinh qua liên kết này được ghi nhận dưới bàn Tier 1 (30%) của bạn trong D1."
       }
     },
     "footer": {
-      "disclaimer": "ApexOS is not an exchange. This deal is provided by our partner and subject to their terms.",
-      "published": "Published {date}"
+      "disclaimer": "ApexOS là nhà cung cấp công nghệ thực thi & đối soát định lượng, không phải sàn giao dịch hay môi giới.",
+      "published": "Xuất bản ngày {date}"
     }
   },
   "affiliates": {
-    "title": "Affiliate Dashboard",
-    "subtitle": "Track your referrals, earnings, and commissions",
+    "title": "Trung tâm Đối soát Bàn Thanh khoản",
+    "subtitle": "Theo dõi mạng lưới đối tác đa tầng, khối lượng được đối soát và tất toán USDC về ví Stellar",
     "stats": {
-      "lifetimeEarnings": "Lifetime Earnings",
-      "pendingEarnings": "Pending Earnings",
-      "totalReferrals": "Total Referrals",
-      "conversionRate": "Conversion Rate",
-      "activeReferrals": "Active Referrals",
-      "thisMonth": "This Month",
-      "last30Days": "Last 30 Days"
+      "lifetimeEarnings": "Tổng hoàn phí & hoa hồng",
+      "pendingEarnings": "Chờ tất toán",
+      "totalReferrals": "Bàn đã liên kết",
+      "conversionRate": "Tỷ lệ đối soát",
+      "activeReferrals": "Bàn đang hoạt động",
+      "thisMonth": "Tháng này",
+      "last30Days": "30 ngày qua"
     },
     "code": {
-      "title": "Your Affiliate Code",
-      "subtitle": "Share this code to earn commissions",
-      "yourCode": "Your Referral Code",
-      "copy": "Copy Code",
-      "copied": "Copied!",
-      "shareLink": "Share Link",
-      "generateNew": "Generate New Code"
+      "title": "Mã & liên kết đối soát bàn giao dịch",
+      "subtitle": "Chia sẻ mã đối soát bàn của bạn với thành viên cộng đồng và nhà giao dịch phụ",
+      "yourCode": "Mã đối soát bàn của bạn",
+      "copy": "Sao chép mã",
+      "copied": "Đã sao chép!",
+      "shareLink": "Chia sẻ liên kết",
+      "generateNew": "Tạo mã mới"
     },
     "tiers": {
-      "title": "Commission Tiers",
-      "subtitle": "Earn commissions on up to 3 levels of referrals",
+      "title": "Cấu trúc bàn thanh khoản 3 tầng",
+      "subtitle": "Đối soát tự động qua 3 cấp độ thực thi phân cấp",
       "tier1": {
-        "name": "Level 1",
-        "description": "Direct referrals",
+        "name": "Bàn Tier 1",
+        "description": "Bàn giao dịch & nhà giao dịch được liên kết trực tiếp",
         "rate": "30%"
       },
       "tier2": {
-        "name": "Level 2",
-        "description": "2nd-level referrals",
+        "name": "Bàn phụ Tier 2",
+        "description": "Đối tác cấp hai và bàn giao dịch phụ",
         "rate": "10%"
       },
       "tier3": {
-        "name": "Level 3",
-        "description": "3rd-level referrals",
+        "name": "Mạng lưới Tier 3",
+        "description": "Dòng giao dịch rộng từ cộng đồng và mạng lưới",
         "rate": "5%"
       }
     },
     "referralTree": {
-      "title": "Referral Tree",
-      "subtitle": "Your affiliate network structure",
-      "expandAll": "Expand All",
-      "collapseAll": "Collapse All",
-      "empty": "No referrals yet. Share your code to start building your network!",
-      "level": "Level",
-      "direct": "Direct",
-      "indirect": "Indirect",
-      "totalReferrals": "Total referrals: {count}",
-      "conversions": "{count, plural, one {conversion} other {conversions}}"
+      "title": "Phân cấp đối soát bàn giao dịch",
+      "subtitle": "Mạng lưới bàn thanh khoản đa tầng của bạn",
+      "expandAll": "Mở rộng tất cả",
+      "collapseAll": "Thu gọn tất cả",
+      "empty": "Chưa có bàn nào được liên kết. Phát phối liên kết bàn giao dịch để bắt đầu lập bản đồ dòng lệnh!",
+      "level": "Tầng",
+      "direct": "Trực tiếp",
+      "indirect": "Gián tiếp",
+      "totalReferrals": "Tổng bàn đã liên kết: {count}",
+      "conversions": "{count, plural, one {lệnh được đối soát} other {lệnh được đối soát}}"
     },
     "conversions": {
-      "title": "Recent Conversions",
-      "subtitle": "Latest conversions from your referrals",
-      "empty": "No conversions yet",
+      "title": "Giao dịch đối soát gần đây",
+      "subtitle": "Webhook giao dịch đã xác minh qua HMAC-SHA256 trên các sàn liên kết",
+      "empty": "Chưa có giao dịch nào được đối soát",
       "columns": {
-        "date": "Date",
-        "customer": "Customer",
-        "deal": "Deal",
-        "amount": "Amount",
-        "commission": "Commission",
-        "level": "Level",
-        "status": "Status"
+        "date": "Thời điểm khớp",
+        "customer": "Bàn / Key ID",
+        "deal": "Sàn giao dịch",
+        "amount": "Khối lượng",
+        "commission": "Hoàn phí đối soát",
+        "level": "Tầng",
+        "status": "Trạng thái đối soát"
       }
     },
     "payouts": {
-      "title": "Payout History",
-      "subtitle": "Your withdrawal and payment records",
-      "empty": "No payouts yet",
+      "title": "Bản ghi tất toán ví",
+      "subtitle": "Tất toán tự động không lưu ký qua Stellar USDC và cổng thanh toán nội địa",
+      "empty": "Chưa có bản ghi tất toán nào",
       "columns": {
-        "date": "Date",
-        "amount": "Amount",
-        "netAmount": "Net Amount",
-        "method": "Method",
-        "status": "Status",
-        "transactionId": "Transaction ID",
-        "fee": "Fee",
-        "notes": "Notes"
+        "date": "Ngày tất toán",
+        "amount": "Số tiền gộp",
+        "netAmount": "Số tiền thực nhận",
+        "method": "Cổng tất toán",
+        "status": "Trạng thái",
+        "transactionId": "Mã giao dịch sổ cái",
+        "fee": "Phí mạng",
+        "notes": "Ghi chú"
       },
       "methods": {
-        "bank_transfer": "Bank Transfer",
-        "crypto": "Cryptocurrency",
+        "bank_transfer": "Chuyển khoản ngân hàng",
+        "crypto": "Stellar USDC",
         "paypal": "PayPal",
         "stripe": "Stripe",
         "momo": "MoMo",
-        "sepay": "SePay",
+        "sepay": "VietQR SePay",
         "vnpay": "VNPay"
       },
       "stats": {
-        "totalPayouts": "Total Payouts",
-        "totalPaid": "Total Paid",
-        "pendingAmount": "Pending Amount",
-        "totalFees": "Total Fees"
+        "totalPayouts": "Tổng số đợt",
+        "totalPaid": "Khối lượng đã tất toán",
+        "pendingAmount": "Số dư ví chờ tất toán",
+        "totalFees": "Tổng phí mạng tích lũy"
       },
       "filters": {
-        "allStatus": "All Statuses",
-        "searchPlaceholder": "Search by transaction ID or method...",
-        "apply": "Apply Filters",
-        "clear": "Clear Filters"
+        "allStatus": "Tất cả trạng thái",
+        "searchPlaceholder": "Tìm theo mã giao dịch hoặc cổng tất toán...",
+        "apply": "Áp dụng bộ lọc",
+        "clear": "Xóa bộ lọc"
       },
       "status": {
-        "pending": "Pending",
-        "processing": "Processing",
-        "completed": "Completed",
-        "failed": "Failed",
-        "cancelled": "Cancelled"
+        "pending": "Chờ đợt tất toán",
+        "processing": "Đang phát sóng",
+        "completed": "Đã ghi sổ cái",
+        "failed": "Lỗi phát sóng",
+        "cancelled": "Đã hoàn trả"
       }
     },
     "status": {
-      "pending": "Pending",
-      "approved": "Approved",
-      "rejected": "Rejected",
-      "refunded": "Refunded",
-      "processing": "Processing",
-      "completed": "Completed",
-      "failed": "Failed"
+      "pending": "Chờ đối chiếu",
+      "approved": "Đã xác minh",
+      "rejected": "Bị gắn cờ",
+      "refunded": "Đã điều chỉnh",
+      "processing": "Đang tất toán",
+      "completed": "Đã tất toán",
+      "failed": "Thất bại"
     }
   },
   "admin": {
     "nav": {
-      "deals": "Deals",
-      "analytics": "Analytics",
-      "metrics": "Business Metrics",
-      "health": "Health Dashboard",
-      "alerts": "Alerts",
+      "deals": "Ưu đãi",
+      "analytics": "Phân tích",
+      "metrics": "Chỉ số kinh doanh",
+      "health": "Giám sát hệ thống",
+      "alerts": "Cảnh báo",
       "fraud": "Phát hiện gian lận",
       "settings": "Cài đặt"
     },
@@ -583,418 +613,418 @@
       }
     },
     "deals": {
-      "title": "Deals Management",
-      "subtitle": "Create, edit, and manage trading deals"
+      "title": "Quản lý ưu đãi",
+      "subtitle": "Tạo, sửa và quản lý các ưu đãi giao dịch"
     },
     "analytics": {
-      "title": "Pages Analytics",
-      "subtitle": "Monitor page views, visitors, bounce rate, and traffic sources",
+      "title": "Phân tích truy cập",
+      "subtitle": "Theo dõi lượt xem trang, khách truy cập, tỷ lệ thoát và nguồn lưu lượng",
       "overview": {
-        "pageViews": "Page Views",
-        "uniqueVisitors": "Unique Visitors",
-        "requests": "Requests",
-        "bounceRate": "Bounce Rate",
-        "dataTransfer": "Data Transfer",
-        "good": "Good (<40%)",
-        "needsImprovement": "Needs improvement"
+        "pageViews": "Lượt xem trang",
+        "uniqueVisitors": "Khách truy cập duy nhất",
+        "requests": "Yêu cầu",
+        "bounceRate": "Tỷ lệ thoát",
+        "dataTransfer": "Lưu lượng truyền tải",
+        "good": "Tốt (<40%)",
+        "needsImprovement": "Cần cải thiện"
       },
       "charts": {
-        "trafficTrend": "Traffic Trend (Page Views vs Visitors)",
-        "pageViews": "Page Views",
-        "uniqueVisitors": "Unique Visitors",
-        "topPages": "Top Pages by Page Views",
-        "topReferrers": "Top Referrers",
-        "countries": "Visits by Country",
-        "devices": "Visits by Device",
-        "visits": "Visits"
+        "trafficTrend": "Xu hướng truy cập (Lượt xem vs Khách truy cập)",
+        "pageViews": "Lượt xem trang",
+        "uniqueVisitors": "Khách truy cập duy nhất",
+        "topPages": "Trang có lượt xem cao nhất",
+        "topReferrers": "Nguồn giới thiệu hàng đầu",
+        "countries": "Lượt truy cập theo quốc gia",
+        "devices": "Lượt truy cập theo thiết bị",
+        "visits": "Lượt truy cập"
       },
       "error": {
-        "title": "Failed to Load Analytics",
-        "retry": "Retry"
+        "title": "Tải dữ liệu phân tích thất bại",
+        "retry": "Thử lại"
       }
     },
     "health": {
-      "title": "Payout Health Dashboard",
-      "subtitle": "Monitor conversions, commissions, payouts, and system health in real-time",
+      "title": "Giám sát tất toán",
+      "subtitle": "Theo dõi chuyển đổi, hoa hồng, tất toán và tình trạng hệ thống theo thời gian thực",
       "sections": {
-        "conversions": "Conversions Health",
-        "commissions": "Commissions Health",
-        "payouts": "Payouts Details",
-        "system": "System Status"
+        "conversions": "Tình trạng chuyển đổi",
+        "commissions": "Tình trạng hoa hồng",
+        "payouts": "Chi tiết tất toán",
+        "system": "Trạng thái hệ thống"
       },
       "metrics": {
-        "conversions24h": "Conversions (24h)",
-        "approvedConversions": "Approved Conversions",
-        "pendingCommissions": "Pending Commissions",
-        "payoutSuccessRate": "Payout Success Rate"
+        "conversions24h": "Chuyển đổi (24 giờ)",
+        "approvedConversions": "Chuyển đổi đã duyệt",
+        "pendingCommissions": "Hoa hồng chờ xử lý",
+        "payoutSuccessRate": "Tỷ lệ tất toán thành công"
       },
       "conversions": {
-        "last24h": "Last 24h",
-        "last7d": "Last 7 Days",
-        "last30d": "Last 30 Days",
-        "failureRate": "Failure Rate",
-        "statusBreakdown": "Status Breakdown"
+        "last24h": "24 giờ qua",
+        "last7d": "7 ngày qua",
+        "last30d": "30 ngày qua",
+        "failureRate": "Tỷ lệ lỗi",
+        "statusBreakdown": "Phân bổ trạng thái"
       },
       "commissions": {
-        "pending": "Pending",
-        "paid": "Paid",
-        "total": "Total",
-        "avgRate": "Avg Rate",
-        "byLevel": "By Referral Level",
-        "tier1": "Level 1 (30%)",
-        "tier2": "Level 2 (10%)",
-        "tier3": "Level 3 (5%)"
+        "pending": "Chờ xử lý",
+        "paid": "Đã trả",
+        "total": "Tổng",
+        "avgRate": "Tỷ lệ trung bình",
+        "byLevel": "Theo tầng giới thiệu",
+        "tier1": "Tầng 1 (30%)",
+        "tier2": "Tầng 2 (10%)",
+        "tier3": "Tầng 3 (5%)"
       },
       "payouts": {
-        "total": "Total",
-        "completed": "Completed",
-        "processing": "Processing",
-        "pending": "Pending",
-        "failed": "Failed",
-        "cancelled": "Cancelled",
-        "successRate": "Success Rate",
-        "failureRate": "Failure Rate",
-        "totalAmount": "Total Amount",
-        "netAmount": "Net Amount",
-        "totalFees": "Total Fees",
-        "avgAmount": "Avg Amount",
-        "byMethod": "By Payout Method",
-        "failureReasons": "Top Failure Reasons",
-        "noData": "No data available",
-        "noFailures": "No failed payouts recorded"
+        "total": "Tổng",
+        "completed": "Hoàn tất",
+        "processing": "Đang xử lý",
+        "pending": "Chờ xử lý",
+        "failed": "Thất bại",
+        "cancelled": "Đã hủy",
+        "successRate": "Tỷ lệ thành công",
+        "failureRate": "Tỷ lệ lỗi",
+        "totalAmount": "Tổng số tiền",
+        "netAmount": "Số tiền thực nhận",
+        "totalFees": "Tổng phí",
+        "avgAmount": "Số tiền trung bình",
+        "byMethod": "Theo phương thức tất toán",
+        "failureReasons": "Lý do lỗi phổ biến",
+        "noData": "Không có dữ liệu",
+        "noFailures": "Không có lần tất toán thất bại nào"
       },
       "alerts": {
-        "title": "Active Alerts",
-        "critical": "Critical",
-        "warning": "Warning",
-        "info": "Info",
-        "noConversions24h": "No Conversions in 24 Hours",
-        "lowConversions12h": "Low Conversion Activity",
-        "highPayoutFailureRate": "High Payout Failure Rate",
-        "highConversionFailureRate": "High Conversion Failure Rate",
-        "highPendingCommissions": "High Pending Commissions"
+        "title": "Cảnh báo đang hoạt động",
+        "critical": "Nghiêm trọng",
+        "warning": "Cảnh báo",
+        "info": "Thông tin",
+        "noConversions24h": "Không có chuyển đổi trong 24 giờ",
+        "lowConversions12h": "Hoạt động chuyển đổi thấp",
+        "highPayoutFailureRate": "Tỷ lệ tất toán lỗi cao",
+        "highConversionFailureRate": "Tỷ lệ chuyển đổi lỗi cao",
+        "highPendingCommissions": "Hoa hồng chờ xử lý cao"
       },
       "system": {
-        "database": "Database",
-        "connected": "Connected",
-        "disconnected": "Disconnected",
-        "lastConversion": "Last Conversion",
-        "hoursSinceLast": "Hours Since Last"
+        "database": "Cơ sở dữ liệu",
+        "connected": "Đã kết nối",
+        "disconnected": "Mất kết nối",
+        "lastConversion": "Chuyển đổi gần nhất",
+        "hoursSinceLast": "Số giờ kể từ lần cuối"
       },
       "status": {
-        "healthy": "Healthy",
-        "degraded": "Degraded",
-        "critical": "Critical"
+        "healthy": "Ổn định",
+        "degraded": "Suy giảm",
+        "critical": "Nghiêm trọng"
       },
       "errors": {
-        "loadFailed": "Failed to load health data"
+        "loadFailed": "Tải dữ liệu giám sát thất bại"
       },
       "common": {
-        "refresh": "Refresh",
-        "autoRefresh": "Auto-refresh",
-        "autoRefreshNote": "Data auto-refreshes every 5 minutes when enabled",
-        "dataRefresh": "Last updated"
+        "refresh": "Làm mới",
+        "autoRefresh": "Tự động làm mới",
+        "autoRefreshNote": "Dữ liệu tự động làm mới mỗi 5 phút khi bật",
+        "dataRefresh": "Cập nhật lần cuối"
       },
       "businessKpi": {
-        "title": "Business KPIs",
-        "totalRevenue": "Total Revenue",
-        "payoutVolume": "Payout Volume",
-        "conversionRate": "Conversion Rate",
-        "activeUsers": "Active Users",
+        "title": "Chỉ số kinh doanh",
+        "totalRevenue": "Tổng doanh thu",
+        "payoutVolume": "Khối lượng tất toán",
+        "conversionRate": "Tỷ lệ chuyển đổi",
+        "activeUsers": "Người dùng hoạt động",
         "error": {
-          "loadFailed": "Failed to load metrics"
+          "loadFailed": "Tải chỉ số thất bại"
         },
-        "noData": "No data available",
+        "noData": "Không có dữ liệu",
         "vsPreviousPeriod": {
-          "label": "vs previous period",
-          "up": "up",
-          "down": "down"
+          "label": "so với kỳ trước",
+          "up": "tăng",
+          "down": "giảm"
         }
       }
     },
     "metrics": {
-      "title": "Business Metrics",
-      "subtitle": "Monitor revenue, conversions, and affiliate performance",
+      "title": "Chỉ số kinh doanh",
+      "subtitle": "Theo dõi doanh thu, chuyển đổi và hiệu suất tiếp thị",
       "overview": {
-        "title": "Overview",
-        "period": "Period",
-        "lastUpdated": "Last updated"
+        "title": "Tổng quan",
+        "period": "Kỳ",
+        "lastUpdated": "Cập nhật lần cuối"
       },
       "filters": {
-        "title": "Filters",
-        "startDate": "Start Date",
-        "endDate": "End Date",
-        "dealType": "Deal Type",
-        "exchange": "Exchange",
-        "status": "Status",
-        "allTypes": "All Types",
-        "allExchanges": "All Exchanges",
-        "allStatuses": "All Statuses",
-        "apply": "Apply Filters",
-        "clear": "Clear Filters",
-        "loading": "Loading filters..."
+        "title": "Bộ lọc",
+        "startDate": "Ngày bắt đầu",
+        "endDate": "Ngày kết thúc",
+        "dealType": "Loại ưu đãi",
+        "exchange": "Sàn giao dịch",
+        "status": "Trạng thái",
+        "allTypes": "Tất cả loại",
+        "allExchanges": "Tất cả sàn",
+        "allStatuses": "Tất cả trạng thái",
+        "apply": "Áp dụng bộ lọc",
+        "clear": "Xóa bộ lọc",
+        "loading": "Đang tải bộ lọc..."
       },
       "kpi": {
-        "totalRevenue": "Total Revenue",
-        "totalConversions": "Total Conversions",
-        "activeAffiliates": "Active Affiliates",
-        "conversionRate": "Conversion Rate",
-        "totalCommission": "Total Commission",
-        "avgOrderValue": "Avg. Order Value",
-        "trend": "Trend",
-        "trendUp": "Up",
-        "trendDown": "Down",
-        "trendStable": "Stable",
-        "vsPreviousPeriod": "vs previous period",
-        "topDeal": "Top Deal",
-        "topAffiliate": "Top Affiliate"
+        "totalRevenue": "Tổng doanh thu",
+        "totalConversions": "Tổng chuyển đổi",
+        "activeAffiliates": "Tiếp thị hoạt động",
+        "conversionRate": "Tỷ lệ chuyển đổi",
+        "totalCommission": "Tổng hoa hồng",
+        "avgOrderValue": "Giá trị đơn trung bình",
+        "trend": "Xu hướng",
+        "trendUp": "Tăng",
+        "trendDown": "Giảm",
+        "trendStable": "Ổn định",
+        "vsPreviousPeriod": "so với kỳ trước",
+        "topDeal": "Ưu đãi nổi bật",
+        "topAffiliate": "Tiếp thị nổi bật"
       },
       "revenue": {
-        "title": "Revenue Trend",
-        "subtitle": "Daily revenue over time",
-        "empty": "No revenue data for selected period"
+        "title": "Xu hướng doanh thu",
+        "subtitle": "Doanh thu theo ngày",
+        "empty": "Không có dữ liệu doanh thu cho kỳ đã chọn"
       },
       "conversions": {
-        "title": "Conversion Rates",
-        "subtitle": "Daily conversion performance",
-        "empty": "No conversion data for selected period"
+        "title": "Tỷ lệ chuyển đổi",
+        "subtitle": "Hiệu suất chuyển đổi theo ngày",
+        "empty": "Không có dữ liệu chuyển đổi cho kỳ đã chọn"
       },
       "affiliates": {
-        "title": "Active Affiliates",
-        "subtitle": "Affiliate performance and distribution",
-        "total": "Total Affiliates",
-        "withConversions": "With Conversions",
-        "newThisPeriod": "New This Period",
-        "avgEarnings": "Avg. Lifetime Earnings",
-        "distribution": "Distribution by Level",
-        "level": "Level",
-        "affiliates": "Affiliates",
-        "empty": "No affiliate data for selected period"
+        "title": "Tiếp thị hoạt động",
+        "subtitle": "Hiệu suất và phân bổ tiếp thị",
+        "total": "Tổng tiếp thị",
+        "withConversions": "Có chuyển đổi",
+        "newThisPeriod": "Mới trong kỳ",
+        "avgEarnings": "Thu nhập tích lũy trung bình",
+        "distribution": "Phân bổ theo tầng",
+        "level": "Tầng",
+        "affiliates": "Tiếp thị",
+        "empty": "Không có dữ liệu tiếp thị cho kỳ đã chọn"
       },
       "topDeals": {
-        "title": "Top Performing Deals",
-        "subtitle": "Best deals by revenue and conversions",
+        "title": "Ưu đãi hiệu suất cao",
+        "subtitle": "Ưu đãi tốt nhất theo doanh thu và chuyển đổi",
         "columns": {
-          "name": "Deal",
-          "exchange": "Exchange",
-          "revenue": "Revenue",
-          "conversions": "Conversions",
-          "conversionRate": "Conv. Rate",
-          "clicks": "Clicks",
-          "commission": "Commission"
+          "name": "Ưu đãi",
+          "exchange": "Sàn giao dịch",
+          "revenue": "Doanh thu",
+          "conversions": "Chuyển đổi",
+          "conversionRate": "Tỷ lệ chuyển đổi",
+          "clicks": "Lượt nhấp",
+          "commission": "Hoa hồng"
         },
-        "empty": "No deals data for selected period"
+        "empty": "Không có dữ liệu ưu đãi"
       },
       "errors": {
-        "loadFailed": "Failed to load metrics",
-        "fetchFailed": "Failed to fetch business metrics",
-        "retry": "Retry",
-        "unauthorized": "Admin access required",
-        "forbidden": "Access denied"
+        "loadFailed": "Tải chỉ số thất bại",
+        "fetchFailed": "Truy vấn chỉ số kinh doanh thất bại",
+        "retry": "Thử lại",
+        "unauthorized": "Yêu cầu quyền quản trị",
+        "forbidden": "Truy cập bị từ chối"
       },
       "empty": {
-        "title": "No Metrics Available",
-        "description": "No business metrics data available for the selected filters.",
-        "tryAdjusting": "Try adjusting your date range or filters"
+        "title": "Không có chỉ số",
+        "description": "Không có dữ liệu chỉ số kinh doanh cho bộ lọc đã chọn.",
+        "tryAdjusting": "Thử điều chỉnh khoảng thời gian hoặc bộ lọc"
       },
       "charts": {
-        "revenueTrend": "Revenue Trend",
-        "revenue": "Revenue",
-        "conversions": "Conversions",
-        "commissionPaid": "Commission Paid",
-        "conversionFunnel": "Conversion Funnel",
-        "topDeals": "Top Deals",
-        "dealName": "Deal Name",
-        "totalRevenue": "Total Revenue",
-        "conversionRate": "Conversion Rate"
+        "revenueTrend": "Xu hướng doanh thu",
+        "revenue": "Doanh thu",
+        "conversions": "Chuyển đổi",
+        "commissionPaid": "Hoa hồng đã trả",
+        "conversionFunnel": "Phễu chuyển đổi",
+        "topDeals": "Ưu đãi nổi bật",
+        "dealName": "Tên ưu đãi",
+        "totalRevenue": "Tổng doanh thu",
+        "conversionRate": "Tỷ lệ chuyển đổi"
       },
       "funnel": {
-        "visitorsLabel": "Visitors",
-        "clicksLabel": "Clicks",
-        "conversionsLabel": "Conversions"
+        "visitorsLabel": "Khách truy cập",
+        "clicksLabel": "Lượt nhấp",
+        "conversionsLabel": "Chuyển đổi"
       },
       "dateRange": {
-        "title": "Date Range",
-        "start": "Start Date",
-        "end": "End Date",
-        "apply": "Apply",
-        "reset": "Reset"
+        "title": "Khoảng thời gian",
+        "start": "Ngày bắt đầu",
+        "end": "Ngày kết thúc",
+        "apply": "Áp dụng",
+        "reset": "Đặt lại"
       }
     },
     "alerts": {
-      "title": "Alert Dashboard",
-      "subtitle": "Monitor and manage system alerts, notifications, and health indicators",
+      "title": "Bảng điều khiển cảnh báo",
+      "subtitle": "Theo dõi và quản lý cảnh báo, thông báo và chỉ số tình trạng hệ thống",
       "nav": {
-        "alerts": "Alerts",
-        "history": "Alert History"
+        "alerts": "Cảnh báo",
+        "history": "Lịch sử cảnh báo"
       },
       "stats": {
-        "totalAlerts": "Total Alerts",
-        "activeAlerts": "Active Alerts",
-        "unreadAlerts": "Unread",
-        "critical": "Critical",
-        "silenced": "Silenced"
+        "totalAlerts": "Tổng cảnh báo",
+        "activeAlerts": "Cảnh báo đang hoạt động",
+        "unreadAlerts": "Chưa đọc",
+        "critical": "Nghiêm trọng",
+        "silenced": "Đã tắt"
       },
       "filters": {
-        "status": "Status",
-        "severity": "Severity",
-        "readStatus": "Read",
-        "silenced": "Silenced",
-        "all": "All",
-        "active": "Active",
-        "resolved": "Resolved",
-        "acknowledged": "Acknowledged",
-        "unread": "Unread",
-        "read": "Read",
-        "notSilenced": "Not Silenced"
+        "status": "Trạng thái",
+        "severity": "Mức độ",
+        "readStatus": "Đã đọc",
+        "silenced": "Đã tắt",
+        "all": "Tất cả",
+        "active": "Đang hoạt động",
+        "resolved": "Đã xử lý",
+        "acknowledged": "Đã xác nhận",
+        "unread": "Chưa đọc",
+        "read": "Đã đọc",
+        "notSilenced": "Chưa tắt"
       },
       "severity": {
-        "all": "All Severities",
-        "critical": "Critical",
-        "warning": "Warning",
-        "info": "Info"
+        "all": "Tất cả mức độ",
+        "critical": "Nghiêm trọng",
+        "warning": "Cảnh báo",
+        "info": "Thông tin"
       },
       "status": {
-        "all": "All Status",
-        "active": "Active",
-        "resolved": "Resolved",
-        "acknowledged": "Acknowledged"
+        "all": "Tất cả trạng thái",
+        "active": "Đang hoạt động",
+        "resolved": "Đã xử lý",
+        "acknowledged": "Đã xác nhận"
       },
       "columns": {
-        "severity": "Severity",
-        "title": "Alert",
-        "type": "Type",
-        "currentValue": "Current Value",
-        "triggeredAt": "Triggered",
-        "status": "Status",
-        "actions": "Actions"
+        "severity": "Mức độ",
+        "title": "Cảnh báo",
+        "type": "Loại",
+        "currentValue": "Giá trị hiện tại",
+        "triggeredAt": "Thời điểm kích hoạt",
+        "status": "Trạng thái",
+        "actions": "Hành động"
       },
       "actions": {
-        "markRead": "Mark as Read",
-        "markUnread": "Mark as Unread",
-        "acknowledge": "Acknowledge",
-        "resolve": "Resolve",
-        "silence": "Silence",
-        "confirmResolve": "Are you sure you want to resolve this alert?",
-        "error": "Failed to perform action"
+        "markRead": "Đánh dấu đã đọc",
+        "markUnread": "Đánh dấu chưa đọc",
+        "acknowledge": "Xác nhận",
+        "resolve": "Xử lý",
+        "silence": "Tắt thông báo",
+        "confirmResolve": "Bạn có chắc muốn xử lý cảnh báo này?",
+        "error": "Thực hiện hành động thất bại"
       },
       "bulk": {
-        "selected": "{count} selected",
-        "selectAction": "Select action...",
-        "markRead": "Mark all as read",
-        "markUnread": "Mark all as unread",
-        "acknowledge": "Acknowledge all",
-        "resolve": "Resolve all",
-        "apply": "Apply",
-        "clear": "Clear selection",
-        "confirmTitle": "Confirm Bulk Action",
-        "confirmMessage": "Are you sure you want to {action} {count} selected alerts?"
+        "selected": "Đã chọn {count}",
+        "selectAction": "Chọn hành động...",
+        "markRead": "Đánh dấu tất cả đã đọc",
+        "markUnread": "Đánh dấu tất cả chưa đọc",
+        "acknowledge": "Xác nhận tất cả",
+        "resolve": "Xử lý tất cả",
+        "apply": "Áp dụng",
+        "clear": "Bỏ chọn tất cả",
+        "confirmTitle": "Xác nhận hành động hàng loạt",
+        "confirmMessage": "Bạn có chắc muốn {action} {count} cảnh báo đã chọn?"
       },
       "silence": {
-        "title": "Silence Alert",
-        "description": "This alert will not trigger notifications for the selected duration.",
-        "duration": "Silence Duration",
-        "reason": "Reason (Optional)",
-        "reasonPlaceholder": "Why are you silencing this alert?",
-        "confirm": "Silence Alert"
+        "title": "Tắt cảnh báo",
+        "description": "Cảnh báo này sẽ không kích hoạt thông báo trong khoảng thời gian đã chọn.",
+        "duration": "Thời gian tắt",
+        "reason": "Lý do (không bắt buộc)",
+        "reasonPlaceholder": "Tại sao bạn tắt cảnh báo này?",
+        "confirm": "Tắt cảnh báo"
       },
       "common": {
-        "optional": "optional",
-        "cancel": "Cancel",
-        "refresh": "Refresh"
+        "optional": "tùy chọn",
+        "cancel": "Hủy",
+        "refresh": "Làm mới"
       },
       "empty": {
-        "noAlerts": "No alerts found matching your filters",
-        "noActiveAlerts": "No active alerts",
-        "noHistory": "No alert history"
+        "noAlerts": "Không có cảnh báo phù hợp với bộ lọc",
+        "noActiveAlerts": "Không có cảnh báo đang hoạt động",
+        "noHistory": "Không có lịch sử cảnh báo"
       },
       "types": {
-        "no_conversions_24h": "No Conversions (24h)",
-        "payout_failure_rate": "Payout Failure Rate",
-        "conversion_failure_rate": "Conversion Failure Rate",
-        "pending_commissions": "Pending Commissions",
-        "custom": "Custom Alert",
-        "query_duration": "Query Duration",
-        "storage_usage": "Storage Usage",
-        "slow_query_count": "Slow Query Count",
-        "rows_scanned": "Rows Scanned"
+        "no_conversions_24h": "Không có chuyển đổi (24 giờ)",
+        "payout_failure_rate": "Tỷ lệ tất toán lỗi",
+        "conversion_failure_rate": "Tỷ lệ chuyển đổi lỗi",
+        "pending_commissions": "Hoa hồng chờ xử lý",
+        "custom": "Cảnh báo tuỳ chỉnh",
+        "query_duration": "Thời lượng truy vấn",
+        "storage_usage": "Mức sử dụng lưu trữ",
+        "slow_query_count": "Số truy vấn chậm",
+        "rows_scanned": "Số dòng quét"
       }
     },
     "settings": {
       "notifications": {
-        "title": "Notification Settings",
-        "subtitle": "Configure Slack, email, and Telegram channels for system notifications",
-        "globalSettings": "Global Settings",
-        "notificationsEnabled": "Notifications Enabled",
-        "notificationsEnabledDesc": "Master switch for all notification channels",
-        "rateLimit": "Rate Limit",
-        "rateLimitDesc": "Max notifications per minute",
-        "channelConfigured": "Configured",
-        "channelNotConfigured": "Not configured",
+        "title": "Cài đặt thông báo",
+        "subtitle": "Cấu hình kênh Slack, email và Telegram cho thông báo hệ thống",
+        "globalSettings": "Cài đặt chung",
+        "notificationsEnabled": "Bật thông báo",
+        "notificationsEnabledDesc": "Công tắc tổng cho mọi kênh thông báo",
+        "rateLimit": "Giới hạn tần suất",
+        "rateLimitDesc": "Số thông báo tối đa mỗi phút",
+        "channelConfigured": "Đã cấu hình",
+        "channelNotConfigured": "Chưa cấu hình",
         "fields": {
-          "webhookUrl": "Webhook URL",
-          "channel": "Channel (optional)",
-          "username": "Bot Username",
-          "iconEmoji": "Icon Emoji",
+          "webhookUrl": "URL Webhook",
+          "channel": "Kênh (tùy chọn)",
+          "username": "Tên bot",
+          "iconEmoji": "Biểu tượng cảm xúc",
           "apiKey": "Resend API Key",
-          "fromEmail": "From Email",
-          "fromName": "From Name",
-          "recipients": "Default Recipients",
-          "recipientsHelp": "Comma-separated email addresses",
-          "replyTo": "Reply-To (optional)",
-          "botToken": "Bot Token",
-          "chatIds": "Chat IDs",
-          "chatIdsHelp": "Comma-separated chat IDs (negative for groups)",
-          "parseMode": "Parse Mode",
-          "disablePreview": "Disable Web Page Preview"
+          "fromEmail": "Email gửi",
+          "fromName": "Tên người gửi",
+          "recipients": "Người nhận mặc định",
+          "recipientsHelp": "Các địa chỉ email, phân tách bằng dấu phẩy",
+          "replyTo": "Trả lời tới (tùy chọn)",
+          "botToken": "Token Bot",
+          "chatIds": "Chat ID",
+          "chatIdsHelp": "Chat ID (số âm cho nhóm)",
+          "parseMode": "Chế độ phân tích",
+          "disablePreview": "Tắt xem trước trang"
         },
         "actions": {
-          "test": "Test Connection",
-          "save": "Save Configuration",
-          "delete": "Delete"
+          "test": "Kiểm tra kết nối",
+          "save": "Lưu cấu hình",
+          "delete": "Xóa"
         },
-        "setupHelp": "Setup Instructions",
-        "saveSuccess": "Configuration saved successfully",
-        "saveError": "Failed to save configuration",
-        "testSuccess": "Test notification sent successfully!",
-        "testFailed": "Test notification failed",
-        "testDetails": "Message delivered",
-        "deleteConfirm": "Are you sure you want to delete this channel configuration?",
-        "deleteSuccess": "Configuration deleted successfully",
-        "deleteError": "Failed to delete configuration"
+        "setupHelp": "Hướng dẫn cài đặt",
+        "saveSuccess": "Lưu cấu hình thành công",
+        "saveError": "Lưu cấu hình thất bại",
+        "testSuccess": "Gửi thông báo kiểm tra thành công!",
+        "testFailed": "Gửi thông báo kiểm tra thất bại",
+        "testDetails": "Đã chuyển phát tin nhắn",
+        "deleteConfirm": "Bạn có chắc muốn xóa cấu hình kênh này?",
+        "deleteSuccess": "Xóa cấu hình thành công",
+        "deleteError": "Xóa cấu hình thất bại"
       },
       "stellar": {
         "title": "Cài đặt Stellar",
-        "subtitle": "Cấu hình mạng Stellar và cài đặt USDC payout",
-        "networkSelection": "Chọn Mạng",
+        "subtitle": "Cấu hình mạng lưới Stellar và tham số tất toán USDC",
+        "networkSelection": "Chọn mạng lưới",
         "active": "Đang hoạt động",
         "production": "SẢN XUẤT",
         "configuration": "Cấu hình",
         "fields": {
           "horizonUrl": "Horizon URL",
-          "horizonUrlHelp": "Stellar Horizon server endpoint",
-          "usdcIssuer": "USDC Issuer",
+          "horizonUrlHelp": "Điểm cuối máy chủ Stellar Horizon",
+          "usdcIssuer": "Nhà phát hành USDC",
           "viewOnExplorer": "Xem trên StellarExpert"
         },
-        "walletConfiguration": "Cấu hình Ví",
+        "walletConfiguration": "Cấu hình ví",
         "setupRequired": "Cần thiết lập",
-        "setupDescription": "Trước khi chạy payout, bạn cần tạo ví Stellar và nạp USDC.",
+        "setupDescription": "Trước khi chạy tất toán, bạn cần tạo ví Stellar và nạp USDC.",
         "setupSteps": [
-          "Tải ví xPortal từ app store",
-          "Tạo ví mới với mạng phù hợp",
-          "Lưu Secret Key an toàn (offline)",
-          "Copy Account ID (public key)",
+          "Tải ví xPortal từ kho ứng dụng",
+          "Tạo ví mới với mạng lưới phù hợp",
+          "Lưu Secret Key offline ở nơi an toàn",
+          "Sao chép Account ID (khóa công khai)",
           "Mua và gửi USDC vào Account ID"
         ],
         "secretKeyWarning": "Bảo mật Secret Key",
-        "secretKeyWarningDesc": "STELLAR_SECRET_KEY phải được set trong environment variables. Không bao giờ chia sẻ secret key. Nó cho phép hệ thống rút USDC từ ví.",
-        "connectionStatus": "Trạng thái Kết nối",
+        "secretKeyWarningDesc": "STELLAR_SECRET_KEY phải được khai báo trong biến môi trường. Không bao giờ chia sẻ secret key. Nó cho phép hệ thống rút USDC từ ví.",
+        "connectionStatus": "Trạng thái kết nối",
         "status": {
-          "horizon": "Horizon Connection",
+          "horizon": "Kết nối Horizon",
           "connected": "Đã kết nối",
           "disconnected": "Mất kết nối",
           "unknown": "Không xác định",
-          "senderAccount": "Tài khoản Gửi",
+          "senderAccount": "Tài khoản phát",
           "senderBalanceUSDC": "Số dư USDC",
           "senderBalanceXLM": "Số dư XLM (Phí)"
         },
@@ -1002,8 +1032,8 @@
           "title": "Lỗi"
         },
         "actions": {
-          "testConnection": "Kiểm tra Kết nối",
-          "saveConfiguration": "Lưu Cấu hình"
+          "testConnection": "Kiểm tra kết nối",
+          "saveConfiguration": "Lưu cấu hình"
         },
         "test": {
           "success": "Kết nối thành công!",
@@ -1011,13 +1041,95 @@
         },
         "info": {
           "title": "USDC trên Stellar",
-          "network": "Mạng",
+          "network": "Mạng lưới",
           "asset": "Tài sản",
           "issuer": "Nhà phát hành",
-          "mainnetWarning": "Mainnet sử dụng USDC thật. Đảm bảo ví đã được nạp trước khi chạy payout.",
-          "testnetDescription": "Testnet sử dụng USDC test miễn phí qua Friendbot. An toàn cho phát triển."
+          "mainnetWarning": "Mainnet sử dụng USDC thực. Đảm bảo ví đã được nạp trước khi chạy tất toán.",
+          "testnetDescription": "Testnet sử dụng USDC thử nghiệm miễn phí qua Friendbot. An toàn cho việc phát triển."
         }
       }
+    },
+    "dashboard": {
+      "title": "Chuyển đổi",
+      "subtitle": "Theo dõi lịch sử chuyển đổi và thu nhập",
+      "filters": {
+        "allStatus": "Tất cả trạng thái",
+        "allTypes": "Tất cả loại",
+        "searchPlaceholder": "Tìm ưu đãi hoặc khách hàng...",
+        "apply": "Áp dụng bộ lọc",
+        "clear": "Xóa bộ lọc"
+      },
+      "status": {
+        "pending": "Chờ xử lý",
+        "approved": "Đã duyệt",
+        "rejected": "Từ chối",
+        "refunded": "Hoàn trả"
+      },
+      "types": {
+        "sale": "Bán hàng",
+        "lead": "Tiềm năng",
+        "signup": "Đăng ký",
+        "install": "Cài đặt"
+      },
+      "columns": {
+        "date": "Ngày",
+        "deal": "Ưu đãi",
+        "customer": "Khách hàng",
+        "orderId": "Mã đơn",
+        "revenue": "Doanh thu",
+        "commission": "Hoa hồng",
+        "level": "Tầng",
+        "type": "Loại",
+        "status": "Trạng thái"
+      },
+      "empty": {
+        "title": "Không tìm thấy chuyển đổi",
+        "description": "Khi người được giới thiệu hoàn tất ưu đãi, dữ liệu sẽ xuất hiện tại đây."
+      },
+      "stats": {
+        "totalConversions": "Tổng chuyển đổi",
+        "totalEarnings": "Tổng thu nhập",
+        "totalRevenue": "Tổng doanh thu",
+        "avgOrderValue": "Giá trị đơn trung bình"
+      }
+    },
+    "notifications": {
+      "pageTitle": "Tùy chọn thông báo",
+      "pageDescription": "Quản lý cách bạn nhận cảnh báo và thông báo",
+      "channelPreferences": "Kênh nhận thông báo",
+      "channelPreferencesDesc": "Chọn kênh bạn muốn nhận thông báo",
+      "channelDescriptions": {
+        "email": "Nhận thông báo qua email",
+        "slack": "Nhận thông báo trong không gian làm việc Slack",
+        "telegram": "Nhận thông báo qua bot Telegram"
+      },
+      "severityThreshold": "Ngưỡng mức độ",
+      "severityThresholdDesc": "Chọn mức độ tối thiểu cho thông báo bạn muốn nhận",
+      "selectSeverity": "Chọn ngưỡng mức độ",
+      "severityOptions": {
+        "all": "Tất cả thông báo (Thông tin, Cảnh báo, Nghiêm trọng)",
+        "warningAndCritical": "Chỉ Cảnh báo & Nghiêm trọng",
+        "criticalOnly": "Chỉ Nghiêm trọng"
+      },
+      "emailSettings": "Cài đặt email",
+      "emailSettingsDesc": "Cấu hình địa chỉ email nhận thông báo",
+      "emailAddress": "Địa chỉ email",
+      "emailPlaceholder": "email-cua-ban@example.com",
+      "emailHelp": "Để trống nếu dùng email tài khoản của bạn",
+      "quietHours": "Khung giờ yên lặng",
+      "quietHoursDesc": "Đặt khung giờ tắt thông báo",
+      "enableQuietHours": "Bật khung giờ yên lặng",
+      "startTime": "Giờ bắt đầu",
+      "endTime": "Giờ kết thúc",
+      "weeklySummary": "Bản tóm tắt hàng tuần",
+      "weeklySummaryDesc": "Nhận tóm tắt hàng tuần về thu nhập và hoạt động của bạn",
+      "receiveWeeklySummary": "Nhận bản tóm tắt hàng tuần",
+      "saveChanges": "Lưu thay đổi",
+      "saving": "Đang lưu...",
+      "settingsSaved": "Lưu cài đặt thành công",
+      "saveError": "Lưu cài đặt thất bại",
+      "notAuthenticated": "Chưa xác thực",
+      "loginRequired": "Vui lòng đăng nhập để quản lý thông báo"
     }
   },
   "dashboard": {
@@ -1101,5 +1213,95 @@
     "saveError": "Failed to save settings",
     "notAuthenticated": "Not authenticated",
     "loginRequired": "Please log in to manage your notifications"
+  },
+  "conversions": {
+    "failureRate": "Tỷ lệ thất bại",
+    "last24h": "24 giờ qua",
+    "last7d": "7 ngày qua",
+    "last30d": "30 ngày qua",
+    "statusBreakdown": "Phân tích trạng thái",
+    "title": "Lịch sử chuyển đổi",
+    "subtitle": "Theo dõi mọi giao dịch đã xác minh và chi tiết hoa hồng",
+    "filters": {
+      "clear": "Xóa bộ lọc",
+      "searchPlaceholder": "Tìm theo giao dịch hoặc mã đơn"
+    },
+    "status": {
+      "all": "Tất cả trạng thái",
+      "pending": "Đang chờ",
+      "approved": "Đã duyệt",
+      "paid": "Đã thanh toán",
+      "rejected": "Từ chối"
+    },
+    "conversion_type": {
+      "all": "Tất cả loại",
+      "direct": "Trực tiếp",
+      "tier2": "Tầng 2",
+      "tier3": "Tầng 3"
+    },
+    "columns": {
+      "date": "Ngày",
+      "deal": "Giao dịch",
+      "orderId": "Mã đơn",
+      "type": "Loại",
+      "level": "Cấp",
+      "revenue": "Doanh thu",
+      "commission": "Hoa hồng",
+      "status": "Trạng thái"
+    },
+    "stats": {
+      "totalConversions": "Tổng số chuyển đổi",
+      "totalRevenue": "Tổng doanh thu",
+      "totalEarnings": "Tổng thu nhập",
+      "avgOrderValue": "Giá trị đơn trung bình"
+    },
+    "empty": {
+      "title": "Chưa có chuyển đổi nào",
+      "description": "Các giao dịch đã xác minh của bạn sẽ xuất hiện tại đây."
+    },
+    "sortBy": {
+      "date": "Sắp xếp theo ngày",
+      "revenue": "Sắp xếp theo doanh thu"
+    },
+    "sortOrder": {
+      "asc": "Tăng dần",
+      "desc": "Giảm dần"
+    },
+    "search": "Tìm kiếm",
+    "limit": "Mỗi trang",
+    "page": "Trang"
+  },
+  "common": {
+    "loading": "Đang tải…",
+    "autoRefresh": "Tự động làm mới",
+    "autoRefreshNote": "Dữ liệu được làm mới mỗi 30 giây",
+    "cancel": "Hủy",
+    "connected": "Đã kết nối",
+    "dataRefresh": "Dữ liệu đã được làm mới",
+    "disconnected": "Ngắt kết nối",
+    "lastRefresh": "Lần làm mới gần nhất",
+    "optional": "Tùy chọn",
+    "refresh": "Làm mới",
+    "retry": "Thử lại",
+    "silencedUntil": "Tắt tiếng đến",
+    "updating": "Đang cập nhật"
+  },
+  "payouts": {
+    "byMethod": "Theo phương thức",
+    "cancelled": "Đã hủy",
+    "completed": "Hoàn tất",
+    "failed": "Thất bại",
+    "failureRate": "Tỷ lệ thất bại",
+    "failureReasons": "Lý do thất bại",
+    "noData": "Không có dữ liệu",
+    "noFailures": "Không có lỗi",
+    "pending": "Đang chờ",
+    "processing": "Đang xử lý",
+    "successRate": "Tỷ lệ thành công",
+    "total": "Tổng",
+    "totalAmount": "Tổng số tiền",
+    "totalFees": "Tổng phí",
+    "title": "Lịch sử thanh toán",
+    "subtitle": "Xem lại các khoản thanh toán USDC đã quyết toán và giao dịch Stellar"
   }
 }

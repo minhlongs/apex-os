@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+      - master
+      - 'feature/sprint4-email-automation-complete'
   workflow_dispatch:
     inputs:
       action:
@@ -28,7 +30,7 @@ jobs:
     if: github.event_name == 'push' || github.event.inputs.action == 'deploy-staging'
     environment:
       name: staging
-      url: https://staging.apex-os.com
+      url: https://apex-os-staging.agencyos-openclaw.workers.dev
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -56,24 +58,35 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-        run: ./node_modules/.bin/opennextjs-cloudflare deploy --config wrangler.staging.jsonc
+        run: ./node_modules/.bin/wrangler deploy --config wrangler.staging.jsonc
 
       - name: Verify staging deployment
         env:
           EXPECTED_SHA: ${{ github.sha }}
-        run: bash scripts/verify-deployment.sh https://staging.apex-os.com "${EXPECTED_SHA}"
+          STAGING_TARGET_URL: ${{ vars.STAGING_URL || 'https://apex-os-staging.agencyos-openclaw.workers.dev' }}
+        run: bash scripts/verify-deployment.sh "${STAGING_TARGET_URL}" "${EXPECTED_SHA}"
 
   deploy-production:
     name: Deploy to Production (apex-os)
     runs-on: ubuntu-latest
     needs: [deploy-staging]
-    if: github.event_name == 'push' || github.event.inputs.action == 'deploy-production'
+    if: |
+      needs.deploy-staging.result == 'success' &&
+      (github.event_name == 'push' || github.event.inputs.action == 'deploy-production')
     environment:
       name: production
       url: https://apex-os.com
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Verify release commit SHA matches staging
+        run: |
+          echo "Verifying deployment SHA alignment: ${{ github.sha }}"
+          if [ -z "${{ github.sha }}" ]; then
+            echo "ERROR: github.sha is empty, blocking production release."
+            exit 1
+          fi
 
       - name: Setup Node.js 26.7.0
         uses: actions/setup-node@v4
@@ -83,6 +96,19 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Assert staging isolation
+        run: bash scripts/assert-staging-isolation.sh
+
+      - name: Enforce strict economic go-live verdict (Production Blocker)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          echo "Auditing Paper Trading economic go-live criteria..."
+          bash scripts/go-live-gate.sh
+          RUNS_JSON="$(./node_modules/.bin/wrangler d1 execute apex-os-staging-db --remote --config wrangler.staging.jsonc --command "SELECT * FROM paper_trading_runs WHERE is_active = 1" --json | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{try{const p=JSON.parse(d);console.log(JSON.stringify(p[0]?.results||[]))}catch{console.log('[]')}})")"
+          node scripts/verify-paper-economic-gate.cjs --runs-json "${RUNS_JSON}"
 
       - name: Build Worker bundle
         env:
@@ -95,7 +121,7 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-        run: ./node_modules/.bin/opennextjs-cloudflare deploy --config wrangler.jsonc
+        run: ./node_modules/.bin/wrangler deploy --config wrangler.jsonc
 
       - name: Verify production deployment
         env:

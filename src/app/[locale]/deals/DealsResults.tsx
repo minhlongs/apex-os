@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Search, Filter, ExternalLink } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Filter, ExternalLink } from 'lucide-react';
 
 type PublicDeal = {
   id: string;
@@ -34,18 +34,16 @@ interface DealsResultsProps {
 }
 
 const RISK_LEVELS: Record<string, { label: string; color: string }> = {
-  low: { label: 'Low Risk', color: 'bg-green-100 text-green-800' },
-  medium: { label: 'Medium Risk', color: 'bg-yellow-100 text-yellow-800' },
-  high: { label: 'High Risk', color: 'bg-red-100 text-red-800' },
+  low: { label: 'Low Risk', color: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' },
+  medium: { label: 'Medium Risk', color: 'bg-amber-500/10 text-amber-300 border border-amber-500/30' },
+  high: { label: 'High Risk', color: 'bg-rose-500/10 text-rose-400 border border-rose-500/30' },
 };
 
 const EXCHANGE_COLORS: Record<string, string> = {
-  binance: 'bg-yellow-100 text-yellow-800',
-  bybit: 'bg-red-100 text-red-800',
-  okx: 'bg-blue-100 text-blue-800',
-  ftx: 'bg-purple-100 text-purple-800',
-  coinbase: 'bg-blue-100 text-blue-800',
-  kraken: 'bg-indigo-100 text-indigo-800',
+  binance: 'bg-amber-500/10 text-amber-300 border border-amber-500/30',
+  bybit: 'bg-rose-500/10 text-rose-400 border border-rose-500/30',
+  okx: 'bg-sky-500/10 text-sky-400 border border-sky-500/30',
+  kucoin: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30',
 };
 
 export default function DealsResults({ apiUrl, initialPage, initialFilters }: DealsResultsProps) {
@@ -85,9 +83,8 @@ export default function DealsResults({ apiUrl, initialPage, initialFilters }: De
       setCurrentPage(data.page);
       setTotalPages(data.totalPages);
       setError(null);
-    } catch (err) {
+    } catch {
       setError(t('error'));
-      console.error('Error fetching deals:', err);
     }
   }, [apiUrl, limit, t]);
 
@@ -138,78 +135,79 @@ export default function DealsResults({ apiUrl, initialPage, initialFilters }: De
 
   return (
     <div className="space-y-6">
-      {/* Results summary */}
-      <div className="text-sm text-gray-600">
+      <div className="text-sm text-stitch-muted">
         {t('pagination.showing', { from: 1, to: deals.length, total })}
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
+        <div className="bg-rose-500/10 border border-rose-500/30 text-rose-400 px-4 py-3 rounded-lg text-sm">
           {error}
         </div>
       )}
 
       {!error && deals.length === 0 && (
-        <div className="text-center py-12">
-          <div className="text-gray-400 mb-4">
-            <Filter className="w-12 h-12 mx-auto" />
+        <div className="stitch-obsidian-card text-center py-12">
+          <div className="text-stitch-muted mb-4">
+            <Filter className="w-12 h-12 mx-auto opacity-50" />
           </div>
-          <h3 className="text-lg font-medium text-gray-900 mb-2">{t('empty.title')}</h3>
-          <p className="text-gray-600 mb-4">{t('empty.description')}</p>
+          <h3 className="text-lg font-medium text-stitch-primary mb-2">{t('empty.title')}</h3>
+          <p className="text-stitch-muted mb-4 text-sm">{t('empty.description')}</p>
         </div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         {deals.map((deal) => (
-          <div key={deal.id} className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
-            {/* Header with exchange badge */}
-            <div className="p-4 border-b bg-gray-50">
-              <div className="flex justify-between items-start">
-                <span className={`px-2 py-1 text-xs font-medium rounded ${EXCHANGE_COLORS[deal.exchange || ''] || 'bg-gray-100 text-gray-800'}`}>
-                  {deal.exchange ? t(`exchanges.${deal.exchange}`) : 'Unknown'}
-                </span>
-                <span className={`px-2 py-1 text-xs font-medium rounded ${RISK_LEVELS[deal.risk_level || 'medium'].color}`}>
-                  {deal.risk_level ? t(`risk.${deal.risk_level}`) : t('risk.medium')}
-                </span>
-              </div>
-              <h3 className="mt-2 font-semibold text-gray-900 line-clamp-2">{deal.name}</h3>
-            </div>
-
-            {/* Content */}
-            <div className="p-4">
-              {deal.description && (
-                <p className="text-sm text-gray-600 mb-4 line-clamp-2">{deal.description}</p>
-              )}
-
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-gray-500">{t('card.type')}:</span>
-                  <span className="font-medium capitalize">{t(`types.${deal.deal_type}`)}</span>
+          <div
+            key={deal.id}
+            className="stitch-obsidian-card flex flex-col justify-between overflow-hidden hover:border-stitch-emerald/60 transition-colors"
+          >
+            <div>
+              <div className="p-4 border-b border-stitch-divider bg-stitch-well/40">
+                <div className="flex justify-between items-start gap-2">
+                  <span className={`px-2 py-0.5 text-xs font-mono font-medium rounded ${EXCHANGE_COLORS[deal.exchange || ''] || 'bg-stitch-well text-stitch-muted border border-stitch-divider'}`}>
+                    {deal.exchange ? t(`exchanges.${deal.exchange}`) : 'Unknown'}
+                  </span>
+                  <span className={`px-2 py-0.5 text-xs font-mono font-medium rounded ${RISK_LEVELS[deal.risk_level || 'medium'].color}`}>
+                    {deal.risk_level ? t(`risk.${deal.risk_level}`) : t('risk.medium')}
+                  </span>
                 </div>
-                {deal.category && (
-                  <div className="flex justify-between">
-                    <span className="text-gray-500">{t('card.category')}:</span>
-                    <span className="font-medium capitalize">{t(`categories.${deal.category}`)}</span>
-                  </div>
+                <h3 className="mt-2 font-semibold text-stitch-primary line-clamp-2">{deal.name}</h3>
+              </div>
+
+              <div className="p-4">
+                {deal.description && (
+                  <p className="text-sm text-stitch-muted mb-4 line-clamp-2 leading-relaxed">{deal.description}</p>
                 )}
-                <div className="flex justify-between">
-                  <span className="text-gray-500">{t('card.cashback')}:</span>
-                  <span className="font-medium text-brand-600">{getCashbackDisplay(deal)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-500">{t('card.posted')}:</span>
-                  <span className="font-medium">{formatDate(deal.created_at)}</span>
+
+                <div className="space-y-2 text-xs font-mono">
+                  <div className="flex justify-between">
+                    <span className="text-stitch-muted">{t('card.type')}:</span>
+                    <span className="font-medium text-stitch-primary capitalize">{t(`types.${deal.deal_type}`)}</span>
+                  </div>
+                  {deal.category && (
+                    <div className="flex justify-between">
+                      <span className="text-stitch-muted">{t('card.category')}:</span>
+                      <span className="font-medium text-stitch-primary capitalize">{t(`categories.${deal.category}`)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="text-stitch-muted">{t('card.cashback')}:</span>
+                    <span className="font-bold text-stitch-emerald stitch-tabular-nums">{getCashbackDisplay(deal)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-stitch-muted">{t('card.posted')}:</span>
+                    <span className="font-medium text-stitch-muted">{formatDate(deal.created_at)}</span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Footer with CTA */}
-            <div className="p-4 border-t bg-gray-50">
+            <div className="p-4 border-t border-stitch-divider bg-stitch-well/30">
               <a
                 href={deal.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 w-full bg-brand-600 text-white py-2 px-4 rounded-lg hover:bg-brand-700 transition-colors font-medium"
+                className="flex items-center justify-center gap-2 w-full bg-stitch-emerald text-slate-950 py-2 px-4 rounded-lg hover:opacity-90 transition-opacity font-semibold text-sm"
               >
                 <ExternalLink className="w-4 h-4" />
                 {t('card.viewDeal')}
@@ -219,13 +217,12 @@ export default function DealsResults({ apiUrl, initialPage, initialFilters }: De
         ))}
       </div>
 
-      {/* Pagination */}
       {totalPages > 1 && (
         <div className="flex justify-center items-center gap-2 mt-8">
           <button
             onClick={() => handlePageChange(currentPage - 1)}
             disabled={currentPage === 1 || isPending}
-            className="flex items-center gap-1 px-4 py-2 border rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            className="flex items-center gap-1 px-4 py-2 border border-stitch-divider rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-stitch-well text-sm text-stitch-primary"
           >
             <ChevronLeft className="w-4 h-4" />
             {t('pagination.previous')}
@@ -248,10 +245,10 @@ export default function DealsResults({ apiUrl, initialPage, initialFilters }: De
                 <button
                   key={pageNum}
                   onClick={() => handlePageChange(pageNum)}
-                  className={`w-10 h-10 rounded-lg ${
+                  className={`w-10 h-10 rounded-lg text-sm font-mono ${
                     currentPage === pageNum
-                      ? 'bg-brand-600 text-white'
-                      : 'border hover:bg-gray-50'
+                      ? 'bg-stitch-emerald text-slate-950 font-bold'
+                      : 'border border-stitch-divider text-stitch-muted hover:bg-stitch-well'
                   }`}
                 >
                   {pageNum}
@@ -263,7 +260,7 @@ export default function DealsResults({ apiUrl, initialPage, initialFilters }: De
           <button
             onClick={() => handlePageChange(currentPage + 1)}
             disabled={currentPage === totalPages || isPending}
-            className="flex items-center gap-1 px-4 py-2 border rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+            className="flex items-center gap-1 px-4 py-2 border border-stitch-divider rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-stitch-well text-sm text-stitch-primary"
           >
             {t('pagination.next')}
             <ChevronRight className="w-4 h-4" />

@@ -2,6 +2,10 @@ import { ErrorBoundary } from '@/components/error-boundary';
 import { NextIntlClientProvider } from 'next-intl';
 import { ToastProvider } from '@/components/toast/ToastProvider';
 import WebVitalsInitializer from '@/components/WebVitalsInitializer';
+import {
+  generateOrganizationJsonLd,
+  generateSoftwareApplicationJsonLd,
+} from '@/lib/seo/json-ld';
 import '@/app/globals.css';
 
 const inter = { variable: '--font-inter' } as const;
@@ -18,21 +22,21 @@ export async function generateMetadata({
   const siteName = 'ApexOS';
   const description =
     locale === 'vi'
-      ? 'ApexOS - Nền tảng crypto cashback toàn cầu và affiliate hub. Kiếm tiền mặt từ giao dịch crypto, hoa hồng đa cấp 30/10/5%.'
-      : 'ApexOS - Global crypto cashback platform and affiliate hub. Earn cashback on crypto trades, multi-tier commissions 30/10/5%.';
+      ? 'ApexOS — Hạ tầng thu hồi phí điểm cơ bản (bps) và đối soát thanh khoản định lượng 3 tầng (30/10/5%). Xác thực Zero-Secret API Key ID trên Binance, Bybit, OKX, KuCoin.'
+      : 'ApexOS — Institutional crypto basis-point (bps) fee recovery hub and 3-tier liquidity attribution engine (30/10/5%). Zero-Secret API Key ID verification across Binance, Bybit, OKX, KuCoin.';
   const keywords =
     locale === 'vi'
-      ? 'crypto cashback, affiliate marketing, hoa hồng crypto, copy trading, Binance, Bybit, USDC, Stellar, earn crypto, referral program'
-      : 'crypto cashback, affiliate marketing, crypto commissions, copy trading, Binance, Bybit, USDC, Stellar, earn crypto, referral program';
+      ? 'crypto fee rebate, basis points, bps fee drag, quant execution, zero-secret API key ID, Binance, Bybit, OKX, KuCoin, Stellar USDC, 3-tier liquidity desk'
+      : 'crypto fee rebate, basis points, bps fee drag, quant execution, zero-secret API key ID, Binance, Bybit, OKX, KuCoin, Stellar USDC, 3-tier liquidity desk';
 
   return {
     title: {
-      default: 'ApexOS — Crypto Cashback & Affiliate Hub',
+      default: 'ApexOS — Institutional Quant Fee Recovery & Attribution Hub',
       template: '%s | ApexOS',
     },
     description,
     keywords,
-    authors: [{ name: 'ApexOS' }],
+    authors: [{ name: 'ApexOS Quantitative Engineering' }],
     creator: 'ApexOS',
     publisher: 'ApexOS',
     robots: {
@@ -57,7 +61,7 @@ export async function generateMetadata({
       initialScale: 1,
       maximumScale: 5,
     },
-    themeColor: '#000000',
+    themeColor: '#020617',
     appleWebApp: {
       capable: true,
       statusBarStyle: 'default',
@@ -79,7 +83,7 @@ export async function generateMetadata({
       type: 'website',
       locale: locale === 'vi' ? 'vi_VN' : 'en_US',
       url: `${baseUrl}/${locale}`,
-      title: 'ApexOS — Crypto Cashback & Affiliate Hub',
+      title: 'ApexOS — Institutional Quant Fee Recovery & Attribution Hub',
       description,
       siteName,
       images: [
@@ -101,7 +105,7 @@ export async function generateMetadata({
     },
     twitter: {
       card: 'summary_large_image',
-      title: 'ApexOS — Crypto Cashback & Affiliate Hub',
+      title: 'ApexOS — Institutional Quant Fee Recovery & Attribution Hub',
       description,
       images: [`${baseUrl}/assets/og-image.png`],
       creator: '@apexos_app',
@@ -112,7 +116,7 @@ export async function generateMetadata({
     },
     other: {
       'msapplication-TileImage': '/assets/icons/icon-192.png',
-      'msapplication-TileColor': '#000000',
+      'msapplication-TileColor': '#020617',
     },
   };
 }
@@ -125,18 +129,27 @@ export default async function RootLayout({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  if (!locales.includes(locale as typeof locales[number])) {
-    // Return 404 not found for invalid locale
+  if (!locales.includes(locale as (typeof locales)[number])) {
     const notFound = (await import('next/navigation')).notFound;
     notFound();
   }
   const messages = (await import(`../../i18n/messages/${locale}.json`)).default;
+  const orgJsonLd = generateOrganizationJsonLd();
+  const appJsonLd = generateSoftwareApplicationJsonLd();
 
   return (
     <ErrorBoundary>
       <ToastProvider>
         <html lang={locale}>
-          <body className={`${inter.variable} font-sans antialiased`}>
+          <head>
+            <script
+              type="application/ld+json"
+              dangerouslySetInnerHTML={{
+                __html: JSON.stringify([orgJsonLd, appJsonLd]),
+              }}
+            />
+          </head>
+          <body className={`${inter.variable} font-sans antialiased bg-stitch-canvas text-stitch-primary`}>
             <NextIntlClientProvider locale={locale} messages={messages}>
               {children}
             </NextIntlClientProvider>

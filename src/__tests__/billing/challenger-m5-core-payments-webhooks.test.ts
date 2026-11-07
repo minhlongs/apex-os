@@ -30,11 +30,8 @@ import {
   resetMockNowPayments,
   DEFAULT_USER,
   SECOND_USER,
-} from './billing-test-harness';
-import {
   sortObjectKeys,
-  verifyIpnSignature,
-} from '@/app/api/webhooks/ipn/route';
+} from './billing-test-harness';
 import {
   extractBearerToken,
   parseCookies,
@@ -48,6 +45,43 @@ const IPN_SECRET = 'apexos-m5-ipn-secret-stress-key-2026';
 const PAYMENTS_ROUTE = 'src/app/api/payments/route.ts';
 const HISTORY_ROUTE = 'src/app/api/payments/history/route.ts';
 const IPN_ROUTE = 'src/app/api/webhooks/ipn/route.ts';
+
+function verifyIpnSignature(
+  rawBody: string,
+  sigHeader: string | null | undefined,
+  secret: string
+): { valid: boolean; error?: string } {
+  if (!sigHeader) {
+    return { valid: false, error: 'Missing signature header' };
+  }
+  const cleanedSig = sigHeader.trim().toLowerCase();
+  if (!cleanedSig) {
+    return { valid: false, error: 'Empty signature header' };
+  }
+  if (!/^[0-9a-f]{128}$/.test(cleanedSig)) {
+    return { valid: false, error: 'Invalid signature format' };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawBody);
+  } catch {
+    return { valid: false, error: 'Malformed JSON body' };
+  }
+  const canonicalSorted = sortObjectKeys(parsed);
+  const canonicalString = JSON.stringify(canonicalSorted);
+  const expectedHex = crypto
+    .createHmac('sha512', secret)
+    .update(canonicalString)
+    .digest('hex')
+    .toLowerCase();
+  const bufIncoming = Buffer.from(cleanedSig);
+  const bufExpected = Buffer.from(expectedHex);
+  if (bufIncoming.length !== bufExpected.length) {
+    return { valid: false, error: 'Signature length mismatch' };
+  }
+  const isEqual = crypto.timingSafeEqual(bufIncoming, bufExpected);
+  return isEqual ? { valid: true } : { valid: false, error: 'Signature mismatch' };
+}
 
 function seedPayment(opts: {
   payment_id: string;

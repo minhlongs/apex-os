@@ -24,4 +24,11 @@ This checklist mirrors `scripts/go-live-gate.sh` and serves as the operational a
 | **G4g**| Real-handler webhook coverage | Verified | QA / Eng | Exchange route tests import real handlers |
 | **G4h**| Cron schedule dispatch parity | Verified | Platform | Schedules in `wrangler.jsonc` match `worker-wrapper.js` |
 | **G4i**| Cron authentication fail-closed | Verified | Security | Missing `CRON_SECRET` yields 401 Unauthorized |
-| **G5** | Rollback runbook & staging isolation | Verified | SRE / DevOps | Staging D1 strictly isolated; runbook in docs |
+| **G5** | Rollback runbook & staging isolation | Verified | SRE / DevOps | Staging D1/KV/R2 strictly isolated; runbook in docs |
+| **G6a**| Zero hardcoded HMAC secret literals | Verified | Security | `grep -rq "apex_os_edge_hmac_secret" src/` returns 0 |
+| **G6b**| Zero fabricated 12ms latency claims | Verified | Compliance | `grep -rq "12ms" src/` returns 0 |
+| **G6c**| V1 Stellar-only payout launch guard | Verified | Money Rails | `V1_STELLAR_ONLY_PAYOUTS="true"` wired in router & wrangler configs |
+| **G6d**| Crawler fallback explicit provenance | Verified | Data Integrity | `data_source: 'fallback_fixture'` & `is_synthetic: true` attached |
+| **G6e**| 50-tick deterministic paper replay | Verified | Quant / Eng | 100% bit-identical SHA-256 replay across runs |
+| **G7a**| Paper Trading Admin Console (3 surfaces) | Verified | Product / Eng | Ledgers + Realtime Sequencer + CSV/PDF Export with `PAPER SIMULATION ONLY` |
+| **G7b**| CI/CD isolation gate in deploy pipeline | Verified | SRE / DevOps | `assert-staging-isolation.sh` enforced in `package.json` & `.github/workflows/deploy.yml` |
