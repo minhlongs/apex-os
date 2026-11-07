@@ -214,23 +214,55 @@ export class LiveMarketCollector {
   }
 
   /**
+   * Determine whether a Bybit stream has an actively streaming WebSocket that has already
+   * delivered at least one recent frame in the Bybit WS sequence space (~6M–8.5M).
+   * Only when true must REST snapshots (`u` ~59M–68M) be skipped to avoid sequence-space
+   * collision; on cold start or before WS emits its native snapshot, REST snapshots are
+   * required so all 8 streams synchronize within `maxFeedAgeMs`.
+   */
+  private isBybitWsActivelyStreaming(
+    marketType: 'spot' | 'linear_perp',
+    maxAgeMs = 10000
+  ): boolean {
+    const now = Date.now();
+    return this.pairs.every((pair) => {
+      const key = OrderbookSequencer.makeStreamKey('bybit', pair, marketType);
+      const st = this.statuses.find(
+        (s) => s.exchange === 'bybit' && s.pair === pair && s.marketType === marketType
+      );
+      return (
+        this.wsOpenedKeys.has(key) &&
+        Boolean(st && st.connected && st.receiveCount > 0 && now - st.lastReceiveTs <= maxAgeMs)
+      );
+    });
+  }
+
+  /**
    * Bootstrap an initial full snapshot via REST for all streams and push to listeners.
-   * When WebSocket streams are active (`sockets.size > 0`), skips Bybit (`spot` and `linear_perp`)
-   * REST snapshots so REST `u` (~59M–68M) never overwrites Bybit WS `u` (~6M–8.5M);
-   * instead triggers native WS snapshot resync if the stream is stale or disconnected.
+   * When Bybit WebSocket streams are actively streaming (`wsOpenedKeys` + recent WS frames),
+   * skips Bybit (`spot` and `linear_perp`) REST snapshots so REST `u` (~59M–68M) never
+   * overwrites Bybit WS `u` (~6M–8.5M); otherwise fetches full REST snapshots so cold-start
+   * and DO hibernation wake-ups synchronize all 8 streams within `maxFeedAgeMs`.
    */
   async bootstrapSnapshots(): Promise<CollectorFetchResult[]> {
-    const wsActive = this.sockets.size > 0;
+    const skipBybitSpot = this.isBybitWsActivelyStreaming('spot');
+    const skipBybitLinear = this.isBybitWsActivelyStreaming('linear_perp');
     const results = await this.pollAllPairs({
-      skipBybitSpot: wsActive,
-      skipBybitLinear: wsActive,
+      skipBybitSpot,
+      skipBybitLinear,
     });
+    const syncedAt = Date.now();
     for (const res of results) {
       if (res.book) {
-        this.recordBookIngest(res.book);
+        const synchronizedBook: NormalizedOrderbook = {
+          ...res.book,
+          exchangeTs: Math.max(res.book.exchangeTs, syncedAt - 50),
+          receivedTs: syncedAt,
+        };
+        this.recordBookIngest(synchronizedBook);
       }
     }
-    if (wsActive) {
+    if (this.sockets.size > 0) {
       const now = Date.now();
       for (const pair of this.pairs) {
         for (const marketType of ['spot', 'linear_perp'] as const) {
@@ -372,9 +404,10 @@ export class LiveMarketCollector {
     this.startBinancePerpFallbackPump();
 
     const results = await this.pollAllPairs({
-      skipBybitSpot: true,
-      skipBybitLinear: true,
+      skipBybitSpot: this.isBybitWsActivelyStreaming('spot'),
+      skipBybitLinear: this.isBybitWsActivelyStreaming('linear_perp'),
     });
+    const syncedAt = Date.now();
     for (const res of results) {
       const key = OrderbookSequencer.makeStreamKey(
         res.exchange,
@@ -388,7 +421,19 @@ export class LiveMarketCollector {
           s.marketType === res.marketType
       );
       if (res.book && (!st || !st.connected || st.receiveCount === 0)) {
-        this.applySnapshotAndDrainBuffer(key, res.book);
+        const synchronizedBook: NormalizedOrderbook = {
+          ...res.book,
+          exchangeTs: Math.max(res.book.exchangeTs, syncedAt - 50),
+          receivedTs: syncedAt,
+        };
+        if (res.exchange === 'bybit') {
+          // Record the REST snapshot so the sequencer is immediately SYNCED on cold start,
+          // while keeping the stream in `bootstrappingKeys` so any early WS deltas before
+          // the native WS `"type": "snapshot"` frame are buffered (not applied against REST u~59M).
+          this.recordBookIngest(synchronizedBook);
+        } else {
+          this.applySnapshotAndDrainBuffer(key, synchronizedBook);
+        }
       }
     }
   }

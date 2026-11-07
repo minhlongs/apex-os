@@ -145,6 +145,12 @@ export class PaperTradingDurableObject {
   private readonly windowBaselines: Map<PaperStrategyId, StrategyWindowBaseline> = new Map();
   private readonly modelVersion = PAPER_MODEL_VERSION;
   private readonly configHash = PAPER_FROZEN_CONFIG_HASH;
+  /**
+   * Promise tracking an in-flight background collector restore triggered by `ensureRestored()`,
+   * so `alarm()`, `startLiveCollector()`, `stopLiveCollector()`, and `resetRehearsal()` can
+   * coordinate cleanly without spawning a duplicate `startLiveCollector()` run.
+   */
+  private collectorRestorePromise: Promise<unknown> | null = null;
   private initialized = false;
 
   constructor(state: DurableObjectStateLike, env?: DurableObjectEnvLike) {
@@ -285,9 +291,12 @@ export class PaperTradingDurableObject {
     this.initialized = true;
 
     // V3: If collector was desired running before restart and is not currently present,
-    // automatically recreate and start it.
-    if (this.collectorDesiredRunning && !this.collector) {
-      void this.startLiveCollector();
+    // automatically recreate and start it. Track the promise so `alarm()` can await it
+    // instead of racing a second `startLiveCollector()` call.
+    if (this.collectorDesiredRunning && !this.collector && !this.collectorRestorePromise) {
+      this.collectorRestorePromise = this.startLiveCollector().finally(() => {
+        this.collectorRestorePromise = null;
+      });
     }
   }
 
@@ -439,6 +448,7 @@ export class PaperTradingDurableObject {
 
     // Bootstrap fresh L2 REST snapshots and subscribe WebSocket streams
     await this.collector.startWebSocketStreams();
+    await this.ingestQueue;
 
     // Schedule next DO alarm in 15s for health monitoring & outbox reconciliation
     if (this.state.storage.setAlarm) {
@@ -454,6 +464,13 @@ export class PaperTradingDurableObject {
   async stopLiveCollector(): Promise<void> {
     this.collectorDesiredRunning = false;
     await this.state.storage.put('collector_desired_running', false);
+    if (this.collectorRestorePromise) {
+      try {
+        await this.collectorRestorePromise;
+      } catch {
+        // Ignore restore errors when stopping
+      }
+    }
     this.pendingBookTasks.clear();
     this.lastLiveSnapshotPersistTsMs = 0;
     if (this.collector) {
@@ -640,7 +657,13 @@ export class PaperTradingDurableObject {
    */
   async alarm(): Promise<void> {
     await this.ensureRestored();
-    const now = Date.now();
+    if (this.collectorRestorePromise) {
+      try {
+        await this.collectorRestorePromise;
+      } catch (err) {
+        console.error('[PaperTradingDO] Alarm failed to await collector restore:', err);
+      }
+    }
 
     // Recreate collector if desired running but missing
     if (this.collectorDesiredRunning && !this.collector) {
@@ -652,10 +675,16 @@ export class PaperTradingDurableObject {
     }
 
     if (this.collector) {
-      if (!this.collector.isHealthy(10000)) {
+      if (!this.collector.isHealthy(10000) || !this.isCollectorLive(Date.now())) {
         await this.collector.bootstrapSnapshots();
       }
     }
+
+    // Drain any queued snapshot/delta ingestion tasks before evaluating live coverage
+    // and capture a post-ingestion timestamp so REST bootstrap latency never ages out the check.
+    await this.ingestQueue;
+    const now = Date.now();
+    this.forceFrameDurablePersist();
 
     const isLive = this.isCollectorLive(now);
     await this.updateCoverage(now, isLive);
