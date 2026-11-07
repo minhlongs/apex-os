@@ -10,7 +10,9 @@
     "signup": "Sign Up",
     "deals": "Deals",
     "insights": "Quant Insights",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "alerts": "Alerts",
+    "settings": "Settings"
   },
   "landing": {
     "heroBadge": "Non-Custodial Fee Arbitrage & Liquidity Attribution",
@@ -89,7 +91,10 @@
     "shortPassword": "Password must be at least 8 characters",
     "passwordMismatch": "Passwords do not match",
     "termsRequired": "Please agree to the terms",
-    "generic": "Something went wrong. Please try again."
+    "generic": "Something went wrong. Please try again.",
+    "title": "Errors",
+    "loadFailed": "Failed to load data",
+    "retry": "Retry"
   },
   "stitch": {
     "common": {
@@ -1126,5 +1131,177 @@
       "notAuthenticated": "Not authenticated",
       "loginRequired": "Please log in to manage your notifications"
     }
+  },
+  "dashboard": {
+    "title": "Conversions",
+    "subtitle": "Track your conversion history and earnings",
+    "filters": {
+      "allStatus": "All Statuses",
+      "allTypes": "All Types",
+      "searchPlaceholder": "Search deals or customers...",
+      "apply": "Apply Filters",
+      "clear": "Clear Filters"
+    },
+    "status": {
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "refunded": "Refunded"
+    },
+    "types": {
+      "sale": "Sale",
+      "lead": "Lead",
+      "signup": "Signup",
+      "install": "Install"
+    },
+    "columns": {
+      "date": "Date",
+      "deal": "Deal",
+      "customer": "Customer",
+      "orderId": "Order ID",
+      "revenue": "Revenue",
+      "commission": "Commission",
+      "level": "Level",
+      "type": "Type",
+      "status": "Status"
+    },
+    "empty": {
+      "title": "No conversions found",
+      "description": "When your referrals complete deals, they will appear here."
+    },
+    "stats": {
+      "totalConversions": "Total Conversions",
+      "totalEarnings": "Total Earnings",
+      "totalRevenue": "Total Revenue",
+      "avgOrderValue": "Avg. Order Value"
+    }
+  },
+  "notifications": {
+    "pageTitle": "Notification Preferences",
+    "pageDescription": "Manage how you receive alerts and notifications",
+    "channelPreferences": "Channel Preferences",
+    "channelPreferencesDesc": "Choose which channels you want to receive notifications on",
+    "channelDescriptions": {
+      "email": "Receive notifications via email",
+      "slack": "Receive notifications in Slack workspace",
+      "telegram": "Receive notifications via Telegram bot"
+    },
+    "severityThreshold": "Severity Threshold",
+    "severityThresholdDesc": "Select the minimum severity level for notifications you want to receive",
+    "selectSeverity": "Select severity threshold",
+    "severityOptions": {
+      "all": "All notifications (Info, Warning, Critical)",
+      "warningAndCritical": "Warning & Critical only",
+      "criticalOnly": "Critical only"
+    },
+    "emailSettings": "Email Settings",
+    "emailSettingsDesc": "Configure your email notification address",
+    "emailAddress": "Email Address",
+    "emailPlaceholder": "your-email@example.com",
+    "emailHelp": "Leave empty to use your account email address",
+    "quietHours": "Quiet Hours",
+    "quietHoursDesc": "Set hours when notifications should be suppressed",
+    "enableQuietHours": "Enable quiet hours",
+    "startTime": "Start time",
+    "endTime": "End time",
+    "weeklySummary": "Weekly Summary",
+    "weeklySummaryDesc": "Receive a weekly summary of your earnings and activity",
+    "receiveWeeklySummary": "Receive weekly summary",
+    "saveChanges": "Save changes",
+    "saving": "Saving...",
+    "settingsSaved": "Settings saved successfully",
+    "saveError": "Failed to save settings",
+    "notAuthenticated": "Not authenticated",
+    "loginRequired": "Please log in to manage your notifications"
+  },
+  "conversions": {
+    "failureRate": "Failure rate",
+    "last24h": "Last 24 hours",
+    "last7d": "Last 7 days",
+    "last30d": "Last 30 days",
+    "statusBreakdown": "Status breakdown",
+    "title": "Conversion History",
+    "subtitle": "Track every verified trade and its commission breakdown",
+    "filters": {
+      "clear": "Clear filters",
+      "searchPlaceholder": "Search by deal or order ID"
+    },
+    "status": {
+      "all": "All statuses",
+      "pending": "Pending",
+      "approved": "Approved",
+      "paid": "Paid",
+      "rejected": "Rejected"
+    },
+    "conversion_type": {
+      "all": "All types",
+      "direct": "Direct",
+      "tier2": "Tier 2",
+      "tier3": "Tier 3"
+    },
+    "columns": {
+      "date": "Date",
+      "deal": "Deal",
+      "orderId": "Order ID",
+      "type": "Type",
+      "level": "Level",
+      "revenue": "Revenue",
+      "commission": "Commission",
+      "status": "Status"
+    },
+    "stats": {
+      "totalConversions": "Total conversions",
+      "totalRevenue": "Total revenue",
+      "totalEarnings": "Total earnings",
+      "avgOrderValue": "Average order value"
+    },
+    "empty": {
+      "title": "No conversions yet",
+      "description": "Your verified trades will appear here once they are matched."
+    },
+    "sortBy": {
+      "date": "Sort by date",
+      "revenue": "Sort by revenue"
+    },
+    "sortOrder": {
+      "asc": "Ascending",
+      "desc": "Descending"
+    },
+    "search": "Search",
+    "limit": "Per page",
+    "page": "Page"
+  },
+  "common": {
+    "loading": "Loading…",
+    "autoRefresh": "Auto-refresh",
+    "autoRefreshNote": "Data refreshes every 30 seconds",
+    "cancel": "Cancel",
+    "connected": "Connected",
+    "dataRefresh": "Data refreshed",
+    "disconnected": "Disconnected",
+    "lastRefresh": "Last refresh",
+    "optional": "Optional",
+    "refresh": "Refresh",
+    "retry": "Retry",
+    "silencedUntil": "Silenced until",
+    "updating": "Updating"
+  },
+  "payouts": {
+    "byMethod": "By method",
+    "cancelled": "Cancelled",
+    "completed": "Completed",
+    "failed": "Failed",
+    "failureRate": "Failure rate",
+    "failureReasons": "Failure reasons",
+    "noData": "No data",
+    "noFailures": "No failures",
+    "pending": "Pending",
+    "processing": "Processing",
+    "successRate": "Success rate",
+    "total": "Total",
+    "totalAmount": "Total amount",
+    "totalFees": "Total fees",
+    "title": "Payout Records",
+    "subtitle": "Review settled USDC payouts and their Stellar transactions"
   }
 }

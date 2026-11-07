@@ -10,7 +10,9 @@
     "signup": "Đăng ký",
     "deals": "Ưu đãi & Phí",
     "insights": "Nghiên cứu Định lượng",
-    "terminal": "Terminal"
+    "terminal": "Terminal",
+    "alerts": "Cảnh báo",
+    "settings": "Cài đặt"
   },
   "landing": {
     "heroBadge": "Phân bổ phí không lưu ký & đối soát thanh khoản vi mô",
@@ -89,7 +91,10 @@
     "shortPassword": "Mật khẩu phải có ít nhất 8 ký tự",
     "passwordMismatch": "Mật khẩu không khớp",
     "termsRequired": "Vui lòng đồng ý với điều khoản",
-    "generic": "Đã xảy ra lỗi. Vui lòng thử lại."
+    "generic": "Đã xảy ra lỗi. Vui lòng thử lại.",
+    "title": "Lỗi",
+    "loadFailed": "Không tải được dữ liệu",
+    "retry": "Thử lại"
   },
   "stitch": {
     "common": {
@@ -1126,5 +1131,177 @@
       "notAuthenticated": "Chưa xác thực",
       "loginRequired": "Vui lòng đăng nhập để quản lý thông báo"
     }
+  },
+  "dashboard": {
+    "title": "Conversions",
+    "subtitle": "Track your conversion history and earnings",
+    "filters": {
+      "allStatus": "All Statuses",
+      "allTypes": "All Types",
+      "searchPlaceholder": "Search deals or customers...",
+      "apply": "Apply Filters",
+      "clear": "Clear Filters"
+    },
+    "status": {
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "refunded": "Refunded"
+    },
+    "types": {
+      "sale": "Sale",
+      "lead": "Lead",
+      "signup": "Signup",
+      "install": "Install"
+    },
+    "columns": {
+      "date": "Date",
+      "deal": "Deal",
+      "customer": "Customer",
+      "orderId": "Order ID",
+      "revenue": "Revenue",
+      "commission": "Commission",
+      "level": "Level",
+      "type": "Type",
+      "status": "Status"
+    },
+    "empty": {
+      "title": "No conversions found",
+      "description": "When your referrals complete deals, they will appear here."
+    },
+    "stats": {
+      "totalConversions": "Total Conversions",
+      "totalEarnings": "Total Earnings",
+      "totalRevenue": "Total Revenue",
+      "avgOrderValue": "Avg. Order Value"
+    }
+  },
+  "notifications": {
+    "pageTitle": "Notification Preferences",
+    "pageDescription": "Manage how you receive alerts and notifications",
+    "channelPreferences": "Channel Preferences",
+    "channelPreferencesDesc": "Choose which channels you want to receive notifications on",
+    "channelDescriptions": {
+      "email": "Receive notifications via email",
+      "slack": "Receive notifications in Slack workspace",
+      "telegram": "Receive notifications via Telegram bot"
+    },
+    "severityThreshold": "Severity Threshold",
+    "severityThresholdDesc": "Select the minimum severity level for notifications you want to receive",
+    "selectSeverity": "Select severity threshold",
+    "severityOptions": {
+      "all": "All notifications (Info, Warning, Critical)",
+      "warningAndCritical": "Warning & Critical only",
+      "criticalOnly": "Critical only"
+    },
+    "emailSettings": "Email Settings",
+    "emailSettingsDesc": "Configure your email notification address",
+    "emailAddress": "Email Address",
+    "emailPlaceholder": "your-email@example.com",
+    "emailHelp": "Leave empty to use your account email address",
+    "quietHours": "Quiet Hours",
+    "quietHoursDesc": "Set hours when notifications should be suppressed",
+    "enableQuietHours": "Enable quiet hours",
+    "startTime": "Start time",
+    "endTime": "End time",
+    "weeklySummary": "Weekly Summary",
+    "weeklySummaryDesc": "Receive a weekly summary of your earnings and activity",
+    "receiveWeeklySummary": "Receive weekly summary",
+    "saveChanges": "Save changes",
+    "saving": "Saving...",
+    "settingsSaved": "Settings saved successfully",
+    "saveError": "Failed to save settings",
+    "notAuthenticated": "Not authenticated",
+    "loginRequired": "Please log in to manage your notifications"
+  },
+  "conversions": {
+    "failureRate": "Tỷ lệ thất bại",
+    "last24h": "24 giờ qua",
+    "last7d": "7 ngày qua",
+    "last30d": "30 ngày qua",
+    "statusBreakdown": "Phân tích trạng thái",
+    "title": "Lịch sử chuyển đổi",
+    "subtitle": "Theo dõi mọi giao dịch đã xác minh và chi tiết hoa hồng",
+    "filters": {
+      "clear": "Xóa bộ lọc",
+      "searchPlaceholder": "Tìm theo giao dịch hoặc mã đơn"
+    },
+    "status": {
+      "all": "Tất cả trạng thái",
+      "pending": "Đang chờ",
+      "approved": "Đã duyệt",
+      "paid": "Đã thanh toán",
+      "rejected": "Từ chối"
+    },
+    "conversion_type": {
+      "all": "Tất cả loại",
+      "direct": "Trực tiếp",
+      "tier2": "Tầng 2",
+      "tier3": "Tầng 3"
+    },
+    "columns": {
+      "date": "Ngày",
+      "deal": "Giao dịch",
+      "orderId": "Mã đơn",
+      "type": "Loại",
+      "level": "Cấp",
+      "revenue": "Doanh thu",
+      "commission": "Hoa hồng",
+      "status": "Trạng thái"
+    },
+    "stats": {
+      "totalConversions": "Tổng số chuyển đổi",
+      "totalRevenue": "Tổng doanh thu",
+      "totalEarnings": "Tổng thu nhập",
+      "avgOrderValue": "Giá trị đơn trung bình"
+    },
+    "empty": {
+      "title": "Chưa có chuyển đổi nào",
+      "description": "Các giao dịch đã xác minh của bạn sẽ xuất hiện tại đây."
+    },
+    "sortBy": {
+      "date": "Sắp xếp theo ngày",
+      "revenue": "Sắp xếp theo doanh thu"
+    },
+    "sortOrder": {
+      "asc": "Tăng dần",
+      "desc": "Giảm dần"
+    },
+    "search": "Tìm kiếm",
+    "limit": "Mỗi trang",
+    "page": "Trang"
+  },
+  "common": {
+    "loading": "Đang tải…",
+    "autoRefresh": "Tự động làm mới",
+    "autoRefreshNote": "Dữ liệu được làm mới mỗi 30 giây",
+    "cancel": "Hủy",
+    "connected": "Đã kết nối",
+    "dataRefresh": "Dữ liệu đã được làm mới",
+    "disconnected": "Ngắt kết nối",
+    "lastRefresh": "Lần làm mới gần nhất",
+    "optional": "Tùy chọn",
+    "refresh": "Làm mới",
+    "retry": "Thử lại",
+    "silencedUntil": "Tắt tiếng đến",
+    "updating": "Đang cập nhật"
+  },
+  "payouts": {
+    "byMethod": "Theo phương thức",
+    "cancelled": "Đã hủy",
+    "completed": "Hoàn tất",
+    "failed": "Thất bại",
+    "failureRate": "Tỷ lệ thất bại",
+    "failureReasons": "Lý do thất bại",
+    "noData": "Không có dữ liệu",
+    "noFailures": "Không có lỗi",
+    "pending": "Đang chờ",
+    "processing": "Đang xử lý",
+    "successRate": "Tỷ lệ thành công",
+    "total": "Tổng",
+    "totalAmount": "Tổng số tiền",
+    "totalFees": "Tổng phí",
+    "title": "Lịch sử thanh toán",
+    "subtitle": "Xem lại các khoản thanh toán USDC đã quyết toán và giao dịch Stellar"
   }
 }
