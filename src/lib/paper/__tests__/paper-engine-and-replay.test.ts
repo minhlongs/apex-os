@@ -3782,6 +3782,21 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         // and intermittently starved continuous coverage. Count up instead.
         let binanceSequenceCursor = 0;
         let bybitSequenceCursor = 0;
+        const emittedBinanceIds: number[] = [];
+        const emittedBybitIds: number[] = [];
+
+        // Pin the invariant the cursors exist for. The flaw this test rides on was
+        // a fixture that derived ids from the clock and wrapped, so assert the ids
+        // the stub hands the sequencer only ever advance; without this the regression
+        // would return silently the next time a duration leaks into the id.
+        function recordMonotonicId(bucket: number[], id: number): void {
+          const previous = bucket[bucket.length - 1];
+          expect(typeof id).toBe('number');
+          if (previous !== undefined) {
+            expect(id).toBeGreaterThan(previous);
+          }
+          bucket.push(id);
+        }
 
         globalThis.fetch = (async (input: RequestInfo | URL) => {
           const url = String(input);
@@ -3801,9 +3816,11 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
           const mid = isBtc ? '68400.00' : '2620.00';
           const ask = isBtc ? '68402.00' : '2620.50';
           if (url.includes('binance.vision') || url.includes('binance.com')) {
+            const lastUpdateId = 910000 + (binanceSequenceCursor += 1);
+            recordMonotonicId(emittedBinanceIds, lastUpdateId);
             return new Response(
               JSON.stringify({
-                lastUpdateId: 910000 + (binanceSequenceCursor += 1),
+                lastUpdateId,
                 E: now,
                 bids: [[mid, '2.5']],
                 asks: [[ask, '2.5']],
@@ -3812,6 +3829,8 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
             );
           }
           if (url.includes('api.bybit.com') && url.includes('/v5/market/orderbook')) {
+            const updateId = 59100000 + (bybitSequenceCursor += 1);
+            recordMonotonicId(emittedBybitIds, updateId);
             return new Response(
               JSON.stringify({
                 retCode: 0,
@@ -3821,7 +3840,7 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
                   b: [[mid, '2.5']],
                   a: [[ask, '2.5']],
                   ts: now,
-                  u: 59100000 + (bybitSequenceCursor += 1),
+                  u: updateId,
                 },
               }),
               { status: 200 }
