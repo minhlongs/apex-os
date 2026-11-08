@@ -23,6 +23,8 @@ import { collectStorageMetrics } from '@/lib/monitoring/d1-monitor';
 import { fetchBusinessMetricsSnapshot } from '@/lib/metrics/business-metrics-fetcher';
 import { evaluateBusinessAlerts } from '@/lib/notifications/business-alert-engine';
 import { AlertStorage } from '@/lib/alerts/alert-storage';
+import { AlertEngine } from '@/lib/monitoring/alert-engine';
+import { EvaluationStateStorage } from '@/lib/monitoring/evaluation-state-storage';
 
 const MIGRATION_CHAIN = [
   'src/database/migrations/001_initial_schema_d1.sql',
@@ -419,6 +421,30 @@ describe('D1 Alert Engine & Monitoring Migrations + Runtime Fixes', () => {
         .prepare('SELECT COUNT(*) as count FROM business_alert_history WHERE alert_config_id = ?')
         .get('alert-webhook-failures') as { count: number } | undefined;
       expect(historyRow?.count).toBe(1);
+    });
+  });
+
+  describe('6. AlertEngine Evaluates Rules Seeded by 012_alert_engine.sql', () => {
+    it('evaluates all 8 default database rules rather than skipping snake_case rows', async () => {
+      // Clear external channels so the test measures database rule evaluation
+      // without waiting on email/webhook retry backoffs.
+      sqlite.prepare("UPDATE alert_rules SET alert_channels = '[]'").run();
+
+      const engine = new AlertEngine({ persistAlerts: false });
+      await engine.initialize(d1);
+      // Bind a dedicated storage instance to this test's in-memory database.
+      engine['evaluationStorage'] = new EvaluationStateStorage(d1);
+
+      await engine.runCycle();
+
+      const runRow = sqlite
+        .prepare('SELECT rules_evaluated, status, errors_count FROM evaluation_runs ORDER BY started_at DESC LIMIT 1')
+        .get() as { rules_evaluated: number; status: string; errors_count: number } | undefined;
+
+      expect(runRow).toBeDefined();
+      expect(runRow?.status).toBe('completed');
+      expect(runRow?.errors_count).toBe(0);
+      expect(runRow?.rules_evaluated).toBe(8);
     });
   });
 });
