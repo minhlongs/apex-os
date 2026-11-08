@@ -101,7 +101,7 @@ wrangler whoami
 # URL pattern: https://dash.cloudflare.com/{account-id}
 ```
 
-Save as `CF_ACCOUNT_ID`.
+Save as `CLOUDFLARE_ACCOUNT_ID`.
 
 ---
 
