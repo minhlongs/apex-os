@@ -395,8 +395,8 @@ Create `.env.local`:
 BETTER_AUTH_SECRET=random-32-char-secret
 
 # Cloudflare
-CF_ACCOUNT_ID=your-account
-CF_API_TOKEN=your-api-token
+CLOUDFLARE_ACCOUNT_ID=your-account
+CLOUDFLARE_API_TOKEN=your-api-token
 D1_DATABASE=apex-os-db
 
 # Stellar Payouts (USDC)

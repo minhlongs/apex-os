@@ -7,7 +7,7 @@ DNS cutover migrates your application from the Cloudflare Pages subdomain (`apex
 ## Prerequisites
 
 - `CLOUDFLARE_API_TOKEN` with DNS edit permissions
-- `CF_ACCOUNT_ID` (from `wrangler whoami`)
+- `CLOUDFLARE_ACCOUNT_ID` (from `wrangler whoami`)
 - Target domain added to Cloudflare account
 - Production environment variables updated:
   - `NEXT_PUBLIC_APP_URL=https://apex-os.com`
@@ -42,7 +42,7 @@ DNS cutover migrates your application from the Cloudflare Pages subdomain (`apex
 ```bash
 # Set required environment variables
 export CLOUDFLARE_API_TOKEN="your-token"
-export CF_ACCOUNT_ID="your-account-id"
+export CLOUDFLARE_ACCOUNT_ID="your-account-id"
 
 # Run the automated cutover script
 ./scripts/dns-cutover.sh --domain apex-os.com --action cutover --wait-minutes 30
