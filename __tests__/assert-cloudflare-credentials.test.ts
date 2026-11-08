@@ -79,8 +79,9 @@ describe('Cloudflare credential preflight', () => {
       CLOUDFLARE_ACCOUNT_ID: undefined,
     });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain('CLOUDFLARE_ACCOUNT_ID');
-    expect(result.stderr).not.toContain('CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN');
+    expect(result.stderr.split('\n')[0]).toBe(
+      'FATAL: 1 Cloudflare credential(s) are not available in this job: CLOUDFLARE_ACCOUNT_ID'
+    );
   });
 
   it('reports the secret names the workflow must use, not only the variable names', () => {
@@ -129,26 +130,67 @@ describe('deploy workflow secret names', () => {
     expect(workflow).not.toMatch(/CLOUDFLARE_ACCOUNT_ID:\s*\$\{\{\s*secrets\.(?!CLOUDFLARE_ACCOUNT_ID)/);
   });
 
-  it('asserts the credentials before spending the deploy on them', () => {
-    // A preflight placed after the deploy step is decoration.
-    const preflight = workflow.indexOf('scripts/assert-cloudflare-credentials.sh');
-    expect(preflight).toBeGreaterThan(-1);
-
-    const stagingDeploy = workflow.indexOf('Deploy to Cloudflare Workers (Staging)');
-    const productionDeploy = workflow.indexOf('Deploy to Cloudflare Workers (Production)');
-    expect(stagingDeploy).toBeGreaterThan(-1);
-    expect(productionDeploy).toBeGreaterThan(-1);
-
-    const gate = workflow.indexOf('Enforce strict economic go-live verdict');
-    expect(gate).toBeGreaterThan(preflight);
-
-    expect(preflight).toBeLessThan(stagingDeploy);
-    expect(preflight).toBeLessThan(gate);
+  it('registers the preflight in every job that calls Cloudflare', () => {
+    // The rollback job reads the same credential pair, so it needs the same gate.
+    const count = workflow.match(/scripts\/assert-cloudflare-credentials\.sh/g)?.length ?? 0;
+    expect(count).toBeGreaterThanOrEqual(3);
   });
 
-  it('registers the preflight in both deploying jobs', () => {
-    // Production gated by credentials matters as much as staging does.
-    const count = workflow.match(/scripts\/assert-cloudflare-credentials\.sh/g)?.length ?? 0;
-    expect(count).toBeGreaterThanOrEqual(2);
+  it('asserts the credentials before each job spends anything on them', () => {
+    // A preflight placed after the deploy step is decoration. Asserted per job:
+    // `indexOf` on the whole file only finds the first occurrence, which is in
+    // deploy-staging, and would blind the test to a preflight moved to the end
+    // of deploy-production or rollback.
+    const jobs = [
+      {
+        name: 'deploy-staging',
+        start: workflow.indexOf('deploy-staging:'),
+        spends: [
+          'Install dependencies',
+          'Deploy to Cloudflare Workers (Staging)',
+        ],
+      },
+      {
+        name: 'deploy-production',
+        start: workflow.indexOf('deploy-production:'),
+        spends: [
+          'Install dependencies',
+          'Enforce strict economic go-live verdict',
+          'Deploy to Cloudflare Workers (Production)',
+        ],
+      },
+      {
+        name: 'rollback',
+        start: workflow.indexOf('rollback:'),
+        spends: ['Install dependencies', 'Execute rollback'],
+      },
+    ];
+
+    for (const job of jobs) {
+      if (job.start === -1) {
+        throw new Error('missing job block in deploy.yml: ' + job.name);
+      }
+      // A job runs to the next top-level job key, so slice on that boundary
+      // rather than on a nested `if:` literal line.
+      const end = workflow.slice(job.start).search(/\n  [a-z][a-z0-9-]*:/);
+      const body = end === -1
+        ? workflow.slice(job.start)
+        : workflow.slice(job.start, job.start + end);
+
+      const preflight = body.indexOf('scripts/assert-cloudflare-credentials.sh');
+      if (preflight === -1) {
+        throw new Error('job ' + job.name + ' registers no preflight');
+      }
+
+      for (const spends of job.spends) {
+        const at = body.indexOf(spends);
+        if (at === -1) {
+          throw new Error(job.name + ' is missing step: ' + spends);
+        }
+        if (preflight > at) {
+          throw new Error(job.name + ': preflight must precede ' + spends);
+        }
+      }
+    }
   });
 });
