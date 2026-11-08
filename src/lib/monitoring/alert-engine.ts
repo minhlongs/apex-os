@@ -60,6 +60,30 @@ export interface AlertFilters {
   affiliate_id?: string;
 }
 
+interface AlertRuleRow {
+  id: string;
+  name?: string;
+  description?: string | null;
+  source?: MetricSource;
+  metric?: string;
+  threshold_type?: AlertRule['thresholdType'];
+  thresholdType?: AlertRule['thresholdType'];
+  threshold_value?: number;
+  thresholdValue?: number;
+  evaluation_window_minutes?: number;
+  evaluationWindowMinutes?: number;
+  severity?: AlertSeverity;
+  alert_channels?: string;
+  channels?: AlertChannel[];
+  cooldown_minutes?: number;
+  cooldownMinutes?: number;
+  is_enabled?: number | boolean;
+  isEnabled?: boolean;
+  filters?: string | AlertFilters | null;
+  baseline_period_days?: number;
+  baselinePeriodDays?: number;
+}
+
 export interface AlertContext {
   rule: AlertRule;
   currentValue: number;
@@ -293,6 +317,69 @@ export const ALL_DEFAULT_RULES: AlertRule[] = [
   ...DEFAULT_D1_ALERT_RULES,
 ];
 
+/**
+ * Parse a JSON column that may arrive as a text blob, an already-parsed object,
+ * or null. Returns `fallback` for missing, empty, or unparseable values so one
+ * malformed row cannot abort rule loading and drop the engine onto defaults.
+ */
+function parseJsonColumn<T>(raw: unknown, fallback: T): T {
+  if (raw === null || raw === undefined || raw === '') return fallback;
+  if (typeof raw === 'object') return raw as T;
+  try {
+    return JSON.parse(String(raw)) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+/** D1 returns SQLite integers as numbers; SQLite booleans are 0/1. */
+function toBoolean(value: unknown, fallback: boolean): boolean {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === 'boolean') return value;
+  return Number(value) === 1;
+}
+
+/** First defined value across the camelCase and snake_case spellings. */
+function firstDefined<T>(...values: (T | undefined | null)[]): T | undefined {
+  return values.find((value): value is T => value !== undefined && value !== null);
+}
+
+/**
+ * Convert an `alert_rules` row into the in-memory `AlertRule` shape.
+ *
+ * `upsertRule` writes camelCase field values into snake_case columns, so the
+ * read path has to invert that mapping row by row. Spreading the row and only
+ * fixing `channels` left `is_enabled` on the object while every consumer reads
+ * `isEnabled`, which made `runCycle`'s `if (!rule.isEnabled) continue` skip
+ * every stored rule and record `rules_evaluated: 0` against a populated table.
+ */
+export function mapRuleRowToAlertRule(row: AlertRuleRow): AlertRule {
+  const parsedChannels = parseJsonColumn<unknown>(
+    firstDefined<AlertChannel[] | string>(row.channels, row.alert_channels),
+    []
+  );
+  return {
+    id: row.id,
+    name: firstDefined(row.name, '') as string,
+    description: firstDefined(row.description, undefined) ?? undefined,
+    source: firstDefined(row.source, 'custom') as MetricSource,
+    metric: firstDefined(row.metric, '') as string,
+    thresholdType: firstDefined(row.thresholdType, row.threshold_type, 'gt') as AlertRule['thresholdType'],
+    thresholdValue: Number(firstDefined(row.thresholdValue, row.threshold_value, 0)),
+    evaluationWindowMinutes: Number(firstDefined(row.evaluationWindowMinutes, row.evaluation_window_minutes, 60)),
+    severity: firstDefined(row.severity, 'warning') as AlertSeverity,
+    channels: Array.isArray(parsedChannels) ? (parsedChannels as AlertChannel[]) : [],
+    cooldownMinutes: Number(firstDefined(row.cooldownMinutes, row.cooldown_minutes, 15)),
+    isEnabled: toBoolean(firstDefined<boolean | number>(row.isEnabled, row.is_enabled), true),
+    filters: parseJsonColumn<AlertFilters | undefined>(row.filters, undefined),
+    baselinePeriodDays: firstDefined(
+      row.baselinePeriodDays,
+      row.baseline_period_days,
+      undefined
+    ) as number | undefined,
+  };
+}
+
 // ============================================================================
 // Alert Engine Core
 // ============================================================================
@@ -372,13 +459,10 @@ export class AlertEngine {
     try {
       const result = await this.db
         .prepare('SELECT * FROM alert_rules WHERE is_enabled = 1')
-        .all<AlertRule & { id: string; alert_channels: string }>();
+        .all<AlertRuleRow>();
 
       if (result.results.length > 0) {
-        this.rules = result.results.map(row => ({
-          ...row,
-          channels: JSON.parse(row.alert_channels || '[]'),
-        }));
+        this.rules = result.results.map(mapRuleRowToAlertRule);
       } else {
         // No custom rules, use defaults
         this.rules = ALL_DEFAULT_RULES;

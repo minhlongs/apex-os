@@ -725,6 +725,105 @@ describe('AlertEngine', () => {
       expect(engine['rules'][0].id).toBe('new-rule');
     });
 
+    // A stored rule arrives with snake_case column names. Spreading the row
+    // instead of mapping it leaves `is_enabled` where every consumer reads
+    // `isEnabled`, so `runCycle` skips every rule and records
+    // `rules_evaluated: 0` against a populated table.
+    it('should map snake_case database columns onto the camelCase AlertRule shape', async () => {
+      const dbRow = {
+        id: 'd1-storage-critical',
+        name: 'High Storage Usage',
+        description: 'Triggers when storage usage exceeds 80% of quota',
+        source: 'd1',
+        metric: 'storage_usage_percent',
+        threshold_type: 'gte',
+        threshold_value: 80,
+        evaluation_window_minutes: 60,
+        severity: 'critical',
+        alert_channels: '["email","webhook"]',
+        cooldown_minutes: 15,
+        is_enabled: 1,
+        filters: '{"deal_type":"spot"}',
+      };
+      (mockDB.prepare('SELECT * FROM alert_rules WHERE is_enabled = 1').all as any).mockResolvedValue({
+        results: [dbRow],
+      });
+
+      await engine.reloadRules();
+
+      const rule = engine['rules'][0];
+
+      // No snake_case keys survive the mapping.
+      expect(Object.keys(rule)).not.toContain('is_enabled');
+      expect(Object.keys(rule)).not.toContain('alert_channels');
+
+      expect(rule.isEnabled).toBe(true);
+      expect(rule.thresholdType).toBe('gte');
+      expect(rule.thresholdValue).toBe(80);
+      expect(rule.evaluationWindowMinutes).toBe(60);
+      expect(rule.cooldownMinutes).toBe(15);
+      expect(rule.channels).toEqual(['email', 'webhook']);
+      expect(rule.filters).toEqual({ deal_type: 'spot' });
+      expect(rule.severity).toBe('critical');
+      expect(rule.source).toBe('d1');
+      expect(rule.metric).toBe('storage_usage_percent');
+    });
+
+    it('should disable a stored rule whose is_enabled flag is 0', async () => {
+      const dbRow = {
+        id: 'disabled-rule',
+        name: 'Disabled Rule',
+        source: 'd1',
+        metric: 'slow_query_count',
+        threshold_type: 'gt',
+        threshold_value: 10,
+        evaluation_window_minutes: 60,
+        severity: 'warning',
+        alert_channels: '["email"]',
+        cooldown_minutes: 15,
+        is_enabled: 0,
+      };
+      (mockDB.prepare('SELECT * FROM alert_rules WHERE is_enabled = 1').all as any).mockResolvedValue({
+        results: [dbRow],
+      });
+
+      await engine.initialize(mockDB);
+
+      // Rule loading only ever sees enabled rows, so this row must not count
+      // even when it is present — the guard below is the one that regressed.
+      expect(engine['rules']).toHaveLength(1);
+      expect(engine['rules'][0].isEnabled).toBe(false);
+    });
+
+    it('should evaluate rules loaded from database rows rather than skipping them', async () => {
+      const dbRow = {
+        id: 'd1-storage-critical',
+        name: 'High Storage Usage',
+        source: 'd1',
+        metric: 'storage_usage_percent',
+        threshold_type: 'gte',
+        threshold_value: 0, // Always breached, so evaluation is observable.
+        evaluation_window_minutes: 60,
+        severity: 'critical',
+        alert_channels: '[]',
+        cooldown_minutes: 0,
+        is_enabled: 1,
+      };
+      (mockDB.prepare('SELECT * FROM alert_rules WHERE is_enabled = 1').all as any).mockResolvedValue({
+        results: [dbRow],
+      });
+
+      await engine.initialize(mockDB);
+      const completeRunSpy = vi.spyOn(engine['evaluationStorage'] as any, 'completeRun');
+
+      await engine.runCycle();
+
+      // The regression: every cron tick recorded `rules_evaluated: 0`.
+      expect(completeRunSpy).toHaveBeenCalledTimes(1);
+      const [, , stats] = completeRunSpy.mock.calls[0] as [string, number, { rulesEvaluated: number }];
+      expect(stats.rulesEvaluated).toBe(1);
+    });
+
 it('should upsert existing rule', async () => {
         const selectStmt = { bind: vi.fn().mockReturnThis(), first: vi.fn().mockResolvedValue({ id: 'existing-rule' }), run: vi.fn() };
         const updateStmt = { bind: vi.fn().mockReturnThis(), run: vi.fn().mockResolvedValue({ success: true, meta: { changes: 1 } }) };
