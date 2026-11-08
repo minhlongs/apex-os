@@ -427,7 +427,8 @@ export class AlertStorage {
     const result = await this.db
       .prepare(`
         UPDATE alerts
-        SET snoozed_until = NULL
+        SET snoozed_until = NULL,
+            status = CASE WHEN resolved_at IS NOT NULL THEN 'resolved' ELSE 'active' END
         WHERE status = 'snoozed'
           AND snoozed_until < datetime('now')
       `)

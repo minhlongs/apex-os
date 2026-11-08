@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS alert_rules (
   description TEXT,
   source TEXT NOT NULL CHECK (source IN ('business', 'd1', 'custom')),
   metric TEXT NOT NULL,
-  threshold_type TEXT NOT NULL CHECK (threshold_type IN ('gt', 'gte', 'lt', 'lte', 'eq')),
+  threshold_type TEXT NOT NULL CHECK (threshold_type IN ('gt', 'gte', 'lt', 'lte', 'eq', 'drop_pct')),
   threshold_value REAL NOT NULL,
   evaluation_window_minutes INTEGER DEFAULT 60,
   severity TEXT DEFAULT 'warning' CHECK (severity IN ('info', 'warning', 'critical')),

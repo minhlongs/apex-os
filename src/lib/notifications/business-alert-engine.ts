@@ -552,21 +552,18 @@ async function getWebhookFailureStats(
 ): Promise<{ total_attempts: number; successful_attempts: number; failed_attempts: number }> {
   const windowStart = new Date(Date.now() - windowMinutes * 60 * 1000).toISOString();
 
-  // This would query from a webhook tracking table
-  // For now, return placeholder - actual implementation depends on webhook logging
   const result = await db
     .prepare(`
       SELECT
-        COUNT(*) as total,
-        SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-        SUM(CASE WHEN status IN ('failed', 'error') THEN 1 ELSE 0 END) as failed
-      FROM webhook_delivery_log
-      WHERE attempted_at >= ?
+        COALESCE(SUM(total_attempts), 0) as total,
+        COALESCE(SUM(successful_attempts), 0) as success,
+        COALESCE(SUM(failed_attempts), 0) as failed
+      FROM webhook_failure_stats
+      WHERE window_end >= ?
     `)
     .bind(windowStart)
     .first<{ total: number; success: number; failed: number }>();
 
-  // If table doesn't exist yet, return zeros
   if (!result) {
     return { total_attempts: 0, successful_attempts: 0, failed_attempts: 0 };
   }

@@ -46,19 +46,30 @@ CREATE INDEX IF NOT EXISTS idx_alert_history_type ON alert_history_new(type);
 CREATE INDEX IF NOT EXISTS idx_alert_history_severity ON alert_history_new(severity);
 CREATE INDEX IF NOT EXISTS idx_alert_history_triggered ON alert_history_new(triggered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_alert_history_status ON alert_history_new(status);
+CREATE INDEX IF NOT EXISTS idx_alert_history_is_read ON alert_history_new(is_read);
 CREATE INDEX IF NOT EXISTS idx_alert_history_cooldown ON alert_history_new(alert_id, status, triggered_at);
 
--- Copy existing data from old table
+-- Copy existing data from old table (preserving is_read from 013_alert_is_read and deriving status)
 INSERT INTO alert_history_new (
   id, alert_id, type, title, description, current_value, threshold,
-  severity, triggered_at, resolved_at, acknowledged_at, acknowledged_by,
-  metadata, created_at, updated_at
+  severity, status, triggered_at, resolved_at, acknowledged_at, acknowledged_by,
+  is_read, metadata, created_at, updated_at
 )
 SELECT
   id, alert_id, type, title, description, current_value, threshold,
-  severity, triggered_at, resolved_at, acknowledged_at, acknowledged_by,
-  metadata, created_at, updated_at
+  severity,
+  CASE
+    WHEN resolved_at IS NOT NULL THEN 'resolved'
+    WHEN acknowledged_at IS NOT NULL THEN 'acknowledged'
+    ELSE 'active'
+  END,
+  triggered_at, resolved_at, acknowledged_at, acknowledged_by,
+  COALESCE(is_read, 0), metadata, created_at, updated_at
 FROM alert_history;
+
+-- Drop views referencing alert_history before swapping the table (required by Cloudflare D1)
+DROP VIEW IF EXISTS v_active_alerts;
+DROP VIEW IF EXISTS v_alert_summary;
 
 -- Drop old table and rename new
 DROP TABLE alert_history;
