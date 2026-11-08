@@ -11,6 +11,7 @@ import {
   CRON_WEEKLY_PAYOUTS,
 } from './worker-cron-schedules.js';
 import {
+  FORWARDED_HOST_HEADER,
   buildCronRequestDescriptor,
   isAuthorizedCronRequest,
 } from './worker-cron-request.js';
@@ -68,7 +69,14 @@ export default {
   async scheduled(event, env, ctx) {
     this.bindEnv(env);
 
-    const descriptor = buildCronRequestDescriptor(event?.cron, env.CRON_SECRET);
+    const descriptor = buildCronRequestDescriptor(
+      event.cron,
+      env.CRON_SECRET,
+      // The runtime supplies the deployment host on a cron invocation; without it
+      // the synthesized request would fall back to an origin that is not routable.
+      event.request?.headers?.get?.(FORWARDED_HOST_HEADER) ?? env.CRON_FORWARDED_HOST,
+      env.NEXT_PUBLIC_APP_URL
+    );
     const syntheticRequest = new Request(descriptor.url, {
       method: descriptor.method,
       headers: descriptor.headers,
@@ -76,9 +84,23 @@ export default {
 
     return ctx.waitUntil((async () => {
       const response = await this.handleCron(syntheticRequest, env, ctx);
-      if (!response.ok) {
+
+      // `!response.ok` misses the sub-handler that reports failure in the body:
+      // /api/cron answers 200 with `success: false` when a payout batch partially
+      // fails, so a red payout run would still record as a green cron tick.
+      const statusFailure = !response.ok;
+
+      let bodyFailure = false;
+      if (!statusFailure) {
+        bodyFailure = await response.clone().json().then(
+          (body) => body?.success === false,
+          () => false
+        );
+      }
+
+      if (statusFailure || bodyFailure) {
         throw new Error(
-          `Cron ${event?.cron || '(unknown schedule)'} failed with status ${response.status}`
+          `Cron ${event.cron || '(unknown schedule)'} failed with status ${response.status}`
         );
       }
       return response;

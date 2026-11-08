@@ -15,7 +15,18 @@
 
 const CRON_TRIGGER_HEADER = 'cf-cron-trigger';
 const CRON_SCHEDULE_HEADER = 'cf-cron-schedule';
-const CRON_INTERNAL_URL = 'http://internal/cron';
+
+/**
+ * Host header name the Workers runtime sets on a scheduled invocation.
+ *
+ * A ScheduledEvent carries no request, so the wrapper has to synthesize one. The
+ * synthesized request's origin must be a real deployment origin rather than a
+ * placeholder: `runWithCloudflareRequestContext` pins `process.env.OPEN_NEXT_ORIGIN`
+ * from the URL of the first request an isolate serves, and the Next middleware
+ * reads that value. A hosts-only placeholder therefore leaks into every
+ * subsequent response that isolate produces.
+ */
+const FORWARDED_HOST_HEADER = 'x-forwarded-host';
 
 /**
  * Headers a scheduled tick presents to the dispatcher.
@@ -31,10 +42,54 @@ function buildCronHeaders(schedule, cronSecret) {
   };
 }
 
+/**
+ * Origin for the synthesized cron request, as `scheme://host`.
+ *
+ * Prefers the deployment origin the runtime reports, then an explicitly
+ * configured public URL, and falls back to the local Workers origin. It never
+ * invents a hostname that is not routable, because the payout delegation
+ * resolves `/api/cron?job=payouts` against this base.
+ */
+function buildCronOrigin(forwardedHost, configuredUrl) {
+  const candidates = [forwardedHost, configuredUrl];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue;
+    }
+    const trimmed = candidate.trim();
+    if (trimmed === '') {
+      continue;
+    }
+    if (/^https?:\/\//i.test(trimmed)) {
+      try {
+        const parsed = new URL(trimmed);
+        if (parsed.host) {
+          return `${parsed.origin}/cron`;
+        }
+      } catch {
+        // Not a parseable absolute URL; fall through to the next candidate.
+      }
+      continue;
+    }
+    // `x-forwarded-host` can carry a comma-separated proxy chain; the deployment
+    // is the first entry.
+    const host = trimmed.split(',')[0].trim();
+    // A bare candidate is only a host when it could not be anything else: a
+    // space, slash, or port punctuation means a misconfigured URL that lost its
+    // scheme, which must not be prefixed and quietly accepted.
+    if (host && !/[\s/?#]/.test(host)) {
+      return `https://${host}/cron`;
+    }
+  }
+
+  return 'https://placeholder.invalid/cron';
+}
+
 /** Request descriptor for a scheduled tick, before any `Request` construction. */
-function buildCronRequestDescriptor(schedule, cronSecret) {
+function buildCronRequestDescriptor(schedule, cronSecret, forwardedHost, configuredUrl) {
   return {
-    url: CRON_INTERNAL_URL,
+    url: buildCronOrigin(forwardedHost, configuredUrl),
     method: 'GET',
     headers: buildCronHeaders(schedule, cronSecret),
   };
@@ -60,8 +115,9 @@ function isAuthorizedCronRequest(headers, cronSecret) {
 module.exports = {
   CRON_TRIGGER_HEADER,
   CRON_SCHEDULE_HEADER,
-  CRON_INTERNAL_URL,
+  FORWARDED_HOST_HEADER,
   buildCronHeaders,
+  buildCronOrigin,
   buildCronRequestDescriptor,
   isAuthorizedCronRequest,
 };
