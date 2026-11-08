@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS webhook_failure_stats (
 
 CREATE INDEX IF NOT EXISTS idx_webhook_failure_type ON webhook_failure_stats(webhook_type);
 CREATE INDEX IF NOT EXISTS idx_webhook_failure_window ON webhook_failure_stats(window_start, window_end);
+CREATE INDEX IF NOT EXISTS idx_webhook_failure_window_end ON webhook_failure_stats(window_end);
 CREATE INDEX IF NOT EXISTS idx_webhook_failure_updated ON webhook_failure_stats(updated_at DESC);
 
 -- ============================================================
@@ -330,24 +331,4 @@ END;
 -- ============================================================
 
 -- Verify tables created
-SELECT 'Business Alerting tables created:' as status
-UNION ALL
-SELECT 'business_alert_configs' as table_name
-UNION ALL
-SELECT 'business_alert_history'
-UNION ALL
-SELECT 'alert_notification_log'
-UNION ALL
-SELECT 'webhook_failure_stats'
-UNION ALL
-SELECT 'payout_failure_stats'
-UNION ALL
-SELECT 'stellar_balance_history'
-UNION ALL
-SELECT 'v_business_alerts_summary'
-UNION ALL
-SELECT 'v_active_business_alerts'
-UNION ALL
-SELECT 'v_recent_business_alerts'
-UNION ALL
-SELECT 'v_alert_notification_status';
+SELECT 'Business Alerting tables and views created successfully' as status;

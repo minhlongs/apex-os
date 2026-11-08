@@ -38,6 +38,7 @@ export interface D1Meta {
   rows_written: number;
   changes: number;
   duration: number;
+  size_after?: number;
 }
 
 export interface D1BatchStatement<T> {

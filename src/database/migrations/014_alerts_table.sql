@@ -36,14 +36,8 @@ CREATE TABLE IF NOT EXISTS alerts (
   -- Additional context as JSON (metric values, affected entities, etc.)
   context TEXT DEFAULT '{}',
 
-  -- Alert status derived from resolved_at/snoozed_until: active, resolved, snoozed
-  status TEXT GENERATED ALWAYS AS (
-    CASE
-      WHEN snoozed_until > datetime('now') THEN 'snoozed'
-      WHEN resolved_at IS NOT NULL THEN 'resolved'
-      ELSE 'active'
-    END
-  ) STORED
+  -- Alert status: active, resolved, snoozed (writable by AlertStorage.update and synced on insert via trigger)
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'resolved', 'snoozed'))
 );
 
 -- ============================================================
@@ -81,7 +75,40 @@ CREATE INDEX IF NOT EXISTS idx_alerts_resolved_triggered ON alerts(resolved_at, 
 -- TRIGGERS
 -- ============================================================
 
+-- Derive initial status on insert when snoozed_until or resolved_at is provided
+DROP TRIGGER IF EXISTS trg_alerts_derive_status_on_insert;
+CREATE TRIGGER IF NOT EXISTS trg_alerts_derive_status_on_insert
+AFTER INSERT ON alerts
+FOR EACH ROW
+WHEN datetime(new.snoozed_until) > datetime('now') OR new.resolved_at IS NOT NULL
+BEGIN
+  UPDATE alerts
+  SET status = CASE
+    WHEN datetime(new.snoozed_until) > datetime('now') THEN 'snoozed'
+    WHEN new.resolved_at IS NOT NULL THEN 'resolved'
+    ELSE 'active'
+  END
+  WHERE id = new.id;
+END;
+
+-- Synchronize status when snoozed_until or resolved_at is updated without explicitly setting status
+DROP TRIGGER IF EXISTS trg_alerts_sync_status_on_update;
+CREATE TRIGGER IF NOT EXISTS trg_alerts_sync_status_on_update
+AFTER UPDATE OF snoozed_until, resolved_at ON alerts
+FOR EACH ROW
+WHEN old.status = new.status
+BEGIN
+  UPDATE alerts
+  SET status = CASE
+    WHEN new.resolved_at IS NOT NULL THEN 'resolved'
+    WHEN new.snoozed_until IS NOT NULL THEN 'snoozed'
+    ELSE 'active'
+  END
+  WHERE id = new.id;
+END;
+
 -- Auto-update resolved_at when status changes to resolved (for manual updates)
+DROP TRIGGER IF EXISTS trg_alerts_set_resolved_at;
 CREATE TRIGGER IF NOT EXISTS trg_alerts_set_resolved_at
 AFTER UPDATE OF status ON alerts
 FOR EACH ROW
@@ -95,12 +122,13 @@ END;
 -- ============================================================
 
 -- Active alerts view (excludes snoozed unless explicitly requested)
+DROP VIEW IF EXISTS v_active_alerts;
 CREATE VIEW IF NOT EXISTS v_active_alerts AS
 SELECT
   a.*,
   COALESCE(ar.name, bac.name) as rule_name,
   COALESCE(ar.source, 'business') as source,
-  COALESCE(ar.metric_type, bac.metric_type) as metric_type,
+  COALESCE(ar.metric, bac.metric_type) as metric_type,
   (julianday('now') - julianday(a.triggered_at)) * 24 * 60 as minutes_active
 FROM alerts a
 LEFT JOIN alert_rules ar ON a.rule_id = ar.id
@@ -116,12 +144,13 @@ ORDER BY
   a.triggered_at DESC;
 
 -- Alert history view (resolved alerts, last 90 days)
+DROP VIEW IF EXISTS v_alert_history;
 CREATE VIEW IF NOT EXISTS v_alert_history AS
 SELECT
   a.*,
   COALESCE(ar.name, bac.name) as rule_name,
   COALESCE(ar.source, 'business') as source,
-  COALESCE(ar.metric_type, bac.metric_type) as metric_type,
+  COALESCE(ar.metric, bac.metric_type) as metric_type,
   (julianday(a.resolved_at) - julianday(a.triggered_at)) * 24 * 60 as resolution_time_minutes
 FROM alerts a
 LEFT JOIN alert_rules ar ON a.rule_id = ar.id
@@ -131,6 +160,7 @@ WHERE a.status = 'resolved'
 ORDER BY a.triggered_at DESC;
 
 -- Alert statistics view
+DROP VIEW IF EXISTS v_alert_statistics;
 CREATE VIEW IF NOT EXISTS v_alert_statistics AS
 SELECT
   rule_id,

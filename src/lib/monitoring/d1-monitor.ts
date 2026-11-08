@@ -144,31 +144,42 @@ export const DEFAULT_ALERT_CONFIGS: AlertConfig[] = [
  * Collects storage metrics from D1 database using PRAGMA statements
  */
 export async function collectStorageMetrics(db: D1Database): Promise<D1StorageMetrics> {
+  // D1's authorizer rejects PRAGMA page_count / page_size / wal_checkpoint with
+  // SQLITE_AUTH, so the primary route on remote D1 is the database size reported
+  // in D1Result.meta.size_after using SQLite's standard 4096-byte page size.
+  const DEFAULT_PAGE_SIZE = 4096;
+
   try {
-    // Get page count and page size
+    // Local SQLite exposes page_count/page_size directly.
     const pageCountResult = await db.prepare('PRAGMA page_count').first<{ page_count: number }>();
     const pageSizeResult = await db.prepare('PRAGMA page_size').first<{ page_size: number }>();
 
     const pageCount = pageCountResult?.page_count ?? 0;
     const pageSize = pageSizeResult?.page_size ?? 0;
-    const storageBytes = pageCount * pageSize;
 
-    // Get WAL file size if available (approximate via freelist info)
-    // Note: WAL size tracking may vary based on D1 implementation
-    let walSizeBytes = 0;
-    try {
-      const walInfo = await db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').run();
-      // WAL info not directly exposed, this is a placeholder
-      walSizeBytes = 0;
-    } catch {
-      walSizeBytes = 0;
+    if (pageCount > 0 && pageSize > 0) {
+      let walSizeBytes = 0;
+      try {
+        await db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').run();
+      } catch {
+        walSizeBytes = 0;
+      }
+      return { storageBytes: pageCount * pageSize, pageCount, pageSize, walSizeBytes };
     }
+  } catch {
+    // Remote D1 raises SQLITE_AUTH here; fall through to size_after below.
+  }
 
+  try {
+    const result = await db.prepare('SELECT 1').all<{ 1: number }>();
+    const rawSize = result?.meta?.size_after;
+    const storageBytes = typeof rawSize === 'number' && Number.isFinite(rawSize) && rawSize >= 0 ? rawSize : 0;
+    const pageCount = storageBytes > 0 ? Math.ceil(storageBytes / DEFAULT_PAGE_SIZE) : 0;
     return {
       storageBytes,
       pageCount,
-      pageSize,
-      walSizeBytes,
+      pageSize: DEFAULT_PAGE_SIZE,
+      walSizeBytes: 0,
     };
   } catch (error) {
     logError('Failed to collect storage metrics:', error);

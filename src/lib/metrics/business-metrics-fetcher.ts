@@ -509,13 +509,13 @@ export async function fetchBusinessMetricsSnapshot(
     ) as daily
   `).bind(sevenDaysAgo.toISOString(), sevenDaysAgo.toISOString()).first<{ avg_rate: number }>();
 
-  // Webhook failure rate (from webhook logs)
+  // Webhook failure rate (from webhook_failure_stats in 012_business_alerting.sql)
   const webhookResult = await DB.prepare(`
     SELECT
-      COUNT(*) as total,
-      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed
-    FROM webhook_logs
-    WHERE attempted_at >= ?
+      COALESCE(SUM(total_attempts), 0) as total,
+      COALESCE(SUM(failed_attempts), 0) as failed
+    FROM webhook_failure_stats
+    WHERE window_end >= ?
   `).bind(windowStart.toISOString()).first<{ total: number; failed: number }>();
 
   // Payout failure rate
@@ -527,10 +527,10 @@ export async function fetchBusinessMetricsSnapshot(
     WHERE created_at >= ?
   `).bind(windowStart.toISOString()).first<{ total: number; failed: number }>();
 
-  // Current Stellar balance (latest reading)
+  // Current Stellar balance (latest reading from stellar_balance_history in 012_business_alerting.sql)
   const stellarResult = await DB.prepare(`
     SELECT balance_usdc
-    FROM stellar_balance_records
+    FROM stellar_balance_history
     ORDER BY recorded_at DESC
     LIMIT 1
   `).first<{ balance_usdc: number }>();

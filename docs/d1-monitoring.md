@@ -28,6 +28,13 @@ The D1 Metrics Monitoring system provides real-time visibility into Cloudflare D
 
 ```bash
 wrangler d1 execute apex-os-db --file src/database/migrations/005_d1_monitoring.sql
+wrangler d1 execute apex-os-db --file src/database/migrations/009_evaluation_state_schema.sql
+wrangler d1 execute apex-os-db --file src/database/migrations/012_alert_snoozes.sql
+wrangler d1 execute apex-os-db --file src/database/migrations/012_alert_engine.sql
+wrangler d1 execute apex-os-db --file src/database/migrations/012_business_alerting.sql
+wrangler d1 execute apex-os-db --file src/database/migrations/013_alert_is_read.sql
+wrangler d1 execute apex-os-db --file src/database/migrations/013_alert_history_fix.sql
+wrangler d1 execute apex-os-db --file src/database/migrations/014_alerts_table.sql
 ```
 
 This creates:
@@ -35,6 +42,11 @@ This creates:
 - `d1_slow_queries` - logged slow queries
 - `d1_alert_configs` - alert rule configurations
 - `d1_alert_history` - triggered alert records
+- `alert_rules`, `circuit_breaker_state`, `evaluation_runs`, `rule_evaluation_history`, `evaluation_errors`, `alert_engine_metrics` - alert engine state and resilience tables
+- `alerts`, `alert_snoozes`, `alert_history` - unified alert storage and snooze management
+- `business_alert_configs`, `business_alert_history`, `alert_notification_log`, `webhook_failure_stats`, `payout_failure_stats`, `stellar_balance_history` - business alerting and telemetry tables
+
+> **Cloudflare D1 Authorizer Note:** Remote Cloudflare D1 blocks `PRAGMA page_count`, `PRAGMA page_size`, and `PRAGMA wal_checkpoint(TRUNCATE)` with `SQLITE_AUTH`. `collectStorageMetrics` automatically falls back to reading `D1Result.meta.size_after` from `SELECT 1` (assuming 4096-byte SQLite pages).
 
 ### 2. Environment Variables
 
@@ -248,7 +260,8 @@ WHERE status = 'active' AND alert_config_id = 'alert-id';
           ▼
 ┌─────────────────────┐
 │  d1-monitor.ts      │
-│  - collectStorage() │───► PRAGMA page_count/page_size
+│  - collectStorage() │───► PRAGMA page_count/page_size (local SQLite)
+│                     │───► SELECT 1 + meta.size_after (remote D1 / SQLITE_AUTH)
 │  - computeMetrics() │───► Query d1_slow_queries table
 │  - evaluateAlerts() │
 │  - sendNotifications│
