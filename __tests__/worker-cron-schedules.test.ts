@@ -93,3 +93,34 @@ describe('cron schedule contract', () => {
     expect(CRON_WEEKLY_PAYOUTS).toBe('0 0 * * SUN');
   });
 });
+
+describe('cron scheduled entrypoint wiring', () => {
+  // worker-wrapper.js cannot be imported in Jest - its module graph reaches the
+  // OpenNext bundle and `cloudflare:` protocol imports only Wrangler resolves -
+  // so the wiring that would otherwise fail in production as "Handler does not
+  // export a scheduled() function" is asserted against the source text.
+  const wrapper = fs.readFileSync(path.join(REPO_ROOT, 'worker-wrapper.js'), 'utf8');
+
+  it('exports a scheduled() entrypoint the Cron Trigger runtime can call', () => {
+    expect(wrapper).toMatch(/^\s*async scheduled\s*\(/m);
+  });
+
+  it('synthesizes the cron request through buildCronRequestDescriptor', () => {
+    // The dispatcher reads cf-cron-trigger / cf-cron-schedule from a request, so
+    // a scheduled() that instead re-implemented schedule matching would drift
+    // from the fetch() path it is supposed to share.
+    expect(wrapper).toMatch(/buildCronRequestDescriptor\(/);
+  });
+
+  it('authorizes the spoofable fetch() cron path with the shared secret', () => {
+    expect(wrapper).toMatch(/isAuthorizedCronRequest\(/);
+  });
+
+  it('propagates cron failures to Cloudflare instead of resolving them away', () => {
+    // Every sub-handler reports failure as a Response, not a rejection, and
+    // ctx.waitUntil only records a failure when the promise rejects. Without
+    // this the dashboard shows a green tick for a red run.
+    expect(wrapper).toMatch(/if\s*\(!response\.ok\)/);
+    expect(wrapper).toMatch(/throw new Error\(/);
+  });
+});

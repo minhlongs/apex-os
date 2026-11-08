@@ -56,6 +56,14 @@ export default {
    * `handleCron` reads `cf-cron-trigger` and `cf-cron-schedule` from a request,
    * so synthesize that request from the ScheduledEvent and reuse one dispatcher
    * rather than duplicating the schedule matching here.
+   *
+   * Every sub-handler reports failure by returning a `Response` rather than by
+   * rejecting, and `ctx.waitUntil` only marks an invocation failed when the
+   * promise rejects - a resolved `Response` with `ok === false` is recorded as
+   * a successful cron run. Await the handler and rethrow on a non-2xx response
+   * so an unknown schedule, an unauthorized delegation, or a failing job shows
+   * up as `outcome: "exception"` in Cron Trigger history instead of
+   * masquerading as success.
    */
   async scheduled(event, env, ctx) {
     this.bindEnv(env);
@@ -66,7 +74,15 @@ export default {
       headers: descriptor.headers,
     });
 
-    return ctx.waitUntil(this.handleCron(syntheticRequest, env, ctx));
+    return ctx.waitUntil((async () => {
+      const response = await this.handleCron(syntheticRequest, env, ctx);
+      if (!response.ok) {
+        throw new Error(
+          `Cron ${event?.cron || '(unknown schedule)'} failed with status ${response.status}`
+        );
+      }
+      return response;
+    })());
   },
 
   /**
