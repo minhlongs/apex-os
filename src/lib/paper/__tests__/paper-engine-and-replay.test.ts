@@ -3773,6 +3773,16 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
         }
         (globalThis as any).WebSocket = QuietColdStartWebSocket;
 
+        // Production exchanges emit strictly monotonic sequence ids: Binance advances
+        // `lastUpdateId` (spot depth and fapi depth) and Bybit advances `u` on every
+        // published snapshot. Deriving the id from `now % 10000` instead produced a
+        // sawtooth that wrapped every 10s, so a snapshot taken after the wrap carried a
+        // LOWER id than the one already in the sequencer. `resyncSnapshot` rejects such a
+        // snapshot as out-of-order, which left the stream pinned to its stale timestamp
+        // and intermittently starved continuous coverage. Count up instead.
+        let binanceSequenceCursor = 0;
+        let bybitSequenceCursor = 0;
+
         globalThis.fetch = (async (input: RequestInfo | URL) => {
           const url = String(input);
           if (
@@ -3793,7 +3803,7 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
           if (url.includes('binance.vision') || url.includes('binance.com')) {
             return new Response(
               JSON.stringify({
-                lastUpdateId: 910000 + Math.floor(now % 10000),
+                lastUpdateId: 910000 + (binanceSequenceCursor += 1),
                 E: now,
                 bids: [[mid, '2.5']],
                 asks: [[ask, '2.5']],
@@ -3811,7 +3821,7 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
                   b: [[mid, '2.5']],
                   a: [[ask, '2.5']],
                   ts: now,
-                  u: 59100000 + Math.floor(now % 10000),
+                  u: 59100000 + (bybitSequenceCursor += 1),
                 },
               }),
               { status: 200 }
