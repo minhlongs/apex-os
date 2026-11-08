@@ -36,6 +36,8 @@
         "next.config.js",
         "k6/**",
         "worker-wrapper.js",
+        "worker-cron-request.js",
+        "worker-cron-schedules.js",
         "scripts/**"
       ],
       "parserOptions": {

@@ -10,6 +10,11 @@ import {
   CRON_D1_METRICS,
   CRON_WEEKLY_PAYOUTS,
 } from './worker-cron-schedules.js';
+import {
+  FORWARDED_HOST_HEADER,
+  buildCronRequestDescriptor,
+  isAuthorizedCronRequest,
+} from './worker-cron-request.js';
 
 // Re-export named exports from OpenNext worker (Durable Objects, etc.)
 export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from './.open-next/worker.js';
@@ -18,6 +23,95 @@ export { PaperTradingDurableObject } from './src/lib/paper/worker-do.ts';
 export default {
   async fetch(request, env, ctx) {
     // Set bindings on globalThis for OpenNext route handlers
+    this.bindEnv(env);
+
+    // Handle cron-triggered payouts.
+    //
+    // `cf-cron-trigger` is a request header, so a client can spoof it and reach
+    // the payout path from outside Cloudflare's scheduler. Require the shared
+    // secret that the scheduled invocation is configured to carry, and refuse
+    // anything else.
+    if (request.headers.get('cf-cron-trigger')) {
+      if (!isAuthorizedCronRequest(request.headers, env.CRON_SECRET)) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Unauthorized',
+        }), {
+          status: 401,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      return this.handleCron(request, env, ctx);
+    }
+
+    // Delegate to OpenNext worker
+    return openNextWorker.fetch(request, env, ctx);
+  },
+
+  /**
+   * Cloudflare Cron Trigger entrypoint. The runtime invokes `scheduled()` for a
+   * ScheduledEvent; a Worker that exports only `fetch()` fails every cron tick
+   * with "Handler does not export a scheduled() function", so the configured
+   * schedules never run at all.
+   *
+   * `handleCron` reads `cf-cron-trigger` and `cf-cron-schedule` from a request,
+   * so synthesize that request from the ScheduledEvent and reuse one dispatcher
+   * rather than duplicating the schedule matching here.
+   *
+   * Every sub-handler reports failure by returning a `Response` rather than by
+   * rejecting, and `ctx.waitUntil` only marks an invocation failed when the
+   * promise rejects - a resolved `Response` with `ok === false` is recorded as
+   * a successful cron run. Await the handler and rethrow on a non-2xx response
+   * so an unknown schedule, an unauthorized delegation, or a failing job shows
+   * up as `outcome: "exception"` in Cron Trigger history instead of
+   * masquerading as success.
+   */
+  async scheduled(event, env, ctx) {
+    this.bindEnv(env);
+
+    const descriptor = buildCronRequestDescriptor(
+      event.cron,
+      env.CRON_SECRET,
+      // The runtime supplies the deployment host on a cron invocation; without it
+      // the synthesized request would fall back to an origin that is not routable.
+      event.request?.headers?.get?.(FORWARDED_HOST_HEADER) ?? env.CRON_FORWARDED_HOST,
+      env.NEXT_PUBLIC_APP_URL
+    );
+    const syntheticRequest = new Request(descriptor.url, {
+      method: descriptor.method,
+      headers: descriptor.headers,
+    });
+
+    return ctx.waitUntil((async () => {
+      const response = await this.handleCron(syntheticRequest, env, ctx);
+
+      // `!response.ok` misses the sub-handler that reports failure in the body:
+      // /api/cron answers 200 with `success: false` when a payout batch partially
+      // fails, so a red payout run would still record as a green cron tick.
+      const statusFailure = !response.ok;
+
+      let bodyFailure = false;
+      if (!statusFailure) {
+        bodyFailure = await response.clone().json().then(
+          (body) => body?.success === false,
+          () => false
+        );
+      }
+
+      if (statusFailure || bodyFailure) {
+        throw new Error(
+          `Cron ${event.cron || '(unknown schedule)'} failed with status ${response.status}`
+        );
+      }
+      return response;
+    })());
+  },
+
+  /**
+   * Expose the Cloudflare bindings on globalThis so OpenNext route handlers and
+   * the imported paper modules can reach them without threading `env` through.
+   */
+  bindEnv(env) {
     globalThis.env = env;
     if (env.DB) {
       globalThis.DB = env.DB;
@@ -34,30 +128,6 @@ export default {
     if (env.PAPER_TRADING_DO) {
       globalThis.PAPER_TRADING_DO = env.PAPER_TRADING_DO;
     }
-
-    // Handle cron-triggered payouts.
-    //
-    // `cf-cron-trigger` is a request header, so a client can spoof it and reach
-    // the payout path from outside Cloudflare's scheduler. Require the shared
-    // secret that the scheduled invocation is configured to carry, and refuse
-    // anything else.
-    if (request.headers.get('cf-cron-trigger')) {
-      const presented = request.headers.get('authorization');
-      const expected = env.CRON_SECRET ? `Bearer ${env.CRON_SECRET}` : null;
-      if (!expected || presented !== expected) {
-        return new Response(JSON.stringify({
-          success: false,
-          error: 'Unauthorized',
-        }), {
-          status: 401,
-          headers: { 'Content-Type': 'application/json' },
-        });
-      }
-      return this.handleCron(request, env, ctx);
-    }
-
-    // Delegate to OpenNext worker
-    return openNextWorker.fetch(request, env, ctx);
   },
 
   async handleCron(request, env, ctx) {
