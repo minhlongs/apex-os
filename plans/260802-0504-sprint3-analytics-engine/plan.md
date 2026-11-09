@@ -1,7 +1,7 @@
 ---
 plan: 260802-0504-sprint3-analytics-engine
 created_at: 2026-08-02
-status: complete
+status: completed
 estimated_hours: 80
 sprint: 3
 parent_roadmap: q3-2026-roadmap

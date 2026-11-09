@@ -1,7 +1,7 @@
 ---
 title: ApexOS Go-Live Readiness Plan
 date: 2026-06-27
-status: pending
+status: completed
 phases: 5
 estimated_hours: 10
 ---
@@ -36,8 +36,8 @@ Phases 01-04 run in parallel (independent file ownership).
 Phase 05 gates on all others.
 
 ## Acceptance Criteria
-- [ ] Test pass rate >99% (target: 1420+/1426)
-- [ ] Zero console.log in production API routes
-- [ ] Rate limiting on all public endpoints
-- [ ] error.tsx in every route segment
-- [ ] Build clean, deploy to apex-os.pages.dev
+- [x] Test pass rate >99% (target: 1420+/1426)
+- [x] Zero console.log in production API routes
+- [x] Rate limiting on all public endpoints
+- [x] error.tsx in every route segment
+- [x] Build clean, deploy to apex-os.pages.dev

@@ -1,6 +1,6 @@
 ---
 title: "Full-Stack Obsidian Design System (Web + Mobile) & Self-Service Exchange API Key Linking UI"
-status: in_progress
+status: completed
 created_at: 2026-10-26
 branch: feat/obsidian-design-system-and-exchange-keys
 mode: official

@@ -1,3 +1,9 @@
+---
+title: "ApexOS Go-Live & Paper Trading Implementation Plan"
+status: completed
+created_at: 2026-10-30
+---
+
 # ApexOS Go-Live & Paper Trading Implementation Plan
 
 > Target: Production Go-Live Readiness for Cashback & Greenfield Durable Objects Paper Trading Engine
