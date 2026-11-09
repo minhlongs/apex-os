@@ -1,7 +1,7 @@
 ---
 title: "Sprint 4: Email Automation & Lifecycle Campaigns"
 description: "Build email automation system with Resend, templates, and lifecycle triggers"
-status: complete
+status: completed
 priority: P1
 effort: 40h
 branch: main
@@ -24,10 +24,10 @@ completed: 2026-08-02
 
 | Phase | Task | Priority | Effort | Status |
 |-------|------|----------|--------|--------|
-| 1 | Email Infrastructure Setup | P0 | 6h | complete |
-| 2 | Email Template Development | P0 | 16h | complete |
-| 3 | Email Queue & Scheduler | P0 | 10h | complete |
-| 4 | Event Triggers & Testing | P1 | 8h | complete |
+| 1 | Email Infrastructure Setup | P0 | 6h | completed |
+| 2 | Email Template Development | P0 | 16h | completed |
+| 3 | Email Queue & Scheduler | P0 | 10h | completed |
+| 4 | Event Triggers & Testing | P1 | 8h | completed |
 
 ---
 

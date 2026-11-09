@@ -1,7 +1,7 @@
 ---
 title: "Sprint 7: Billing & Wallet Connect"
 description: "Payment flows, tier activation, NOWPayments integration, and wallet setup for mobile"
-status: complete
+status: completed
 priority: P1
 effort: 80h
 branch: main
@@ -25,11 +25,11 @@ completed: 2026-09-25
 
 | Phase | Task | Priority | Effort | Status |
 |-------|------|----------|--------|--------|
-| 1 | NOWPayments Checkout Flow | P1 | 20h | complete |
-| 2 | Tier Activation Webhook | P1 | 15h | complete |
-| 3 | Wallet Connect Module | P1 | 25h | complete |
-| 4 | Profile Wallet Integration | P2 | 10h | complete |
-| 5 | Billing History Screen | P2 | 10h | complete |
+| 1 | NOWPayments Checkout Flow | P1 | 20h | completed |
+| 2 | Tier Activation Webhook | P1 | 15h | completed |
+| 3 | Wallet Connect Module | P1 | 25h | completed |
+| 4 | Profile Wallet Integration | P2 | 10h | completed |
+| 5 | Billing History Screen | P2 | 10h | completed |
 
 ---
 
@@ -60,12 +60,12 @@ completed: 2026-09-25
    - Route to CheckoutScreen with result
 
 **Acceptance Criteria:**
-- [ ] User taps "Pay with Crypto" → WebView opens NOWPayments hosted page
-- [ ] After payment: deep link returns to app with status
-- [ ] Status transitions: pending → confirmed (or failed)
-- [ ] Receipt screen shows correct transaction details
-- [ ] Share sheet works with referral link
-- [ ] No hardcoded API keys; all from `app.config.ts` extra
+- [x] User taps "Pay with Crypto" → WebView opens NOWPayments hosted page
+- [x] After payment: deep link returns to app with status
+- [x] Status transitions: pending → confirmed (or failed)
+- [x] Receipt screen shows correct transaction details
+- [x] Share sheet works with referral link
+- [x] No hardcoded API keys; all from `app.config.ts` extra
 
 **Contracts:**
 - Backend: `POST /api/payments/create` → `{ checkoutUrl, paymentId, orderId }`
@@ -92,10 +92,10 @@ completed: 2026-09-25
    - Update Zustand store
 
 **Acceptance Criteria:**
-- [ ] Webhook verifies NOWPayments signature
-- [ ] Tier column updates on payment_completed
-- [ ] Push notification fires after tier change
-- [ ] Mobile reflects new tier within 5 minutes of payment
+- [x] Webhook verifies NOWPayments signature
+- [x] Tier column updates on payment_completed
+- [x] Push notification fires after tier change
+- [x] Mobile reflects new tier within 5 minutes of payment
 
 ---
 
@@ -126,11 +126,11 @@ completed: 2026-09-25
    - Show loading spinner during wallet-app transit
 
 **Acceptance Criteria:**
-- [ ] Connect MetaMask from mobile → address saves to profile
-- [ ] Deep link returns to app with wallet response
-- [ ] Disconnect clears saved wallet and updates UI
-- [ ] Fallback "Paste Address" works without wallet app
-- [ ] Chain validation rejects mismatched chain
+- [x] Connect MetaMask from mobile → address saves to profile
+- [x] Deep link returns to app with wallet response
+- [x] Disconnect clears saved wallet and updates UI
+- [x] Fallback "Paste Address" works without wallet app
+- [x] Chain validation rejects mismatched chain
 
 ---
 
@@ -151,10 +151,10 @@ completed: 2026-09-25
    - Settings → Wallet (if Profile deferred)
 
 **Acceptance Criteria:**
-- [ ] Profile shows connected wallet on load
-- [ ] Disconnect removes wallet and updates UI
-- [ ] Chain badge displays correct color/icon
-- [ ] Mismatched chain shows warning banner
+- [x] Profile shows connected wallet on load
+- [x] Disconnect removes wallet and updates UI
+- [x] Chain badge displays correct color/icon
+- [x] Mismatched chain shows warning banner
 
 ---
 
@@ -178,9 +178,9 @@ completed: 2026-09-25
    - Cache last successful fetch
 
 **Acceptance Criteria:**
-- [ ] History screen shows all past payments
-- [ ] Loads from server; falls back to cache
-- [ ] Empty state renders when no payments exist
+- [x] History screen shows all past payments
+- [x] Loads from server; falls back to cache
+- [x] Empty state renders when no payments exist
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: "Sprint 8: Fraud Detection & Anomaly Engine (Epic 5)"
 description: "Build fraud detection system with click rate-limiting, IP blocking, velocity anomaly checks, and admin fraud review dashboard"
-status: complete
+status: completed
 priority: P2
 effort: 40h
 branch: feature/sprint-08-fraud-detection
@@ -22,11 +22,11 @@ completed: 2026-09-26
 
 | Phase | Task | Priority | Effort | Status |
 |-------|------|----------|--------|--------|
-| 1 | Database Schema & Foundation (021_fraud_detection_schema.sql) | P1 | 8h | complete |
-| 2 | Click Rate-Limiting (100/hr, 1,000/day) & IP Blocking (403) | P1 | 10h | complete |
-| 3 | Anomaly Velocity Engine (<2s bursts, >10:1 conversion skew) | P1 | 10h | complete |
-| 4 | Admin Fraud Dashboard (/admin/fraud) & Audit Logging | P2 | 10h | complete |
-| 5 | System Integration, Adversarial Hardening & Victory Audit | P1 | 6h | complete |
+| 1 | Database Schema & Foundation (021_fraud_detection_schema.sql) | P1 | 8h | completed |
+| 2 | Click Rate-Limiting (100/hr, 1,000/day) & IP Blocking (403) | P1 | 10h | completed |
+| 3 | Anomaly Velocity Engine (<2s bursts, >10:1 conversion skew) | P1 | 10h | completed |
+| 4 | Admin Fraud Dashboard (/admin/fraud) & Audit Logging | P2 | 10h | completed |
+| 5 | System Integration, Adversarial Hardening & Victory Audit | P1 | 6h | completed |
 
 ---
 

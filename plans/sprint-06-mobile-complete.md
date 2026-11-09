@@ -1,7 +1,7 @@
 ---
 title: "Sprint 6: Mobile Core Screens & Notifications"
 description: "Complete mobile app screens, push notifications, wallet connect, and store prep"
-status: complete
+status: completed
 priority: P1
 effort: 100h
 branch: main
@@ -24,12 +24,12 @@ depends:
 
 | Phase | Task | Priority | Effort | Status |
 |-------|------|----------|--------|--------|
-| 1 | Affiliate Module Screens | P1 | 25h | pending |
-| 2 | Wallet Connect | P1 | 15h | pending |
-| 3 | Push Notifications | P1 | 20h | pending |
-| 4 | Profile & Settings | P1 | 15h | pending |
-| 5 | UI Polish & Accessibility | P2 | 15h | pending |
-| 6 | Store Preparation | P1 | 10h | pending |
+| 1 | Affiliate Module Screens | P1 | 25h | completed |
+| 2 | Wallet Connect | P1 | 15h | completed |
+| 3 | Push Notifications | P1 | 20h | completed |
+| 4 | Profile & Settings | P1 | 15h | completed |
+| 5 | UI Polish & Accessibility | P2 | 15h | completed |
+| 6 | Store Preparation | P1 | 10h | completed |
 
 ---
 
@@ -72,11 +72,11 @@ depends:
    - Total earned (sum of visible items)
 
 **Acceptance Criteria:**
-- [ ] Affiliate dashboard shows correct referral code
-- [ ] Team tree displays 3-level hierarchy correctly
-- [ ] Earnings list shows all commission types
-- [ ] Filters work on earnings screen
-- [ ] Share sheet opens with referral link
+- [x] Affiliate dashboard shows correct referral code
+- [x] Team tree displays 3-level hierarchy correctly
+- [x] Earnings list shows all commission types
+- [x] Filters work on earnings screen
+- [x] Share sheet opens with referral link
 
 ---
 
@@ -111,11 +111,11 @@ depends:
    - Validate wallet on profile load (reject if chain mismatch)
 
 **Acceptance Criteria:**
-- [ ] Can connect MetaMask wallet from mobile
-- [ ] Wallet address saves to user profile
-- [ ] Deep link returns to app with address
-- [ ] Profile screen shows connected wallet
-- [ ] Can disconnect wallet
+- [x] Can connect MetaMask wallet from mobile
+- [x] Wallet address saves to user profile
+- [x] Deep link returns to app with address
+- [x] Profile screen shows connected wallet
+- [x] Can disconnect wallet
 
 ---
 
@@ -148,11 +148,11 @@ depends:
    - Payload: title, body, deep link to relevant screen
 
 **Acceptance Criteria:**
-- [ ] Push permission request shows on first launch
-- [ ] Push token sent to server and stored
-- [ ] Test push received on device (via Expo push tool)
-- [ ] Conversion event triggers push notification
-- [ ] Tapping notification opens app to correct screen
+- [x] Push permission request shows on first launch
+- [x] Push token sent to server and stored
+- [x] Test push received on device (via Expo push tool)
+- [x] Conversion event triggers push notification
+- [x] Tapping notification opens app to correct screen
 
 ---
 
@@ -196,11 +196,11 @@ depends:
    - Ensure mobile and web stay in sync
 
 **Acceptance Criteria:**
-- [ ] Profile screen shows all user info
-- [ ] Can edit name
-- [ ] Wallet connect/disconnect works from profile
-- [ ] Notification toggles save and persist
-- [ ] Logout returns to login screen
+- [x] Profile screen shows all user info
+- [x] Can edit name
+- [x] Wallet connect/disconnect works from profile
+- [x] Notification toggles save and persist
+- [x] Logout returns to login screen
 
 ---
 
@@ -230,11 +230,11 @@ depends:
    - Test with large text enabled
 
 **Acceptance Criteria:**
-- [ ] All screens work in dark mode
-- [ ] Loading states visible during data fetch
-- [ ] Error states allow retry
-- [ ] VoiceOver/TalkBack reads all elements correctly
-- [ ] App passes basic accessibility audit
+- [x] All screens work in dark mode
+- [x] Loading states visible during data fetch
+- [x] Error states allow retry
+- [x] VoiceOver/TalkBack reads all elements correctly
+- [x] App passes basic accessibility audit
 
 ---
 
@@ -268,24 +268,24 @@ depends:
    - Download and install on device
 
 **Acceptance Criteria:**
-- [ ] App icons generated for all sizes
-- [ ] Splash screen displays correctly
-- [ ] App builds for iOS and Android
-- [ ] Build installs on physical device
-- [ ] Metadata assets ready for submission
+- [x] App icons generated for all sizes
+- [x] Splash screen displays correctly
+- [x] App builds for iOS and Android
+- [x] Build installs on physical device
+- [x] Metadata assets ready for submission
 
 ---
 
 ## Testing Checklist
 
-- [ ] All screens render without crashes
-- [ ] Navigation works across all flows
-- [ ] Push notifications received on device
-- [ ] Wallet connect completes full flow
-- [ ] Profile settings save correctly
-- [ ] Dark mode transitions smoothly
-- [ ] No console warnings in production build
-- [ ] App size <50MB (iOS), <40MB (Android)
+- [x] All screens render without crashes
+- [x] Navigation works across all flows
+- [x] Push notifications received on device
+- [x] Wallet connect completes full flow
+- [x] Profile settings save correctly
+- [x] Dark mode transitions smoothly
+- [x] No console warnings in production build
+- [x] App size <50MB (iOS), <40MB (Android)
 
 ---
 
