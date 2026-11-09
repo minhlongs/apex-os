@@ -7,8 +7,11 @@
  * This module contains pure database query functions with no HTTP dependencies.
  */
 
-import type { D1Database } from '@/types/d1';
+import type { D1Database as D1TypesDatabase } from '@/types/d1';
+import type { D1Database as D1LibDatabase } from '@/lib/db';
 import type { BusinessMetricsResponse, BusinessMetricsQueryParams } from '@/types/metrics';
+
+type MetricsDB = Pick<D1TypesDatabase, 'prepare'> | Pick<D1LibDatabase, 'prepare'>;
 
 // ============================================================================
 // Database Query Functions (extracted from /api/metrics/business)
@@ -18,7 +21,7 @@ import type { BusinessMetricsResponse, BusinessMetricsQueryParams } from '@/type
  * Fetch daily revenue data from the materialized view
  */
 export async function fetchDailyRevenue(
-  DB: D1Database,
+  DB: MetricsDB,
   params: BusinessMetricsQueryParams & { startDateObj: Date; endDateObj: Date }
 ): Promise<BusinessMetricsResponse['daily_revenue']> {
   const { start_date, end_date, deal_type, exchange, status } = params;
@@ -42,18 +45,27 @@ export async function fetchDailyRevenue(
   if (deal_type || exchange) {
     query = `
       SELECT
-        dr.date,
-        dr.revenue,
-        dr.conversions,
-        dr.unique_customers,
-        dr.average_order_value,
-        dr.commission_paid,
-        dr.commission_rate_percent
-      FROM v_daily_revenue dr
-      JOIN conversions c ON DATE(c.converted_at) = dr.date
+        DATE(c.converted_at) as date,
+        COALESCE(SUM(c.revenue), 0) as revenue,
+        COUNT(DISTINCT c.id) as conversions,
+        COUNT(DISTINCT c.customer_id) as unique_customers,
+        COALESCE(AVG(c.revenue), 0) as average_order_value,
+        COALESCE(SUM(e.total_commission), 0) as commission_paid,
+        CASE
+          WHEN COALESCE(SUM(c.revenue), 0) > 0
+          THEN ROUND((COALESCE(SUM(e.total_commission), 0) * 100.0 / SUM(c.revenue)), 2)
+          ELSE 0
+        END as commission_rate_percent
+      FROM conversions c
       JOIN deals d ON d.id = c.deal_id
-      WHERE dr.date >= ? AND dr.date <= ?
+      LEFT JOIN (
+        SELECT conversion_id, SUM(amount) as total_commission
+        FROM earnings
+        GROUP BY conversion_id
+      ) e ON e.conversion_id = c.id
+      WHERE DATE(c.converted_at) >= ? AND DATE(c.converted_at) <= ?
     `;
+    bindings.length = 0;
     bindings.push(start_date, end_date);
 
     if (deal_type) {
@@ -71,6 +83,7 @@ export async function fetchDailyRevenue(
       query += ' AND c.status = ?';
       bindings.push('pending');
     }
+    query += ' GROUP BY DATE(c.converted_at)';
   }
 
   query += ' ORDER BY date DESC';
@@ -100,7 +113,7 @@ export async function fetchDailyRevenue(
  * Fetch conversion rate metrics from view
  */
 export async function fetchConversionRates(
-  DB: D1Database,
+  DB: MetricsDB,
   params: BusinessMetricsQueryParams & { startDateObj: Date; endDateObj: Date }
 ): Promise<BusinessMetricsResponse['conversion_rates']> {
   const { start_date, end_date, deal_type, exchange } = params;
@@ -123,17 +136,27 @@ export async function fetchConversionRates(
   if (deal_type || exchange) {
     query = `
       SELECT
-        cr.date as period,
-        cr.unique_visitors,
-        cr.total_clicks,
-        cr.total_conversions,
-        cr.conversion_rate_percent as conversion_rate,
-        cr.avg_seconds_to_conversion as avg_time_to_conversion
-      FROM v_conversion_rates cr
-      JOIN deal_clicks dc ON DATE(dc.created_at) = cr.date
+        DATE(dc.created_at) as period,
+        COUNT(DISTINCT dc.session_id) as unique_visitors,
+        COUNT(DISTINCT dc.id) as total_clicks,
+        COUNT(DISTINCT c.id) as total_conversions,
+        CASE WHEN COUNT(DISTINCT dc.id) > 0
+          THEN ROUND((COUNT(DISTINCT c.id) * 100.0 / COUNT(DISTINCT dc.id)), 2)
+          ELSE 0
+        END as conversion_rate,
+        COALESCE(AVG(
+          (julianday(c.converted_at) - julianday(dc.created_at)) * 86400
+        ), 0) as avg_time_to_conversion
+      FROM deal_clicks dc
       JOIN deals d ON d.id = dc.deal_id
-      WHERE cr.date >= ? AND cr.date <= ?
+      LEFT JOIN conversions c ON c.deal_id = dc.deal_id
+        AND c.customer_id IS NOT NULL
+        AND c.status = 'approved'
+        AND c.converted_at <= datetime(dc.created_at, '+30 days')
+        AND c.converted_at >= dc.created_at
+      WHERE DATE(dc.created_at) >= ? AND DATE(dc.created_at) <= ?
     `;
+    bindings.length = 0;
     bindings.push(start_date, end_date);
 
     if (deal_type) {
@@ -144,24 +167,7 @@ export async function fetchConversionRates(
       query += ' AND d.exchange = ?';
       bindings.push(exchange);
     }
-  }
-
-  // Group by period if we have joins that duplicate rows
-  if (deal_type || exchange) {
-    query = `
-      SELECT
-        period,
-        MAX(unique_visitors) as unique_visitors,
-        SUM(total_clicks) as total_clicks,
-        SUM(total_conversions) as total_conversions,
-        CASE WHEN SUM(total_clicks) > 0
-          THEN ROUND((SUM(total_conversions) * 100.0 / SUM(total_clicks)), 2)
-          ELSE 0
-        END as conversion_rate,
-        AVG(avg_time_to_conversion) as avg_time_to_conversion
-      FROM (${query}) as subq
-      GROUP BY period
-    `;
+    query += ' GROUP BY DATE(dc.created_at)';
   }
 
   query += ' ORDER BY period DESC';
@@ -189,7 +195,7 @@ export async function fetchConversionRates(
  * Fetch active affiliates summary from view
  */
 export async function fetchActiveAffiliates(
-  DB: D1Database,
+  DB: MetricsDB,
   params: BusinessMetricsQueryParams
 ): Promise<BusinessMetricsResponse['active_affiliates']> {
   const { start_date, end_date, deal_type, exchange } = params;
@@ -205,9 +211,8 @@ export async function fetchActiveAffiliates(
 
   // Filter by activity period
   if (start_date && end_date) {
-    query += ` AND (last_conversion_date >= ? OR last_click_date >= ?)`;
-    bindings.push(startDate, startDate);
-    bindings.push(endDate, endDate);
+    query += ` AND ((last_conversion_date >= ? AND last_conversion_date <= ?) OR (last_click_date >= ? AND last_click_date <= ?))`;
+    bindings.push(startDate, endDate, startDate, endDate);
   }
 
   // Apply deal type/exchange filters by joining with conversions
@@ -306,7 +311,7 @@ export async function fetchActiveAffiliates(
  * Fetch top deals performance
  */
 export async function fetchTopDeals(
-  DB: D1Database,
+  DB: MetricsDB,
   params: BusinessMetricsQueryParams & { startDateObj: Date; endDateObj: Date },
   limit: number = 10
 ): Promise<BusinessMetricsResponse['top_deals']> {
@@ -433,7 +438,7 @@ export async function fetchTopDeals(
  * Returns a simplified metrics snapshot for the evaluation window
  */
 export async function fetchBusinessMetricsSnapshot(
-  DB: D1Database,
+  DB: MetricsDB,
   windowMinutes: number = 120
 ): Promise<{
   todayRevenue: number;

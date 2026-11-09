@@ -20,7 +20,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import type { D1Database, D1ExecResult, D1QueryResult, D1Statement, D1PreparedStatement } from '@/types/d1';
 import { collectStorageMetrics } from '@/lib/monitoring/d1-monitor';
-import { fetchBusinessMetricsSnapshot } from '@/lib/metrics/business-metrics-fetcher';
+import {
+  fetchBusinessMetricsSnapshot,
+  fetchDailyRevenue,
+  fetchConversionRates,
+  fetchActiveAffiliates,
+  fetchTopDeals,
+} from '@/lib/metrics/business-metrics-fetcher';
 import { evaluateBusinessAlerts } from '@/lib/notifications/business-alert-engine';
 import { AlertStorage } from '@/lib/alerts/alert-storage';
 import { AlertEngine } from '@/lib/monitoring/alert-engine';
@@ -29,9 +35,11 @@ import { EvaluationStateStorage } from '@/lib/monitoring/evaluation-state-storag
 const MIGRATION_CHAIN = [
   'src/database/migrations/001_initial_schema_d1.sql',
   'src/database/migrations/003_affiliate_schema.sql',
+  'src/database/migrations/004_add_deals_filters.sql',
   'src/database/migrations/005_alert_history.sql',
   'src/database/migrations/009_evaluation_state_schema.sql',
   'src/database/migrations/005_d1_monitoring.sql',
+  'src/database/migrations/010_business_metrics_views.sql',
   'src/database/migrations/012_alert_snoozes.sql',
   'src/database/migrations/012_alert_engine.sql',
   'src/database/migrations/012_business_alerting.sql',
@@ -164,8 +172,9 @@ describe('D1 Alert Engine & Monitoring Migrations + Runtime Fixes', () => {
       }
     });
 
-    it('re-applies 012_business_alerting, 013_alert_history_fix, and 014_alerts_table idempotently', () => {
+    it('re-applies 010_business_metrics_views, 012_business_alerting, 013_alert_history_fix, and 014_alerts_table idempotently', () => {
       const rerunFiles = [
+        'src/database/migrations/010_business_metrics_views.sql',
         'src/database/migrations/012_business_alerting.sql',
         'src/database/migrations/013_alert_history_fix.sql',
         'src/database/migrations/014_alerts_table.sql',
@@ -377,17 +386,7 @@ describe('D1 Alert Engine & Monitoring Migrations + Runtime Fixes', () => {
   });
 
   describe('5. evaluateBusinessAlerts Real Schema Queries', () => {
-    it('evaluates enabled configs against webhook_failure_stats and stellar_balance_history', async () => {
-      sqlite.exec(`
-        CREATE VIEW IF NOT EXISTS v_daily_revenue AS
-        SELECT DATE(converted_at) AS date, COALESCE(SUM(revenue), 0) AS revenue
-        FROM conversions WHERE status = 'approved' GROUP BY DATE(converted_at);
-
-        CREATE VIEW IF NOT EXISTS v_conversion_rates AS
-        SELECT DATE(created_at) AS date, COUNT(*) AS total_clicks, 0 AS total_conversions, 0.0 AS conversion_rate
-        FROM deal_clicks GROUP BY DATE(created_at);
-      `);
-
+    it('evaluates enabled configs against real 010_business_metrics_views, webhook_failure_stats, and stellar_balance_history', async () => {
       const nowIso = new Date().toISOString();
       const windowStartIso = new Date(Date.now() - 30 * 60 * 1000).toISOString();
 
@@ -445,6 +444,257 @@ describe('D1 Alert Engine & Monitoring Migrations + Runtime Fixes', () => {
       expect(runRow?.status).toBe('completed');
       expect(runRow?.errors_count).toBe(0);
       expect(runRow?.rules_evaluated).toBe(8);
+    });
+  });
+
+  describe('7. 010_business_metrics_views.sql Views & Business Metrics Fetcher', () => {
+    it('executes all 6 views in 010_business_metrics_views including v_period_summary with top_deal_name and prevents multi-row fan-out', async () => {
+      const todayDate = new Date().toISOString().split('T')[0];
+      const nowIso = new Date().toISOString();
+
+      sqlite.prepare('INSERT INTO users (id, name, email) VALUES (?, ?, ?)').run('u-1', 'Alice', 'alice@example.com');
+      sqlite.prepare('INSERT INTO users (id, name, email) VALUES (?, ?, ?)').run('u-2', 'Bob', 'bob@example.com');
+      sqlite
+        .prepare('INSERT INTO profiles (id, email, full_name, role) VALUES (?, ?, ?, ?)')
+        .run('u-1', 'alice@example.com', 'Alice Trader', 'affiliate');
+      sqlite
+        .prepare('INSERT INTO profiles (id, email, full_name, role) VALUES (?, ?, ?, ?)')
+        .run('u-2', 'bob@example.com', 'Bob Referrer', 'affiliate');
+
+      sqlite
+        .prepare(
+          `INSERT INTO deals (id, name, deal_type, url, exchange, category, cashback_percent, default_commission_rate, is_active)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('deal-1', 'Binance VIP Rebate', 'service', 'https://binance.com', 'binance', 'futures', 20, 0.2, 1);
+
+      sqlite
+        .prepare('INSERT INTO affiliate_codes (id, code, affiliate_id, deal_id, commission_rate) VALUES (?, ?, ?, ?, ?)')
+        .run('ac-1', 'ALICE20', 'u-1', 'deal-1', 0.2);
+
+      // Insert 3 clicks across 2 sessions to verify joins do NOT multiply revenue/commission by click count
+      sqlite
+        .prepare(
+          `INSERT INTO deal_clicks (id, deal_id, affiliate_code, affiliate_id, session_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .run('click-1', 'deal-1', 'ALICE20', 'u-1', 'sess-1', nowIso);
+      sqlite
+        .prepare(
+          `INSERT INTO deal_clicks (id, deal_id, affiliate_code, affiliate_id, session_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .run('click-2', 'deal-1', 'ALICE20', 'u-1', 'sess-1', nowIso);
+      sqlite
+        .prepare(
+          `INSERT INTO deal_clicks (id, deal_id, affiliate_code, affiliate_id, session_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        )
+        .run('click-3', 'deal-1', 'ALICE20', 'u-1', 'sess-2', nowIso);
+
+      // Insert 2 conversions on the same day (500 + 300 = 800 total revenue)
+      sqlite
+        .prepare(
+          `INSERT INTO conversions (
+            id, deal_id, deal_click_id, affiliate_code, affiliate_id, customer_id,
+            revenue, commission_amount, status, converted_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('conv-1', 'deal-1', 'click-1', 'ALICE20', 'u-1', 'cust-1', 500, 100, 'approved', nowIso);
+      sqlite
+        .prepare(
+          `INSERT INTO conversions (
+            id, deal_id, deal_click_id, affiliate_code, affiliate_id, customer_id,
+            revenue, commission_amount, status, converted_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run('conv-2', 'deal-1', 'click-3', 'ALICE20', 'u-1', 'cust-2', 300, 60, 'approved', nowIso);
+
+      // Insert 1 earnings row per conversion (100 + 60 = 160 total commission)
+      sqlite
+        .prepare('INSERT INTO earnings (id, conversion_id, affiliate_id, amount, is_paid) VALUES (?, ?, ?, ?, ?)')
+        .run('earn-1', 'conv-1', 'u-1', 100, 0);
+      sqlite
+        .prepare('INSERT INTO earnings (id, conversion_id, affiliate_id, amount, is_paid) VALUES (?, ?, ?, ?, ?)')
+        .run('earn-2', 'conv-2', 'u-1', 60, 0);
+
+      // Query all 6 views from 010_business_metrics_views.sql
+      const periodRows = sqlite.prepare('SELECT * FROM v_period_summary').all() as Array<{
+        period: string;
+        total_conversions: number;
+        total_revenue: number;
+        total_commission: number;
+        active_affiliates_count: number;
+        top_deal_name: string | null;
+        top_affiliate_name: string | null;
+      }>;
+      expect(periodRows).toHaveLength(2);
+      const lifetimeRow = periodRows.find(r => r.period === 'lifetime');
+      const last30Row = periodRows.find(r => r.period === 'last_30_days');
+      expect(lifetimeRow?.top_deal_name).toBe('Binance VIP Rebate');
+      expect(lifetimeRow?.total_conversions).toBe(2);
+      expect(lifetimeRow?.total_revenue).toBe(800);
+      expect(lifetimeRow?.total_commission).toBe(160);
+      expect(lifetimeRow?.active_affiliates_count).toBe(2);
+      expect(last30Row?.top_deal_name).toBe('Binance VIP Rebate');
+      expect(last30Row?.total_revenue).toBe(800);
+      expect(last30Row?.total_commission).toBe(160);
+
+      const dailyRevRows = sqlite.prepare('SELECT * FROM v_daily_revenue').all() as Array<{
+        date: string;
+        total_conversions: number;
+        total_revenue: number;
+        revenue: number;
+        total_commission: number;
+        total_clicks: number;
+      }>;
+      expect(dailyRevRows).toHaveLength(1);
+      expect(dailyRevRows[0].total_conversions).toBe(2);
+      expect(dailyRevRows[0].total_revenue).toBe(800);
+      expect(dailyRevRows[0].revenue).toBe(800);
+      expect(dailyRevRows[0].total_commission).toBe(160);
+      expect(dailyRevRows[0].total_clicks).toBe(3);
+
+      const convRateRows = sqlite.prepare('SELECT * FROM v_conversion_rates').all() as Array<{
+        date: string;
+        total_clicks: number;
+        total_conversions: number;
+        conversion_rate_percent: number;
+        conversion_rate: number;
+      }>;
+      expect(convRateRows).toHaveLength(1);
+      expect(convRateRows[0].total_clicks).toBe(3);
+      expect(convRateRows[0].total_conversions).toBe(2);
+      expect(convRateRows[0].conversion_rate_percent).toBeCloseTo(66.67, 2);
+      expect(convRateRows[0].conversion_rate).toBeCloseTo(66.67, 2);
+
+      const activeAffRows = sqlite.prepare('SELECT * FROM v_active_affiliates ORDER BY id ASC').all() as Array<{
+        id: string;
+        pending_earnings: number;
+        total_conversions: number;
+        total_revenue: number;
+        total_clicks: number;
+      }>;
+      expect(activeAffRows).toHaveLength(2);
+      expect(activeAffRows[0].id).toBe('u-1');
+      expect(activeAffRows[0].pending_earnings).toBe(160);
+      expect(activeAffRows[0].total_conversions).toBe(2);
+      expect(activeAffRows[0].total_revenue).toBe(800);
+      expect(activeAffRows[0].total_clicks).toBe(3);
+
+      const dealPerfRows = sqlite.prepare('SELECT * FROM v_deal_performance').all() as Array<{
+        id: string;
+        total_clicks: number;
+        unique_clicks: number;
+        total_conversions: number;
+        total_revenue: number;
+        total_commission: number;
+      }>;
+      expect(dealPerfRows).toHaveLength(1);
+      expect(dealPerfRows[0].total_clicks).toBe(3);
+      expect(dealPerfRows[0].unique_clicks).toBe(2);
+      expect(dealPerfRows[0].total_conversions).toBe(2);
+      expect(dealPerfRows[0].total_revenue).toBe(800);
+      expect(dealPerfRows[0].total_commission).toBe(160);
+
+      const affActivityRows = sqlite.prepare('SELECT * FROM v_affiliate_activity ORDER BY id ASC').all() as Array<{
+        id: string;
+        total_clicks: number;
+        total_conversions: number;
+        total_revenue: number;
+      }>;
+      expect(affActivityRows).toHaveLength(2);
+      expect(affActivityRows[0].total_clicks).toBe(3);
+      expect(affActivityRows[0].total_conversions).toBe(2);
+      expect(affActivityRows[0].total_revenue).toBe(800);
+
+      // Verify fetcher functions both unfiltered and filtered (deal_type + exchange)
+      const baseParams = {
+        start_date: todayDate,
+        end_date: todayDate,
+        startDateObj: new Date(`${todayDate}T00:00:00.000Z`),
+        endDateObj: new Date(`${todayDate}T23:59:59.999Z`),
+      };
+
+      const unfilteredRev = await fetchDailyRevenue(d1, baseParams);
+      expect(unfilteredRev).toHaveLength(1);
+      expect(unfilteredRev?.[0].revenue).toBe(800);
+      expect(unfilteredRev?.[0].conversions).toBe(2);
+      expect(unfilteredRev?.[0].commission_paid).toBe(160);
+
+      const filteredRev = await fetchDailyRevenue(d1, {
+        ...baseParams,
+        deal_type: 'service',
+        exchange: 'binance',
+        status: 'approved',
+      });
+      expect(filteredRev).toHaveLength(1);
+      expect(filteredRev?.[0].revenue).toBe(800);
+      expect(filteredRev?.[0].conversions).toBe(2);
+      expect(filteredRev?.[0].commission_paid).toBe(160);
+
+      const filteredConv = await fetchConversionRates(d1, {
+        ...baseParams,
+        deal_type: 'service',
+        exchange: 'binance',
+      });
+      expect(filteredConv).toHaveLength(1);
+      expect(filteredConv?.[0].total_clicks).toBe(3);
+      expect(filteredConv?.[0].total_conversions).toBe(2);
+      expect(filteredConv?.[0].unique_visitors).toBe(2);
+
+      const unfilteredAff = await fetchActiveAffiliates(d1, baseParams);
+      expect(unfilteredAff?.total_affiliates).toBe(1);
+
+      const filteredAff = await fetchActiveAffiliates(d1, {
+        ...baseParams,
+        deal_type: 'service',
+        exchange: 'binance',
+      });
+      expect(filteredAff?.total_affiliates).toBe(1);
+
+      const topDeals = await fetchTopDeals(d1, {
+        ...baseParams,
+        deal_type: 'service',
+        exchange: 'binance',
+      });
+      expect(topDeals?.deals).toHaveLength(1);
+      expect(topDeals?.deals[0].name).toBe('Binance VIP Rebate');
+      expect(topDeals?.deals[0].total_revenue).toBe(800);
+      expect(topDeals?.deals[0].total_clicks).toBe(3);
+    });
+
+    it('applies 010_business_metrics_views.sql cleanly on top of schema-complete.sql', () => {
+      const freshSqlite = new Database(':memory:');
+      try {
+        const schemaCompleteSql = fs.readFileSync(
+          path.resolve(process.cwd(), 'src/database/schema-complete.sql'),
+          'utf8'
+        );
+        const metricsViewsSql = fs.readFileSync(
+          path.resolve(process.cwd(), 'src/database/migrations/010_business_metrics_views.sql'),
+          'utf8'
+        );
+
+        expect(() => {
+          freshSqlite.exec(schemaCompleteSql);
+          freshSqlite.exec(metricsViewsSql);
+        }).not.toThrow();
+
+        const views = [
+          'v_daily_revenue',
+          'v_conversion_rates',
+          'v_active_affiliates',
+          'v_deal_performance',
+          'v_period_summary',
+          'v_affiliate_activity',
+        ];
+        for (const viewName of views) {
+          expect(() => freshSqlite.prepare(`SELECT * FROM ${viewName}`).all()).not.toThrow();
+        }
+      } finally {
+        freshSqlite.close();
+      }
     });
   });
 });
