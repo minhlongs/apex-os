@@ -512,7 +512,7 @@ async function getDailyRevenueData(
 ): Promise<Array<{ date: string; revenue: number }>> {
   const result = await db
     .prepare(`
-      SELECT date, revenue FROM v_daily_revenue
+      SELECT date, total_revenue as revenue FROM v_daily_revenue
       WHERE date >= ? AND date <= ?
       ORDER BY date DESC
     `)
@@ -532,7 +532,11 @@ async function getDailyConversionData(
 ): Promise<Array<{ date: string; total_clicks: number; conversions: number; conversion_rate: number }>> {
   const result = await db
     .prepare(`
-      SELECT date as period, total_clicks, total_conversions, conversion_rate as conversion_rate
+      SELECT
+        date,
+        total_clicks,
+        total_conversions as conversions,
+        conversion_rate_percent as conversion_rate
       FROM v_conversion_rates
       WHERE date >= ? AND date <= ?
       ORDER BY date DESC
