@@ -12,6 +12,7 @@
 
 import { buildCanonical50TickSequence } from '../fixtures';
 import { PaperJournal } from '../journal';
+import { LiveMarketCollector } from '../live-collector';
 import { OrderbookSequencer } from '../orderbook-sequencer';
 import { PaperReplayEngine } from '../replay';
 import { PaperStrategyEngine } from '../strategy-engine';
@@ -3988,6 +3989,219 @@ describe('Greenfield Paper Trading Engine & Deterministic Replay', () => {
           globalThis.fetch = originalFetch;
           (globalThis as any).WebSocket = OriginalWebSocket;
         }
+      });
+
+      it('R6: sustains 30-day window across quiet Bybit WS streams (1.5s-9s) in bootstrapSnapshots and throttles open-cycle tick DO writes without starving ingestQueue', async () => {
+        const store = new Map<string, unknown>();
+        let activeCycleLedgerWrites = 0;
+        const setAlarmHistory: number[] = [];
+        const mockState = {
+          storage: {
+            get: async (k: string) => store.get(k) as any,
+            put: async (k: string, v: unknown) => {
+              if (k === 'active_cycle_ticks_ledger') {
+                activeCycleLedgerWrites += 1;
+              }
+              store.set(k, v);
+            },
+            delete: async (k: string) => {
+              store.delete(k);
+            },
+            getAlarm: async () => setAlarmHistory[setAlarmHistory.length - 1] ?? null,
+            setAlarm: async (time: number) => {
+              setAlarmHistory.push(time);
+            },
+            deleteAlarm: async () => {},
+          },
+        };
+
+        const ingestedBooks: NormalizedOrderbook[] = [];
+        const collector = new LiveMarketCollector({
+          pairs: ['BTC/USDT', 'ETH/USDT'],
+          onBook: (b) => {
+            ingestedBooks.push(b);
+          },
+          fetchImpl: async (input: RequestInfo | URL) => {
+            const url = String(input);
+            const now = Date.now();
+            const isBtc = url.includes('BTCUSDT');
+            if (url.includes('binance')) {
+              return new Response(
+                JSON.stringify({
+                  lastUpdateId: 950000 + Math.floor(Math.random() * 100),
+                  E: now,
+                  bids: [[isBtc ? '68400.00' : '2620.00', '2.5']],
+                  asks: [[isBtc ? '68402.00' : '2620.50', '2.5']],
+                }),
+                { status: 200 }
+              );
+            }
+            return new Response(
+              JSON.stringify({
+                retCode: 0,
+                retMsg: 'OK',
+                result: {
+                  s: isBtc ? 'BTCUSDT' : 'ETHUSDT',
+                  b: [[isBtc ? '68400.00' : '2620.00', '2.5']],
+                  a: [[isBtc ? '68402.00' : '2620.50', '2.5']],
+                  ts: now,
+                  u: 69000000,
+                },
+              }),
+              { status: 200 }
+            );
+          },
+        });
+
+        // Simulate active Bybit WS streams whose last WS frame arrived 3,500ms ago (> 1,000ms maxFeedAgeMs, < 10,000ms WS active window)
+        const quietWsTs = Date.now() - 3500;
+        (collector as any).sockets.set('bybit:spot', { close: () => {} });
+        (collector as any).sockets.set('bybit:linear_perp', { close: () => {} });
+        for (const pair of ['BTC/USDT', 'ETH/USDT'] as const) {
+          for (const marketType of ['spot', 'linear_perp'] as const) {
+            const key = OrderbookSequencer.makeStreamKey('bybit', pair, marketType);
+            const wsSeq = marketType === 'spot' ? 8500500 : 6200500;
+            (collector as any).wsOpenedKeys.add(key);
+            (collector as any).wsReceiveCounts.set(key, 5);
+            (collector as any).lastWsReceiveTs.set(key, quietWsTs);
+            // Initial WS snapshot with 2 depth levels
+            (collector as any).recordBookIngest({
+              exchange: 'bybit',
+              pair,
+              marketType,
+              sequenceId: wsSeq - 1,
+              exchangeTs: quietWsTs - 50,
+              receivedTs: quietWsTs - 50,
+              isDelta: false,
+              isWsSnapshot: true,
+              bids: [
+                { price: pair === 'BTC/USDT' ? 68405 : 2622, quantity: 3 },
+                { price: pair === 'BTC/USDT' ? 68400 : 2620, quantity: 5 },
+              ],
+              asks: [
+                { price: pair === 'BTC/USDT' ? 68406 : 2623, quantity: 3 },
+                { price: pair === 'BTC/USDT' ? 68410 : 2625, quantity: 4 },
+              ],
+            });
+            // Subsequent WS delta updating only top bid level (asks empty in raw delta frame)
+            (collector as any).recordBookIngest({
+              exchange: 'bybit',
+              pair,
+              marketType,
+              sequenceId: wsSeq,
+              prevSequenceId: wsSeq - 1,
+              exchangeTs: quietWsTs,
+              receivedTs: quietWsTs,
+              isDelta: true,
+              bids: [{ price: pair === 'BTC/USDT' ? 68405.5 : 2622.5, quantity: 4 }],
+              asks: [],
+            });
+          }
+        }
+
+        ingestedBooks.length = 0;
+        await collector.bootstrapSnapshots();
+        collector.close();
+
+        // All 4 Bybit streams must be re-emitted with fresh syncedAt timestamps, preserving their WS sequenceId
+        // AND the full merged L2 book (all 3 bid levels and both ask levels, not the raw 1-bid/0-ask delta!)
+        const bybitReemitted = ingestedBooks.filter((b) => b.exchange === 'bybit');
+        expect(bybitReemitted.length).toBe(4);
+        for (const b of bybitReemitted) {
+          expect(b.isDelta).toBe(false);
+          expect(b.prevSequenceId).toBeUndefined();
+          expect(b.sequenceId).toBe(b.marketType === 'spot' ? 8500500 : 6200500);
+          expect(b.bids.length).toBe(3);
+          expect(b.asks.length).toBe(2);
+          expect(b.bids[0].price).toBe(b.pair === 'BTC/USDT' ? 68405.5 : 2622.5);
+          expect(Date.now() - b.receivedTs).toBeLessThan(1000);
+        }
+
+        // Now verify open-cycle tick throttling and bounding inside PaperTradingDurableObject
+        const doInstance = new PaperTradingDurableObject(mockState as any);
+        (doInstance as any).collector = {
+          isHealthy: () => true,
+          bootstrapSnapshots: async () => [],
+          close: () => {},
+        };
+        const t0 = 1762000000000;
+
+        // Open a cycle on spot-2exch by feeding a profitable cross-exchange spread
+        for (const pair of ['BTC/USDT', 'ETH/USDT'] as const) {
+          for (const exchange of ['binance', 'bybit'] as const) {
+            for (const marketType of ['spot', 'linear_perp'] as const) {
+              const isBybitSpotBtc =
+                exchange === 'bybit' && marketType === 'spot' && pair === 'BTC/USDT';
+              await doInstance.ingestOrderbook(
+                {
+                  exchange,
+                  pair,
+                  marketType,
+                  sequenceId: 1,
+                  exchangeTs: t0,
+                  receivedTs: t0,
+                  isDelta: false,
+                  bids: [
+                    {
+                      price: isBybitSpotBtc ? 68750 : pair === 'BTC/USDT' ? 68400 : 2620,
+                      quantity: 2.5,
+                    },
+                  ],
+                  asks: [
+                    {
+                      price: isBybitSpotBtc ? 68755 : pair === 'BTC/USDT' ? 68402 : 2621,
+                      quantity: 2.5,
+                    },
+                  ],
+                },
+                t0
+              );
+            }
+          }
+        }
+
+        const spot2ExchEngine = (doInstance as any).strategies.get('spot-2exch');
+        expect(spot2ExchEngine.getOpenCycles().length).toBeGreaterThan(0);
+        const openCycleId = spot2ExchEngine.getOpenCycles()[0].cycleId;
+        const writesAfterOpen = activeCycleLedgerWrites;
+        expect(writesAfterOpen).toBeGreaterThan(0);
+
+        // Stream 1,500 sub-second live delta ticks within a single 500ms window while collector is active
+        for (let i = 2; i <= 1501; i++) {
+          const tickTs = t0 + Math.floor((i - 1) / 4); // stays within t0..t0+375ms (< 1,000ms snapshot interval)
+          await doInstance.ingestOrderbook(
+            {
+              exchange: 'binance',
+              pair: 'BTC/USDT',
+              marketType: 'spot',
+              sequenceId: i,
+              prevSequenceId: i - 1,
+              exchangeTs: tickTs,
+              receivedTs: tickTs,
+              isDelta: true,
+              bids: [{ price: 68400, quantity: 2.5 }],
+              asks: [{ price: 68402, quantity: 2.5 }],
+            },
+            tickTs
+          );
+        }
+
+        // Because all 1,500 deltas arrived within the same <1s persistence window and neither opened nor closed a cycle,
+        // `active_cycle_ticks_ledger` must NOT have been written 1,500 times!
+        expect(activeCycleLedgerWrites - writesAfterOpen).toBeLessThanOrEqual(2);
+
+        // Furthermore, the in-memory tick buffer preserves the complete contiguous tick chain for replay parity
+        const bufferedTicks = (doInstance as any).activeCycleTicks.get(openCycleId);
+        expect(bufferedTicks.length).toBe(1506);
+        expect(bufferedTicks[0].nowTs).toBe(t0);
+        expect(bufferedTicks[bufferedTicks.length - 1].sequenceId ?? bufferedTicks[bufferedTicks.length - 1].book.sequenceId).toBe(1501);
+
+        // Running alarm() pre-schedules the next alarm and flushes activeCycleTicks to storage in bounded chunks
+        const alarmsBefore = setAlarmHistory.length;
+        await doInstance.alarm();
+        expect(setAlarmHistory.length).toBeGreaterThanOrEqual(alarmsBefore + 1);
+        expect(activeCycleLedgerWrites).toBeGreaterThan(writesAfterOpen);
+        expect(store.get(`active_cycle_ticks_overflow_count_${openCycleId}`)).toBe(3);
       });
     });
   });
