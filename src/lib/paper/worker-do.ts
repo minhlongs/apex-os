@@ -35,6 +35,7 @@ export interface DurableObjectStorageLike {
   delete?(key: string): Promise<boolean | void>;
   setAlarm?(scheduledTime: number | Date): Promise<void>;
   getAlarm?(): Promise<number | null>;
+  deleteAlarm?(): Promise<void>;
 }
 
 export interface DurableObjectEnvLike {
@@ -161,6 +162,7 @@ export class PaperTradingDurableObject {
     string,
     ReturnType<PaperStrategyEngine['serializeState']>
   > = new Map();
+  private readonly persistedOverflowChunkCounts: Map<string, number> = new Map();
   private readonly windowBaselines: Map<PaperStrategyId, StrategyWindowBaseline> = new Map();
   private readonly modelVersion = PAPER_MODEL_VERSION;
   private readonly configHash = PAPER_FROZEN_CONFIG_HASH;
@@ -296,6 +298,9 @@ export class PaperTradingDurableObject {
           if (chunk && Array.isArray(chunk)) {
             fullTicks.push(...chunk);
           }
+        }
+        if (overflowCount > 0 && ticks.length === 555) {
+          this.persistedOverflowChunkCounts.set(cycleId, Math.max(0, overflowCount - 1));
         }
         this.activeCycleTicks.set(cycleId, fullTicks);
       }
@@ -535,6 +540,9 @@ export class PaperTradingDurableObject {
   async stopLiveCollector(): Promise<void> {
     this.collectorDesiredRunning = false;
     await this.state.storage.put('collector_desired_running', false);
+    if (this.state.storage.deleteAlarm) {
+      await this.state.storage.deleteAlarm();
+    }
     if (this.collectorRestorePromise) {
       try {
         await this.collectorRestorePromise;
@@ -595,14 +603,25 @@ export class PaperTradingDurableObject {
     if (options?.restartCollector === false) {
       this.collectorDesiredRunning = false;
       await this.state.storage.put('collector_desired_running', false);
+      if (this.state.storage.deleteAlarm) {
+        await this.state.storage.deleteAlarm();
+      }
     }
 
     this.sequencer.restoreState({ books: {}, states: {} });
     this.journal.clearInMemoryState();
     this.sessionTicks.length = 0;
+    const priorCycleIds = new Set<string>([
+      ...this.activeCycleTicks.keys(),
+      ...this.persistedOverflowChunkCounts.keys(),
+    ]);
+    for (const cid of priorCycleIds) {
+      await this.deleteActiveCycleOverflowKeys(cid);
+    }
     this.activeCycleTicks.clear();
     this.activeCycleInitialBooks.clear();
     this.activeCycleInitialStates.clear();
+    this.persistedOverflowChunkCounts.clear();
     this.pendingBookTasks.clear();
     this.lastLiveSnapshotPersistTsMs = 0;
 
@@ -734,6 +753,10 @@ export class PaperTradingDurableObject {
    * - Schedules next alarm if collector is desired running or present
    */
   async alarm(): Promise<void> {
+    const entryTs = Date.now();
+    if (this.state.storage.setAlarm) {
+      await this.state.storage.setAlarm(entryTs + LIVE_HEARTBEAT_ALARM_INTERVAL_MS);
+    }
     try {
       await this.ensureRestored();
       if (this.collectorRestorePromise) {
@@ -745,6 +768,9 @@ export class PaperTradingDurableObject {
       }
 
       const alarmStartTs = Date.now();
+      if (!this.collector && !this.collectorDesiredRunning && this.state.storage.deleteAlarm) {
+        await this.state.storage.deleteAlarm();
+      }
 
       // Recreate collector if desired running but missing
       if (this.collectorDesiredRunning && !this.collector) {
@@ -775,13 +801,20 @@ export class PaperTradingDurableObject {
       const isLive = this.isCollectorLive(now);
       await this.updateCoverage(now, isLive);
 
+      if (this.activeCycleTicks.size > 0) {
+        await this.persistActiveCycleTicks();
+      }
+
       if (this.env?.DB) {
         await this.journal.reconcileOutbox(this.env.DB, this.env.STORAGE);
         await this.syncRunsInD1(now);
       }
     } finally {
-      // Reschedule next alarm if collector is active or desired running
-      if ((this.collector || this.collectorDesiredRunning) && this.state.storage.setAlarm) {
+      // Reschedule next alarm if collector is active, desired running, or ensureRestored() has not completed
+      if (
+        (!this.initialized || this.collector || this.collectorDesiredRunning) &&
+        this.state.storage.setAlarm
+      ) {
         await this.state.storage.setAlarm(Date.now() + LIVE_HEARTBEAT_ALARM_INTERVAL_MS);
       }
     }
@@ -1192,6 +1225,7 @@ export class PaperTradingDurableObject {
             this.activeCycleTicks.delete(c.cycleId);
             this.activeCycleInitialBooks.delete(c.cycleId);
             this.activeCycleInitialStates.delete(c.cycleId);
+            await this.deleteActiveCycleOverflowKeys(c.cycleId);
             await this.persistActiveCycleTicks();
             await this.persistActiveCycleInitialBooks();
             await this.persistActiveCycleInitialStates();
@@ -1425,6 +1459,7 @@ export class PaperTradingDurableObject {
             this.activeCycleTicks.delete(c.cycleId);
             this.activeCycleInitialBooks.delete(c.cycleId);
             this.activeCycleInitialStates.delete(c.cycleId);
+            await this.deleteActiveCycleOverflowKeys(c.cycleId);
             await this.persistActiveCycleTicks();
             await this.persistActiveCycleInitialBooks();
             await this.persistActiveCycleInitialStates();
@@ -1550,9 +1585,31 @@ export class PaperTradingDurableObject {
         }
       }
     }
-    if (hasOpen) {
+    if (hasOpen && this.frameDurablePersist) {
       await this.persistActiveCycleTicks();
     }
+  }
+
+  private async deleteActiveCycleOverflowKeys(cid: string): Promise<void> {
+    if (!this.state.storage.delete) {
+      this.persistedOverflowChunkCounts.delete(cid);
+      return;
+    }
+    const storedCount =
+      (await this.state.storage.get<number>(`active_cycle_ticks_overflow_count_${cid}`)) ?? 0;
+    const trackedCount = this.persistedOverflowChunkCounts.has(cid)
+      ? (this.persistedOverflowChunkCounts.get(cid) ?? 0) + 1
+      : 0;
+    const maxCount = Math.max(storedCount, trackedCount);
+    if (maxCount === 0) {
+      this.persistedOverflowChunkCounts.delete(cid);
+      return;
+    }
+    for (let i = 0; i < maxCount; i++) {
+      await this.state.storage.delete(`active_cycle_ticks_overflow_${cid}_${i}`);
+    }
+    await this.state.storage.delete(`active_cycle_ticks_overflow_count_${cid}`);
+    this.persistedOverflowChunkCounts.delete(cid);
   }
 
   private async persistActiveCycleTicks(): Promise<void> {
@@ -1560,19 +1617,31 @@ export class PaperTradingDurableObject {
       string,
       Array<{ tickIndex: number; nowTs: number; book: NormalizedOrderbook }>
     > = {};
+    const openCycleCount = Math.max(1, this.activeCycleTicks.size);
+    const maxBaseTicksPerCycle = Math.max(100, Math.floor(555 / openCycleCount));
     for (const [cid, ticks] of this.activeCycleTicks.entries()) {
-      obj[cid] = ticks.slice(0, 555);
-      if (ticks.length > 555) {
-        const overflow = ticks.slice(555);
+      obj[cid] = ticks.slice(0, maxBaseTicksPerCycle);
+      if (ticks.length > maxBaseTicksPerCycle) {
+        const overflow = ticks.slice(maxBaseTicksPerCycle);
         const chunkSize = 400;
         const chunkCount = Math.ceil(overflow.length / chunkSize);
-        for (let i = 0; i < chunkCount; i++) {
+        const startChunkIndex =
+          maxBaseTicksPerCycle === 555 ? (this.persistedOverflowChunkCounts.get(cid) ?? 0) : 0;
+        for (let i = startChunkIndex; i < chunkCount; i++) {
           await this.state.storage.put(
             `active_cycle_ticks_overflow_${cid}_${i}`,
             overflow.slice(i * chunkSize, (i + 1) * chunkSize)
           );
         }
+        const fullChunks = Math.floor(overflow.length / chunkSize);
+        if (maxBaseTicksPerCycle === 555) {
+          this.persistedOverflowChunkCounts.set(cid, fullChunks);
+        } else {
+          this.persistedOverflowChunkCounts.delete(cid);
+        }
         await this.state.storage.put(`active_cycle_ticks_overflow_count_${cid}`, chunkCount);
+      } else {
+        await this.deleteActiveCycleOverflowKeys(cid);
       }
     }
     await this.state.storage.put('active_cycle_ticks_ledger', obj);

@@ -281,6 +281,24 @@ export class LiveMarketCollector {
           const lastWsTs = this.lastWsReceiveTs.get(key) ?? 0;
           if (!st || !st.connected || lastWsTs === 0 || now - lastWsTs > 10000) {
             await this.resyncBybitWsStream(pair, marketType);
+          } else if (
+            !this.bootstrappingKeys.has(key) &&
+            ((marketType === 'spot' && skipBybitSpot) ||
+              (marketType === 'linear_perp' && skipBybitLinear))
+          ) {
+            const cachedBook = this.localBooks.get(key);
+            if (cachedBook) {
+              this.recordBookIngest({
+                ...cachedBook,
+                isDelta: false,
+                prevSequenceId: undefined,
+                firstUpdateId: undefined,
+                fundingEventId: undefined,
+                fundingSettlementTs: undefined,
+                exchangeTs: syncedAt,
+                receivedTs: syncedAt,
+              });
+            }
           }
         }
       }
@@ -297,7 +315,25 @@ export class LiveMarketCollector {
       book.pair,
       book.marketType
     );
-    this.localBooks.set(key, book);
+    const prevBook = this.localBooks.get(key);
+    if (book.isDelta && prevBook) {
+      const mergedBook = OrderbookSequencer.applyL2Delta(prevBook, book);
+      this.localBooks.set(key, {
+        ...mergedBook,
+        isDelta: false,
+        prevSequenceId: undefined,
+        firstUpdateId: undefined,
+      });
+    } else if (!book.isDelta) {
+      this.localBooks.set(key, {
+        ...book,
+        isDelta: false,
+        prevSequenceId: undefined,
+        firstUpdateId: undefined,
+      });
+    } else {
+      this.localBooks.set(key, book);
+    }
     const status = this.statuses.find(
       (s) =>
         s.exchange === book.exchange &&
