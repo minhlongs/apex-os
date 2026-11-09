@@ -1,7 +1,7 @@
 ---
 plan: 260802-sprint2-kucoin-integration
 created_at: 2026-08-02
-status: complete
+status: completed
 estimated_hours: 12
 sprint: 2
 parent_roadmap: q3-2026-roadmap
@@ -30,10 +30,10 @@ Complete Sprint 2 KuCoin exchange integration and finish the remaining roadmap p
 | 06 | Verify + test suite run | 01,02,03,04,05 | 1h | complete |
 
 ## Acceptance Criteria
-- [ ] `docs/exchanges/kucoin.md` exists and documents signature format + payload structure
-- [ ] `src/__tests__/matcher/kucoin-matching.test.ts` exists with ≥3 passing test suites
-- [ ] DealForm.tsx includes kuCoin option (mirrors OKX pattern)
-- [ ] Deals listing pages include KuCoin color/label
-- [ ] vi.json and en.json have KuCoin i18n strings
-- [ ] Phase 6-8 todos in code are implemented and tested
-- [ ] Full test suite passes; build clean
+- [x] `docs/exchanges/kucoin.md` exists and documents signature format + payload structure
+- [x] `src/__tests__/matcher/kucoin-matching.test.ts` exists with ≥3 passing test suites
+- [x] DealForm.tsx includes kuCoin option (mirrors OKX pattern)
+- [x] Deals listing pages include KuCoin color/label
+- [x] vi.json and en.json have KuCoin i18n strings
+- [x] Phase 6-8 todos in code are implemented and tested
+- [x] Full test suite passes; build clean

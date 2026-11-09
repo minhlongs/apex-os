@@ -25,17 +25,17 @@ created: 2026-10-26
 
 ## Milestones
 
-- [ ] **Milestone 1: Historical Payout Reconciliation Engine & Unit Tests**
+- [x] **Milestone 1: Historical Payout Reconciliation Engine & Unit Tests**
   - Create `src/lib/payouts/reconcile-historical-payouts.ts` with pure classification + read-only D1/SQLite query runner.
   - Create `src/lib/payouts/__tests__/reconcile-historical-payouts.test.ts` testing detection of `MOCK_SIGNED_TX_PAYLOAD`, missing `transaction_id` on completed payouts, non-Stellar completed payouts from legacy mock adapters, and orphaned `is_paid = 1` earnings with `payout_id IS NULL`.
   - Create `scripts/reconcile-historical-payouts.ts` CLI wrapper and add `"reconcile:payouts"` script to `package.json`.
-- [ ] **Milestone 2: Phase 07 Documentation (`cutover-runbook.md`, `operational-runbook.md`, `project-changelog.md`)**
+- [x] **Milestone 2: Phase 07 Documentation (`cutover-runbook.md`, `operational-runbook.md`, `project-changelog.md`)**
   - Create `docs/cutover-runbook.md` (bilingual VN/EN).
   - Create `docs/project-changelog.md` recording `v1.5.0` Go-Live release.
   - Update `docs/operational-runbook.md` with Gate-on-Every-Deploy doctrine and updated OpenNext Cloudflare Workers commands.
   - Update `plans/261020-zero-bug-go-live/phase-07-production-cutover-and-post-launch-watch.md` and `plans/261020-zero-bug-go-live/plan.md` statuses.
-- [ ] **Milestone 3: Verification, PR & Merge (`--ship`)**
+- [x] **Milestone 3: Verification, PR & Merge (`--ship`)**
   - Run `npm run typecheck`, `npm run lint`, `CI=true npm test`, `npm run build:worker`, and `GATE_SHA=$(git rev-parse HEAD) npm run gate`.
   - Open PR, verify CI green, merge into `master`, and close the tracking GitHub issue.
-- [ ] **Milestone 4: Root `/Users/macbook/apex-os` Synchronization & G0 Hygiene**
+- [x] **Milestone 4: Root `/Users/macbook/apex-os` Synchronization & G0 Hygiene**
   - Archive untracked `.md` files outside `plans/` and `docs/` in `/Users/macbook/apex-os`, fast-forward `master` to `origin/master`, and clean up merged worktrees.
