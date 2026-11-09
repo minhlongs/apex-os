@@ -1,7 +1,7 @@
 ---
 title: "Sprint 5: Mobile App Foundation"
 description: "Set up React Native/Expo project, authentication, and core navigation"
-status: complete
+status: completed
 priority: P1
 effort: 80h
 branch: main
@@ -24,12 +24,12 @@ depends:
 
 | Phase | Task | Priority | Effort | Status |
 |-------|------|----------|--------|--------|
-| 1 | Expo Project Setup & Configuration | P0 | 12h | complete |
-| 2 | API Client & TypeScript Types | P0 | 10h | complete |
-| 3 | Authentication Module | P0 | 18h | complete |
-| 4 | Core Navigation Structure | P0 | 12h | complete |
-| 5 | Core Screens Implementation | P1 | 20h | complete |
-| 6 | Testing & Build Verification | P1 | 8h | complete |
+| 1 | Expo Project Setup & Configuration | P0 | 12h | completed |
+| 2 | API Client & TypeScript Types | P0 | 10h | completed |
+| 3 | Authentication Module | P0 | 18h | completed |
+| 4 | Core Navigation Structure | P0 | 12h | completed |
+| 5 | Core Screens Implementation | P1 | 20h | completed |
+| 6 | Testing & Build Verification | P1 | 8h | completed |
 
 ---
 
@@ -115,11 +115,11 @@ depends:
    - Configure deep linking scheme: `apex-os://`
 
 **Acceptance Criteria:**
-- [ ] Expo project initializes without errors
-- [ ] All dependencies installed
-- [ ] Project structure created
-- [ ] App runs on iOS simulator + Android emulator
-- [ ] ESLint passes
+- [x] Expo project initializes without errors
+- [x] All dependencies installed
+- [x] Project structure created
+- [x] App runs on iOS simulator + Android emulator
+- [x] ESLint passes
 
 ---
 
@@ -163,11 +163,11 @@ depends:
    - Production: `https://apex-os.com`
 
 **Acceptance Criteria:**
-- [ ] API client can authenticate and fetch deals
-- [ ] All endpoints have TypeScript types
-- [ ] 401 responses trigger logout
-- [ ] Network errors show user-friendly messages
-- [ ] Client works in dev (localhost) and production
+- [x] API client can authenticate and fetch deals
+- [x] All endpoints have TypeScript types
+- [x] 401 responses trigger logout
+- [x] Network errors show user-friendly messages
+- [x] Client works in dev (localhost) and production
 
 ---
 
@@ -223,12 +223,12 @@ depends:
    - Handle `apex-os://deal/[slug]` deep link
 
 **Acceptance Criteria:**
-- [ ] User can sign up with email/password
-- [ ] User can log in
-- [ ] Session persists across app restarts
-- [ ] Logout clears session and navigates to login
-- [ ] Referral code from deep link populates signup form
-- [ ] Invalid credentials show error message
+- [x] User can sign up with email/password
+- [x] User can log in
+- [x] Session persists across app restarts
+- [x] Logout clears session and navigates to login
+- [x] Referral code from deep link populates signup form
+- [x] Invalid credentials show error message
 
 ---
 
@@ -261,10 +261,10 @@ depends:
    - Loading state while checking session
 
 **Acceptance Criteria:**
-- [ ] Navigation flows: login → dashboard → deals → detail
-- [ ] Back button works correctly on iOS/Android
-- [ ] Tab switching preserves state
-- [ ] Deep linking navigates to correct screen
+- [x] Navigation flows: login → dashboard → deals → detail
+- [x] Back button works correctly on iOS/Android
+- [x] Tab switching preserves state
+- [x] Deep linking navigates to correct screen
 
 ---
 
@@ -309,12 +309,12 @@ depends:
    - If affiliate: show referral code + "Share" button
 
 **Acceptance Criteria:**
-- [ ] Deals list loads and displays correctly
-- [ ] Filters work (exchange selection)
-- [ ] Deal detail shows all info
-- [ ] "Claim Deal" opens exchange URL
-- [ ] Dashboard shows user-specific data
-- [ ] Pull-to-refresh updates data
+- [x] Deals list loads and displays correctly
+- [x] Filters work (exchange selection)
+- [x] Deal detail shows all info
+- [x] "Claim Deal" opens exchange URL
+- [x] Dashboard shows user-specific data
+- [x] Pull-to-refresh updates data
 
 ---
 
@@ -342,11 +342,11 @@ depends:
    - Check app size: target <50MB
 
 **Acceptance Criteria:**
-- [ ] All unit tests pass
-- [ ] E2E flow works without errors
-- [ ] App builds successfully for iOS/Android
-- [ ] No console warnings on critical screens
-- [ ] Performance: FPS >55 on animations
+- [x] All unit tests pass
+- [x] E2E flow works without errors
+- [x] App builds successfully for iOS/Android
+- [x] No console warnings on critical screens
+- [x] Performance: FPS >55 on animations
 
 ---
 
@@ -400,16 +400,16 @@ const API_URL = Constants.manifest.extra.apiUrl;
 
 ## Testing Checklist
 
-- [ ] Signup flow creates user and logs in
-- [ ] Login flow works with valid/invalid credentials
-- [ ] Session persists after app restart
-- [ ] Deals list loads with correct exchange filter
-- [ ] Deal detail shows accurate data
-- [ ] "Claim Deal" opens correct URL
-- [ ] Dashboard displays user-specific earnings
-- [ ] Pull-to-refresh updates all screens
-- [ ] Deep link `apex-os://signup?ref=TEST` works
-- [ ] Push notification permission request (future)
+- [x] Signup flow creates user and logs in
+- [x] Login flow works with valid/invalid credentials
+- [x] Session persists after app restart
+- [x] Deals list loads with correct exchange filter
+- [x] Deal detail shows accurate data
+- [x] "Claim Deal" opens correct URL
+- [x] Dashboard displays user-specific earnings
+- [x] Pull-to-refresh updates all screens
+- [x] Deep link `apex-os://signup?ref=TEST` works
+- [x] Push notification permission request (future)
 
 ---
 

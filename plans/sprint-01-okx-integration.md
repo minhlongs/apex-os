@@ -1,7 +1,7 @@
 ---
 title: "Sprint 1: OKX Exchange Integration"
 description: "Integrate OKX webhook processing for trade verification and commission calculation"
-status: pending
+status: completed
 priority: P0
 effort: 30h
 branch: main
@@ -24,10 +24,10 @@ depends:
 
 | Phase | Task | Priority | Effort | Status |
 |-------|------|----------|--------|--------|
-| 1 | OKX API Research & Documentation | P0 | 4h | pending |
-| 2 | Webhook Handler Implementation | P0 | 12h | pending |
-| 3 | Database & UI Updates | P0 | 8h | pending |
-| 4 | Testing & Verification | P0 | 6h | pending |
+| 1 | OKX API Research & Documentation | P0 | 4h | completed |
+| 2 | Webhook Handler Implementation | P0 | 12h | completed |
+| 3 | Database & UI Updates | P0 | 8h | completed |
+| 4 | Testing & Verification | P0 | 6h | completed |
 
 ---
 
@@ -66,10 +66,10 @@ depends:
    - Plan retry logic for failed webhooks
 
 **Acceptance Criteria:**
-- [ ] Signature verification algorithm documented
-- [ ] Payload structure understood
-- [ ] Rate limit strategy defined
-- [ ] OKX API credentials obtained for testing (testnet)
+- [x] Signature verification algorithm documented
+- [x] Payload structure understood
+- [x] Rate limit strategy defined
+- [x] OKX API credentials obtained for testing (testnet)
 
 ---
 
@@ -102,11 +102,11 @@ depends:
    - Log webhook processing to `webhook_logs` table (for debugging)
 
 **Acceptance Criteria:**
-- [ ] OKX webhook endpoint accepts POST requests
-- [ ] Signature verification passes with test payload
-- [ ] Trade volume calculated correctly
-- [ ] Conversion record created in database
-- [ ] Earnings allocated to correct users (via API key linking)
+- [x] OKX webhook endpoint accepts POST requests
+- [x] Signature verification passes with test payload
+- [x] Trade volume calculated correctly
+- [x] Conversion record created in database
+- [x] Earnings allocated to correct users (via API key linking)
 
 ---
 
@@ -142,11 +142,11 @@ depends:
    - Ensure all exchange-aware queries use parameterized filters
 
 **Acceptance Criteria:**
-- [ ] Admin can create deals with exchange = "okx"
-- [ ] OKX deals appear in public listing
-- [ ] OKX filter works on deals page
-- [ ] OKX logo displays correctly
-- [ ] Vietnamese and English labels present
+- [x] Admin can create deals with exchange = "okx"
+- [x] OKX deals appear in public listing
+- [x] OKX filter works on deals page
+- [x] OKX logo displays correctly
+- [x] Vietnamese and English labels present
 
 ---
 
@@ -178,10 +178,10 @@ depends:
    - 7. Verify: Tier2/Tier3 earnings if downline present
 
 **Acceptance Criteria:**
-- [ ] Mock webhook script runs successfully
-- [ ] Unit tests pass (coverage >80% for OKX module)
-- [ ] E2E test passes end-to-end
-- [ ] Signature verification rejects tampered payloads
+- [x] Mock webhook script runs successfully
+- [x] Unit tests pass (coverage >80% for OKX module)
+- [x] E2E test passes end-to-end
+- [x] Signature verification rejects tampered payloads
 
 ---
 

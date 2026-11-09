@@ -1,7 +1,7 @@
 ---
 title: "Sprint 9: Mobile App Store & TestFlight Launch Preparation"
 description: "Production release readiness for ApexOS Mobile: EAS build configuration, bundle optimization, UI error boundaries, and App Store assets"
-status: complete
+status: completed
 priority: P1
 effort: 32h
 branch: feature/sprint-09-mobile-store-prep
