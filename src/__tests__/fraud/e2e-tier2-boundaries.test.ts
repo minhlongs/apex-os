@@ -724,6 +724,7 @@ describe('Tier 2: Boundary & Corner Cases (F1 - F12)', () => {
           sessionId: 's-1999',
           dealId: 'deal-active-1',
           affiliateCode: 'aff1',
+          timestamp: now,
         });
 
         expect(evalResult.isSuspicious).toBe(true);
@@ -758,6 +759,7 @@ describe('Tier 2: Boundary & Corner Cases (F1 - F12)', () => {
           sessionId: 's-2000',
           dealId: 'deal-active-1',
           affiliateCode: 'aff1',
+          timestamp: now,
         });
 
         expect(evalResult.flagReasons).not.toContain('BURST_CLICK');
@@ -791,6 +793,7 @@ describe('Tier 2: Boundary & Corner Cases (F1 - F12)', () => {
           sessionId: 's-2001',
           dealId: 'deal-active-1',
           affiliateCode: 'aff1',
+          timestamp: now,
         });
 
         expect(evalResult.flagReasons).not.toContain('BURST_CLICK');
@@ -824,6 +827,7 @@ describe('Tier 2: Boundary & Corner Cases (F1 - F12)', () => {
           sessionId: 's-50ms',
           dealId: 'deal-active-1',
           affiliateCode: 'aff1',
+          timestamp: now,
         });
 
         expect(evalResult.isSuspicious).toBe(true);
@@ -874,6 +878,7 @@ describe('Tier 2: Boundary & Corner Cases (F1 - F12)', () => {
           sessionId: 's-multi',
           dealId: 'deal-active-1',
           affiliateCode: 'aff1',
+          timestamp: now,
         });
 
         expect(evalResult.isSuspicious).toBe(true);
