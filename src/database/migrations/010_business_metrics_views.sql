@@ -441,16 +441,15 @@ CREATE INDEX IF NOT EXISTS idx_profiles_activity ON profiles(role, created_at);
 -- ============================================================
 
 -- Verify views were created
-SELECT 'Views created:' as status
-UNION ALL
-SELECT 'v_daily_revenue' as view_name
-UNION ALL
-SELECT 'v_conversion_rates'
-UNION ALL
-SELECT 'v_active_affiliates'
-UNION ALL
-SELECT 'v_deal_performance'
-UNION ALL
-SELECT 'v_period_summary'
-UNION ALL
-SELECT 'v_affiliate_activity';
+SELECT name as view_name
+FROM sqlite_master
+WHERE type = 'view'
+  AND name IN (
+    'v_daily_revenue',
+    'v_conversion_rates',
+    'v_active_affiliates',
+    'v_deal_performance',
+    'v_period_summary',
+    'v_affiliate_activity'
+  )
+ORDER BY name;
