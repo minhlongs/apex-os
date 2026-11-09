@@ -138,7 +138,7 @@ jobs:
   rollback:
     name: Rollback Deployment
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'rollback-staging' || github.event.inputs.action == 'rollback-production')
+    if: github.event.inputs.action == 'rollback-staging' || github.event.inputs.action == 'rollback-production'
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

@@ -598,7 +598,7 @@ bash scripts/verify-deployment.sh https://apex-os.com $(git rev-parse HEAD)
 
 #### Method 2: GitHub Actions CI/CD (`.github/workflows/deploy.yml`)
 
-1. Push to `main`/`master` or trigger `workflow_dispatch` on `.github/workflows/deploy.yml`.
+1. Trigger `workflow_dispatch` on `.github/workflows/deploy.yml` with the desired action (`deploy-staging`, `deploy-production`, `rollback-staging`, or `rollback-production`).
 2. Staging deploys first (`apex-os-staging`), runs `scripts/verify-deployment.sh`, and gates Production (`apex-os`).
 
 ### Post-Deployment Verification
