@@ -35,6 +35,11 @@ return null
 
 // Rate limiter instances
 const rateLimiters = {
+'/r/': createRateLimiter({
+maxRequests: 30,
+windowMs: 60_000,
+prefix: 'shortlink-click',
+}),
 '/api/tracking/click': createRateLimiter({
 maxRequests: 30,
 windowMs: 60_000,
