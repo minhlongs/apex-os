@@ -3,12 +3,60 @@
  * ApexOS Affiliate Cashback System
  *
  * Handles USDC payouts on Stellar network (testnet/mainnet)
- * using stellar-sdk for transaction building and submission.
+ * using @stellar/stellar-sdk v17 (Stellar Protocol 30 "Bell").
  */
 
-import * as StellarSdk from 'stellar-sdk';
+import type * as StellarSdkTypes from '@stellar/stellar-sdk';
+import Decimal from 'decimal.js';
 import { error as logError, warn as logWarn } from '@/lib/logger';
 import { track } from '@/lib/analytics-http';
+
+function resolveStellarSdkModule(): typeof StellarSdkTypes {
+  try {
+    // Bundler / Worker / Jest mock path
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('@stellar/stellar-sdk') as typeof StellarSdkTypes;
+  } catch (err) {
+    // Jest 29 CJS VM (`jsdom` realm) rejects transitive ESM `uint8array-extras` when unmocked;
+    // delegate to Node 26 native CJS->ESM loader in test runtime.
+    const isEsmSyntaxError =
+      err !== null &&
+      typeof err === 'object' &&
+      (err as { name?: string }).name === 'SyntaxError';
+    if (isEsmSyntaxError && typeof process !== 'undefined' && process.versions?.node) {
+      const getBuiltin = (
+        process as unknown as { getBuiltinModule?: (id: string) => unknown }
+      ).getBuiltinModule;
+      if (typeof getBuiltin === 'function') {
+        const nodeMod = getBuiltin('node:module') as {
+          createRequire: (origin: string) => NodeRequire;
+        };
+        return nodeMod.createRequire(__filename)('@stellar/stellar-sdk') as typeof StellarSdkTypes;
+      }
+    }
+    throw err;
+  }
+}
+
+const StellarSdk = resolveStellarSdkModule();
+
+/**
+ * Stellar USDC precision constants (7 decimals = 10^7 stroops per USDC)
+ */
+export const STELLAR_USDC_DECIMALS = 7;
+export const STELLAR_STROOPS_PER_USDC = BigInt(10000000);
+export const STELLAR_TIMEBOUNDS_SECONDS = 180;
+
+/**
+ * Canonical Circle Mainnet Stellar USDC Issuer
+ */
+export const CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER =
+  'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+
+export const CANONICAL_STELLAR_TESTNET_USDC_ISSUER =
+  'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM';
+
+const STROOPS_SCALE_DECIMAL = new Decimal(10).pow(STELLAR_USDC_DECIMALS);
 
 /**
  * Stellar network configuration
@@ -36,17 +84,15 @@ const FRIENDBOT_URL = 'https://friendbot.stellar.org';
  *
  * USDC Issuer addresses:
  * - Testnet: GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM
- * - Mainnet: GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGZX3UPOJ2FJ3FNB6DK6L3
- *
- * Note: Verify issuer address before production use on mainnet.
+ * - Mainnet: GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN (Canonical Circle Mainnet Issuer)
  */
 export const USDC_CONFIG: Record<StellarNetwork, { issuer: string; code: string }> = {
   [StellarNetwork.TESTNET]: {
-    issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
+    issuer: CANONICAL_STELLAR_TESTNET_USDC_ISSUER,
     code: 'USDC',
   },
   [StellarNetwork.MAINNET]: {
-    issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGZX3UPOJ2FJ3FNB6DK6L3',
+    issuer: CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
     code: 'USDC',
   },
 };
@@ -83,6 +129,8 @@ export interface StellarBalance {
   balance: string;
   /** Whether this is the native asset (XLM) */
   is_native: boolean;
+  /** Whether trustline is authorized by issuer (undefined or true means authorized) */
+  is_authorized?: boolean;
 }
 
 /**
@@ -99,7 +147,7 @@ export interface PayoutResult {
   asset: string;
   /** Amount sent */
   amount: string;
-  /** Network fee paid (in XLM) */
+  /** Network fee paid (in stroops) */
   fee: string;
   /** Transaction envelope in base64 */
   envelope?: string;
@@ -151,7 +199,7 @@ export interface PayoutJobStatus {
 export interface StellarServiceConfig {
   /** Network: testnet or mainnet */
   network: StellarNetwork;
-  /** Secret key for the sending account (required for sending) */
+  /** Secret key for the sending account (required for direct local signing) */
   secretKey?: string;
   /** USDC issuer address (optional, uses default if not provided) */
   usdcIssuer?: string;
@@ -229,6 +277,122 @@ export interface PayoutRecord {
 }
 
 /**
+ * Structural shapes for Horizon responses to preserve strict type safety across SDK versions and mocks
+ */
+interface RawHorizonBalanceLine {
+  asset_type: string;
+  asset_code?: string;
+  asset_issuer?: string;
+  balance: string;
+  is_authorized?: boolean;
+}
+
+interface RawSubmitTransactionResponse {
+  id?: string;
+  hash?: string;
+  fee_charged?: string | number;
+  envelope_xdr?: string;
+  created_at?: string;
+}
+
+export interface HorizonTransactionOperationRecord {
+  type: string;
+  destination?: string;
+  amount?: string;
+  asset?: {
+    code?: string;
+    issuer?: string;
+  };
+  asset_code?: string;
+  asset_issuer?: string;
+  asset_type?: string;
+}
+
+export interface HorizonTransactionDetails {
+  id: string;
+  hash?: string;
+  successful: boolean;
+  fee_charged?: string | number;
+  created_at?: string;
+  operations?: HorizonTransactionOperationRecord[];
+}
+
+interface HorizonTransactionQueryBuilder {
+  transaction(txId: string): { call(): Promise<HorizonTransactionDetails> };
+  transactionId?(txId: string): { call(): Promise<HorizonTransactionDetails> };
+}
+
+interface HorizonServerStatusProbe {
+  fetchStatus?: () => Promise<unknown>;
+  ledgers?: () => { limit(count: number): { call(): Promise<unknown> } };
+}
+
+/**
+ * Convert a decimal USDC amount to exact 7-decimal Stellar integer stroops using ROUND_DOWN.
+ */
+export function toStellarStroops(amount: string | number | Decimal): bigint {
+  let dec: Decimal;
+  try {
+    dec = new Decimal(amount);
+  } catch {
+    throw new Error(`Invalid Stellar amount: ${String(amount)}`);
+  }
+
+  if (!dec.isFinite() || dec.lte(0)) {
+    throw new Error(`Invalid Stellar amount: ${String(amount)}`);
+  }
+
+  const stroopsDec = dec.mul(STROOPS_SCALE_DECIMAL).toDecimalPlaces(0, Decimal.ROUND_DOWN);
+  if (stroopsDec.lte(0)) {
+    throw new Error(`Invalid Stellar amount: ${String(amount)}`);
+  }
+
+  return BigInt(stroopsDec.toFixed(0));
+}
+
+/**
+ * Convert exact integer stroops (10^-7) to a 7-decimal Stellar amount string.
+ */
+export function fromStellarStroops(stroops: bigint): string {
+  if (stroops < BigInt(0)) {
+    throw new Error(`Invalid negative stroops: ${stroops.toString()}`);
+  }
+  return new Decimal(stroops.toString())
+    .div(STROOPS_SCALE_DECIMAL)
+    .toFixed(STELLAR_USDC_DECIMALS, Decimal.ROUND_DOWN);
+}
+
+/**
+ * Format a USDC amount into an exact 7-decimal Stellar payment string using ROUND_DOWN.
+ */
+export function formatStellarUsdcAmount(amount: string | number | Decimal): string {
+  const stroops = toStellarStroops(amount);
+  return fromStellarStroops(stroops);
+}
+
+/**
+ * Convert ledger minor units (10^-8 USD) to Stellar stroops (10^-7 USDC) using floor division.
+ */
+export function ledgerUnits1e8ToStellarStroops(amountUnits1e8: bigint): bigint {
+  if (amountUnits1e8 <= BigInt(0)) {
+    throw new Error(`Invalid ledger 1e8 amount: ${amountUnits1e8.toString()}`);
+  }
+  return amountUnits1e8 / BigInt(10);
+}
+
+function parseNonNegativeStroops(balanceStr: string): bigint {
+  try {
+    const dec = new Decimal(balanceStr);
+    if (!dec.isFinite() || dec.lte(0)) {
+      return BigInt(0);
+    }
+    return BigInt(dec.mul(STROOPS_SCALE_DECIMAL).toDecimalPlaces(0, Decimal.ROUND_DOWN).toFixed(0));
+  } catch {
+    return BigInt(0);
+  }
+}
+
+/**
  * Default configuration
  */
 const DEFAULT_CONFIG: Partial<StellarServiceConfig> = {
@@ -239,41 +403,12 @@ const DEFAULT_CONFIG: Partial<StellarServiceConfig> = {
 
 /**
  * StellarService - Handles all Stellar blockchain operations
- *
- * Features:
- * - Network switching (testnet/mainnet)
- * - Account balance queries
- * - Account creation/funding (testnet friendbot)
- * - USDC transfer transactions
- * - Batch payout processing
- * - Transaction status tracking
- *
- * Usage:
- * ```typescript
- * const service = new StellarService({
- *   network: StellarNetwork.TESTNET,
- *   secretKey: process.env.STELLAR_SECRET_KEY,
- * });
- *
- * // Check balance
- * const balance = await service.getUSDCBalance('G...');
- *
- * // Send payout
- * const result = await service.sendPayout({
- *   to: 'G...',
- *   amount: '10.00',
- *   memo: 'Commission payout',
- * });
- *
- * // Batch payout
- * const batch = await service.processBatchPayouts(pendingEarnings, db);
- * ```
  */
 export class StellarService {
   private config: Required<StellarServiceConfig>;
-  private server: StellarSdk.Horizon.Server;
-  private usdcAsset: StellarSdk.Asset;
-  private senderKeypair?: StellarSdk.Keypair;
+  private server: StellarSdkTypes.Horizon.Server;
+  private usdcAsset: StellarSdkTypes.Asset;
+  private senderKeypair?: StellarSdkTypes.Keypair;
 
   constructor(config: Partial<StellarServiceConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config } as Required<StellarServiceConfig>;
@@ -317,9 +452,19 @@ export class StellarService {
   }
 
   /**
+   * Get Stellar network passphrase for Protocol 30 transaction signing
+   */
+  getNetworkPassphrase(): string {
+    if (this.config.network === StellarNetwork.MAINNET) {
+      return StellarSdk.Networks?.PUBLIC ?? 'Public Global Stellar Network ; September 2015';
+    }
+    return StellarSdk.Networks?.TESTNET ?? 'Test SDF Network ; September 2015';
+  }
+
+  /**
    * Get the USDC asset configuration
    */
-  getUSDCAsset(): StellarSdk.Asset {
+  getUSDCAsset(): StellarSdkTypes.Asset {
     return this.usdcAsset;
   }
 
@@ -346,17 +491,25 @@ export class StellarService {
   async getAccount(accountId: string): Promise<StellarAccount | null> {
     try {
       const account = await this.server.loadAccount(accountId);
+      const rawBalances = account.balances as unknown as RawHorizonBalanceLine[];
 
-      const balances: StellarBalance[] = account.balances.map(b => ({
-        asset_code: b.asset_type === 'native' ? 'XLM' : (b as any).asset_code,
-        asset_issuer: b.asset_type === 'native' ? null : (b as any).asset_issuer,
-        balance: b.balance,
-        is_native: b.asset_type === 'native',
-      }));
+      const balances: StellarBalance[] = rawBalances.map((b: RawHorizonBalanceLine) => {
+        const isNative = b.asset_type === 'native';
+        return {
+          asset_code: isNative ? 'XLM' : (b.asset_code ?? ''),
+          asset_issuer: isNative ? null : (b.asset_issuer ?? null),
+          balance: b.balance,
+          is_native: isNative,
+          is_authorized: b.is_authorized,
+        };
+      });
+
+      const rawSequence = (account as unknown as { sequence: string | (() => string) }).sequence;
+      const sequenceStr = typeof rawSequence === 'function' ? rawSequence.call(account) : String(rawSequence);
 
       return {
         accountId: account.accountId(),
-        sequence: account.sequence,
+        sequence: sequenceStr,
         balances,
         thresholds: {
           low_threshold: account.thresholds.low_threshold,
@@ -366,8 +519,8 @@ export class StellarService {
         exists: true,
       };
     } catch (error: unknown) {
-      const err = error as { status?: number };
-      if (err.status === 404) {
+      const err = error as { status?: number; response?: { status?: number } };
+      if (err.status === 404 || err.response?.status === 404) {
         return {
           accountId,
           sequence: '0',
@@ -381,20 +534,67 @@ export class StellarService {
   }
 
   /**
+   * Verify recipient account exists AND already holds an authorized USDC trustline
+   * for the configured Circle USDC issuer.
+   *
+   * NEVER sponsors or creates trustlines (createAccount / changeTrust) for unknown wallets.
+   */
+  async hasUsdcTrustline(accountId: string): Promise<boolean> {
+    if (!isValidStellarAccountId(accountId)) {
+      return false;
+    }
+
+    const account = await this.getAccount(accountId);
+    if (!account || !account.exists) {
+      return false;
+    }
+
+    const expectedIssuer = this.usdcAsset.issuer;
+    const trustline = account.balances.find(
+      (b) => !b.is_native && b.asset_code === 'USDC' && b.asset_issuer === expectedIssuer
+    );
+
+    if (!trustline) {
+      return false;
+    }
+
+    return trustline.is_authorized !== false;
+  }
+
+  /**
+   * Get USDC balance in exact stroops (10^-7) for an account
+   */
+  async getUSDCBalanceStroops(accountId: string): Promise<bigint> {
+    const account = await this.getAccount(accountId);
+    if (!account || !account.exists) return BigInt(0);
+
+    const usdcBalance = account.balances.find(
+      (b) => b.asset_code === 'USDC' && b.asset_issuer === this.usdcAsset.issuer
+    );
+
+    return usdcBalance ? parseNonNegativeStroops(usdcBalance.balance) : BigInt(0);
+  }
+
+  /**
    * Get USDC balance for an account
    *
    * @param accountId - Stellar account public key
    * @returns USDC balance as number, or 0 if no balance
    */
   async getUSDCBalance(accountId: string): Promise<number> {
+    const stroops = await this.getUSDCBalanceStroops(accountId);
+    return new Decimal(stroops.toString()).div(STROOPS_SCALE_DECIMAL).toNumber();
+  }
+
+  /**
+   * Get XLM balance in exact stroops (10^-7) for an account
+   */
+  async getXLMBalanceStroops(accountId: string): Promise<bigint> {
     const account = await this.getAccount(accountId);
-    if (!account) return 0;
+    if (!account || !account.exists) return BigInt(0);
 
-    const usdcBalance = account.balances.find(
-      b => b.asset_code === 'USDC' && b.asset_issuer === this.usdcAsset.issuer
-    );
-
-    return usdcBalance ? parseFloat(usdcBalance.balance) : 0;
+    const xlmBalance = account.balances.find((b) => b.is_native);
+    return xlmBalance ? parseNonNegativeStroops(xlmBalance.balance) : BigInt(0);
   }
 
   /**
@@ -404,21 +604,17 @@ export class StellarService {
    * @returns XLM balance as number
    */
   async getXLMBalance(accountId: string): Promise<number> {
-    const account = await this.getAccount(accountId);
-    if (!account) return 0;
-
-    const xlmBalance = account.balances.find(b => b.is_native);
-    return xlmBalance ? parseFloat(xlmBalance.balance) : 0;
+    const stroops = await this.getXLMBalanceStroops(accountId);
+    return new Decimal(stroops.toString()).div(STROOPS_SCALE_DECIMAL).toNumber();
   }
 
   /**
    * Fund a testnet account using Friendbot (testnet only)
-   *
-   * @param accountId - Stellar account public key to fund
-   * @param amountXlm - Amount of XLM to fund (default: 100)
-   * @returns Result of funding operation
    */
-  async fundTestnetAccount(accountId: string, amountXlm: number = 100): Promise<{ success: boolean; message: string }> {
+  async fundTestnetAccount(
+    accountId: string,
+    amountXlm: number = 100
+  ): Promise<{ success: boolean; message: string }> {
     if (this.config.network !== StellarNetwork.TESTNET) {
       return {
         success: false,
@@ -427,7 +623,6 @@ export class StellarService {
     }
 
     try {
-      // Check if account already exists
       const existing = await this.getAccount(accountId);
       if (existing?.exists) {
         return {
@@ -436,7 +631,6 @@ export class StellarService {
         };
       }
 
-      // Call friendbot
       const response = await fetch(
         `${FRIENDBOT_URL}?addr=${accountId}&amount=${amountXlm}`
       );
@@ -449,10 +643,9 @@ export class StellarService {
         };
       }
 
-      const result = await response.json();
+      const result: unknown = await response.json();
 
-      // Wait a moment for the account to be created
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      await new Promise((resolve) => setTimeout(resolve, 2000));
 
       return {
         success: true,
@@ -467,30 +660,27 @@ export class StellarService {
   }
 
   /**
-   * Build a USDC transfer transaction without submitting
-   *
-   * @param fromAccount - Sender account (must be loaded with sequence)
-   * @param toAccountId - Recipient account public key
-   * @param amount - Amount in USDC (as string)
-   * @param memo - Optional memo text (max 28 bytes)
-   * @returns Transaction envelope ready to sign and submit
+   * Build a USDC transfer transaction without submitting.
+   * Uses exact 7-decimal stroops formatting and explicit 180-second TimeBounds.
    */
   buildUSDCTransfer(
-    fromAccount: StellarSdk.Account,
+    fromAccount: ConstructorParameters<typeof StellarSdkTypes.TransactionBuilder>[0],
     toAccountId: string,
     amount: string,
     memo?: string
-  ): StellarSdk.Transaction {
+  ): StellarSdkTypes.Transaction {
+    const formattedAmount = formatStellarUsdcAmount(amount);
+
     let builder = new StellarSdk.TransactionBuilder(fromAccount, {
       fee: String(this.calculateFee()),
-      timebounds: { minTime: 0, maxTime: 0 },
+      networkPassphrase: this.getNetworkPassphrase(),
     });
 
     builder = builder.addOperation(
       StellarSdk.Operation.payment({
         destination: toAccountId,
         asset: this.usdcAsset,
-        amount,
+        amount: formattedAmount,
       })
     );
 
@@ -498,63 +688,56 @@ export class StellarService {
       builder = builder.addMemo(StellarSdk.Memo.text(memo.slice(0, 28)));
     }
 
-    builder = builder.setTimeout(30 * 60); // 30 minute timeout
+    builder = builder.setTimeout(STELLAR_TIMEBOUNDS_SECONDS);
 
     return builder.build();
   }
 
   /**
-   * Calculate transaction fee (base fee for simple transaction)
+   * Calculate transaction fee (base fee in stroops for simple transaction)
    */
   calculateFee(): number {
-    // Base fee: 100 stroops (0.001 XLM) per operation
-    // For a simple payment: 1 operation
-    return 100 * 3; // 300 stroops = 0.003 XLM
+    return 100 * 3; // 300 stroops = 0.00003 XLM
   }
 
   /**
    * Sign and submit a transaction to the network
-   *
-   * @param transaction - Transaction to submit
-   * @returns Transaction result
    */
-  async submitTransaction(transaction: StellarSdk.Transaction): Promise<PayoutResult> {
+  async submitTransaction(transaction: StellarSdkTypes.Transaction): Promise<PayoutResult> {
     if (!this.senderKeypair) {
       throw new Error('No secret key configured. Cannot sign transaction.');
     }
 
-    // Sign the transaction
     transaction.sign(this.senderKeypair);
 
-    // Get sender account ID
     const senderAccountId = this.senderKeypair.publicKey();
 
-    // Get destination
     const destinationOp = transaction.operations[0];
     if (!destinationOp || destinationOp.type !== 'payment') {
       throw new Error('Invalid transaction: expected payment operation');
     }
 
-    const destAccountId = (destinationOp as StellarSdk.Operation.Payment).destination;
+    const paymentOp = destinationOp as StellarSdkTypes.Operation.Payment;
+    const destAccountId = paymentOp.destination;
     if (!destAccountId) {
       throw new Error('Invalid transaction: missing destination');
     }
 
-    // Extract amount
-    const amount = (destinationOp as StellarSdk.Operation.Payment).amount;
-    const asset = (destinationOp as StellarSdk.Operation.Payment).asset;
+    const amount = paymentOp.amount;
+    const asset = paymentOp.asset;
 
-    // Submit to network
     try {
-      const result: any = await this.server.submitTransaction(transaction);
+      const result = (await this.server.submitTransaction(
+        transaction
+      )) as unknown as RawSubmitTransactionResponse;
 
       return {
-        transactionId: result.id || result.hash,
+        transactionId: result.id || result.hash || '',
         fromAccount: senderAccountId,
         toAccount: destAccountId,
         asset: asset.getCode(),
-        amount: amount,
-        fee: result.fee_charged,
+        amount,
+        fee: String(result.fee_charged ?? this.calculateFee()),
         envelope: result.envelope_xdr,
         ledgerTimestamp: result.created_at,
       };
@@ -567,51 +750,57 @@ export class StellarService {
   }
 
   /**
-   * Send a USDC payout to a single recipient
-   *
-   * @param toAccountId - Recipient Stellar account public key
-   * @param amount - Amount in USDC
-   * @param options - Additional options (memo, fee)
-   * @returns Transaction result
+   * Send a USDC payout to a single recipient using 7-decimal stroops integer math
    */
   async sendPayout(
     toAccountId: string,
     amount: number | string,
     options: { memo?: string } = {}
   ): Promise<PayoutResult> {
-  // Validate amount first (before config checks)
-  const amountStr = typeof amount === 'number' ? amount.toFixed(7) : amount;
-  if (parseFloat(amountStr) <= 0) {
-    throw new Error('Invalid payout amount: must be greater than 0');
-  }
+    let requiredStroops: bigint;
+    try {
+      requiredStroops = toStellarStroops(amount);
+    } catch {
+      throw new Error('Invalid payout amount: must be greater than 0');
+    }
 
-  if (!this.senderKeypair) {
-    throw new Error('Sender account not configured. Set STELLAR_SECRET_KEY.');
-  }
+    const amountStr = fromStellarStroops(requiredStroops);
 
-    // Check sender balance
+    if (!this.senderKeypair) {
+      throw new Error('Sender account not configured. Set STELLAR_SECRET_KEY.');
+    }
+
     const senderAccountId = this.senderKeypair.publicKey();
-    const usdcBalance = await this.getUSDCBalance(senderAccountId);
-    const xlmBalance = await this.getXLMBalance(senderAccountId);
+    const usdcBalanceStroops = await this.getUSDCBalanceStroops(senderAccountId);
+    const xlmBalanceStroops = await this.getXLMBalanceStroops(senderAccountId);
 
-    if (usdcBalance < parseFloat(amountStr)) {
+    if (usdcBalanceStroops < requiredStroops) {
+      const availableStr = new Decimal(usdcBalanceStroops.toString())
+        .div(STROOPS_SCALE_DECIMAL)
+        .toFixed(2, Decimal.ROUND_DOWN);
       throw new Error(
-        `Insufficient USDC balance. Available: ${usdcBalance.toFixed(2)} USDC, Required: ${amountStr} USDC`
+        `Insufficient USDC balance. Available: ${availableStr} USDC, Required: ${amountStr} USDC`
       );
     }
 
-    // Check XLM balance for fee
-    const feeXlm = this.calculateFee() / 10000000; // Convert stroops to XLM
-    if (xlmBalance < feeXlm + this.config.minReserveXlm) {
+    const feeStroops = BigInt(this.calculateFee());
+    const minReserveStroops = parseNonNegativeStroops(String(this.config.minReserveXlm));
+    const requiredXlmStroops = feeStroops + minReserveStroops;
+
+    if (xlmBalanceStroops < requiredXlmStroops) {
+      const availableXlm = new Decimal(xlmBalanceStroops.toString())
+        .div(STROOPS_SCALE_DECIMAL)
+        .toFixed(4, Decimal.ROUND_DOWN);
+      const requiredXlm = new Decimal(requiredXlmStroops.toString())
+        .div(STROOPS_SCALE_DECIMAL)
+        .toFixed(4, Decimal.ROUND_DOWN);
       throw new Error(
-        `Insufficient XLM for fee. Available: ${xlmBalance.toFixed(4)} XLM, Required: ${(feeXlm + this.config.minReserveXlm).toFixed(4)} XLM`
+        `Insufficient XLM for fee. Available: ${availableXlm} XLM, Required: ${requiredXlm} XLM`
       );
     }
 
-    // Load sender account for sequence
     const senderAccount = await this.server.loadAccount(senderAccountId);
 
-    // Build transaction
     const transaction = this.buildUSDCTransfer(
       senderAccount,
       toAccountId,
@@ -619,22 +808,25 @@ export class StellarService {
       options.memo
     );
 
-    // Submit
     return this.submitTransaction(transaction);
   }
 
   /**
    * Get transaction status from the network
-   *
-   * @param transactionId - Stellar transaction hash
-   * @returns Transaction details or null if not found
    */
-  async getTransaction(transactionId: string): Promise<any | null> {
+  async getTransaction(transactionId: string): Promise<HorizonTransactionDetails | null> {
     try {
-      return await (this.server.transactions() as any).transactionId(transactionId).call();
+      const txBuilder = this.server.transactions() as unknown as HorizonTransactionQueryBuilder;
+      if (typeof txBuilder.transaction === 'function') {
+        return await txBuilder.transaction(transactionId).call();
+      }
+      if (typeof txBuilder.transactionId === 'function') {
+        return await txBuilder.transactionId(transactionId).call();
+      }
+      throw new Error('Horizon transaction query builder does not expose transaction lookup');
     } catch (error: unknown) {
-      const err = error as { status?: number };
-      if (err.status === 404) {
+      const err = error as { status?: number; response?: { status?: number } };
+      if (err.status === 404 || err.response?.status === 404) {
         return null;
       }
       throw error;
@@ -642,12 +834,7 @@ export class StellarService {
   }
 
   /**
-   * Verify a payout transaction on the network
-   *
-   * @param transactionId - Transaction hash to verify
-   * @param expectedAmount - Expected amount (optional)
-   * @param expectedRecipient - Expected recipient (optional)
-   * @returns Verification result
+   * Verify a payout transaction on the network using exact stroops integer comparison
    */
   async verifyPayout(
     transactionId: string,
@@ -655,7 +842,7 @@ export class StellarService {
     expectedRecipient?: string
   ): Promise<{
     verified: boolean;
-    details: any | null;
+    details: HorizonTransactionDetails | null;
     reason?: string;
   }> {
     const tx = await this.getTransaction(transactionId);
@@ -664,20 +851,15 @@ export class StellarService {
       return { verified: false, details: null, reason: 'Transaction not found' };
     }
 
-    // Check status
     if (tx.successful !== true) {
       return { verified: false, details: tx, reason: 'Transaction failed' };
     }
 
-    // Check operations
-    const paymentOp = tx.operations?.find((op: any) => op.type === 'payment');
-    if (!paymentOp) {
+    const payment = tx.operations?.find((op) => op.type === 'payment');
+    if (!payment) {
       return { verified: false, details: tx, reason: 'No payment operation found' };
     }
 
-    const payment = paymentOp as any;
-
-    // Verify recipient
     if (expectedRecipient && payment.destination !== expectedRecipient) {
       return {
         verified: false,
@@ -686,30 +868,34 @@ export class StellarService {
       };
     }
 
-    // Verify amount
-    if (expectedAmount && parseFloat(payment.amount) !== expectedAmount) {
+    if (expectedAmount !== undefined) {
+      const expectedStroops = toStellarStroops(expectedAmount);
+      const actualStroops = payment.amount ? parseNonNegativeStroops(payment.amount) : BigInt(0);
+      if (actualStroops !== expectedStroops) {
+        return {
+          verified: false,
+          details: tx,
+          reason: `Amount mismatch. Expected: ${expectedAmount}, Got: ${payment.amount}`,
+        };
+      }
+    }
+
+    const assetCode = payment.asset?.code ?? payment.asset_code;
+    const assetIssuer = payment.asset?.issuer ?? payment.asset_issuer;
+
+    if (!assetCode || assetCode !== 'USDC') {
       return {
         verified: false,
         details: tx,
-        reason: `Amount mismatch. Expected: ${expectedAmount}, Got: ${payment.amount}`,
+        reason: `Expected USDC asset, got ${assetCode || 'native (XLM)'}`,
       };
     }
 
-    // Verify asset is USDC (not native XLM)
-    const asset = payment.asset;
-    if (!asset || asset.code !== 'USDC') {
+    if (assetIssuer !== this.usdcAsset.issuer) {
       return {
         verified: false,
         details: tx,
-        reason: `Expected USDC asset, got ${asset?.code || 'native (XLM)'}`,
-      };
-    }
-
-    if (asset.issuer !== this.usdcAsset.issuer) {
-      return {
-        verified: false,
-        details: tx,
-        reason: `USDC issuer mismatch. Expected: ${this.usdcAsset.issuer}, Got: ${asset.issuer}`,
+        reason: `USDC issuer mismatch. Expected: ${this.usdcAsset.issuer}, Got: ${assetIssuer}`,
       };
     }
 
@@ -718,16 +904,6 @@ export class StellarService {
 
   /**
    * Process batch payouts from pending earnings
-   *
-   * This method:
-   * 1. Fetches pending earnings from database
-   * 2. Groups by affiliate (consolidating multiple earnings)
-   * 3. Sends USDC to each affiliate's wallet
-   * 4. Creates payout records and marks earnings as paid
-   *
-   * @param db - Database interface
-   * @param options - Batch options
-   * @returns Batch payout result
    */
   async processBatchPayouts(
     db: PayoutDatabase,
@@ -737,7 +913,7 @@ export class StellarService {
       memoPrefix?: string;
     } = {}
   ): Promise<BatchPayoutResult> {
-    const jobId = `batch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const jobId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const { limit, dryRun, memoPrefix } = {
       limit: this.config.maxBatchSize,
       dryRun: false,
@@ -748,8 +924,8 @@ export class StellarService {
     const results: BatchPayoutResult['results'] = [];
     let successful = 0;
     let failed = 0;
-    let totalAmount = 0;
-    let totalFees = 0;
+    let totalAmountDec = new Decimal(0);
+    let totalFeeStroops = BigInt(0);
 
     try {
       const pendingEarnings = await db.getPendingEarnings(limit);
@@ -767,7 +943,6 @@ export class StellarService {
         };
       }
 
-      // Group by affiliate
       const affiliateGroups = new Map<string, PendingEarning[]>();
       for (const earning of pendingEarnings) {
         const group = affiliateGroups.get(earning.affiliate_id) || [];
@@ -775,18 +950,20 @@ export class StellarService {
         affiliateGroups.set(earning.affiliate_id, group);
       }
 
-      // Process each affiliate
       for (const [affiliateId, earnings] of affiliateGroups) {
-        const totalEarning = earnings.reduce((sum, e) => sum + e.amount, 0);
+        const totalEarningDec = earnings.reduce(
+          (sum, e) => sum.plus(new Decimal(e.amount)),
+          new Decimal(0)
+        );
+        const totalEarning = totalEarningDec.toNumber();
         const walletAddress = earnings[0].wallet_address;
 
-        // Validate wallet address (catch invalid keys that throw)
         let isWalletValid = false;
         if (walletAddress) {
           try {
             StellarSdk.Keypair.fromPublicKey(walletAddress);
             isWalletValid = true;
-          } catch (e) {
+          } catch {
             isWalletValid = false;
           }
         }
@@ -801,7 +978,8 @@ export class StellarService {
           continue;
         }
 
-        // Create payout record first
+        const formattedTotalEarning = formatStellarUsdcAmount(totalEarningDec);
+
         const payoutId = await db.createPayout({
           affiliate_id: affiliateId,
           payout_method: 'crypto',
@@ -824,21 +1002,19 @@ export class StellarService {
             fromAccount: this.senderKeypair?.publicKey() || 'unknown',
             toAccount: walletAddress,
             asset: 'USDC',
-            amount: totalEarning.toFixed(7),
+            amount: formattedTotalEarning,
             fee: '0',
           });
           successful++;
-          totalAmount += totalEarning;
+          totalAmountDec = totalAmountDec.plus(totalEarningDec);
           continue;
         }
 
         try {
-          // Send the payout
-          const result = await this.sendPayout(walletAddress, totalEarning.toFixed(7), {
+          const result = await this.sendPayout(walletAddress, formattedTotalEarning, {
             memo: `${memoPrefix} - ${affiliateId.slice(0, 10)}`,
           });
 
-          // Track analytics (fire-and-forget)
           track('payout', affiliateId, {
             payout_id: payoutId,
             amount: totalEarning,
@@ -849,16 +1025,13 @@ export class StellarService {
             earnings_count: earnings.length,
           }).catch(() => {});
 
-          // Mark earnings as paid
-          const earningIds = earnings.map(e => e.id);
+          const earningIds = earnings.map((e) => e.id);
           await db.markEarningsPaid(earningIds, payoutId);
 
-          // Update payout record with transaction details
-          // Note: In a real implementation, you would update the payout record here
           results.push(result);
           successful++;
-          totalAmount += totalEarning;
-          totalFees += parseFloat(result.fee) / 10000000; // Convert stroops to XLM
+          totalAmountDec = totalAmountDec.plus(totalEarningDec);
+          totalFeeStroops += BigInt(result.fee || '0');
         } catch (error) {
           results.push({
             error: `Payout failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -875,18 +1048,18 @@ export class StellarService {
         successful,
         failed,
         results,
-        totalAmount,
-        totalFees,
+        totalAmount: totalAmountDec.toNumber(),
+        totalFees: new Decimal(totalFeeStroops.toString()).div(STROOPS_SCALE_DECIMAL).toNumber(),
         network: this.config.network,
       };
-    } catch (error) {
+    } catch {
       return {
         jobId,
         total: 0,
         successful,
         failed,
         results,
-        totalAmount,
+        totalAmount: totalAmountDec.toNumber(),
         totalFees: 0,
         network: this.config.network,
       };
@@ -895,8 +1068,6 @@ export class StellarService {
 
   /**
    * Get service health status
-   *
-   * @returns Health check result
    */
   async healthCheck(): Promise<{
     healthy: boolean;
@@ -913,15 +1084,20 @@ export class StellarService {
     let senderBalanceXLM = 0;
     let horizonConnected = false;
 
-    // Test Horizon connection
     try {
-      await (this.server as any).fetchStatus();
+      const statusProbe = this.server as unknown as HorizonServerStatusProbe;
+      if (typeof statusProbe.fetchStatus === 'function') {
+        await statusProbe.fetchStatus();
+      } else if (typeof statusProbe.ledgers === 'function') {
+        await statusProbe.ledgers().limit(1).call();
+      }
       horizonConnected = true;
     } catch (error) {
-      errors.push(`Horizon connection failed: ${error instanceof Error ? error.message : String(error)}`);
+      errors.push(
+        `Horizon connection failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
 
-    // Check sender account if configured
     const senderAccountId = this.senderKeypair?.publicKey() || null;
     if (senderAccountId && horizonConnected) {
       try {
@@ -933,7 +1109,9 @@ export class StellarService {
           errors.push(`Sender account ${senderAccountId} does not exist on network`);
         }
       } catch (error) {
-        errors.push(`Failed to load sender account: ${error instanceof Error ? error.message : String(error)}`);
+        errors.push(
+          `Failed to load sender account: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     } else if (!senderAccountId) {
       errors.push('No sender account configured (missing STELLAR_SECRET_KEY)');
@@ -952,21 +1130,14 @@ export class StellarService {
 
   /**
    * Create a mock payout record (for testing)
-   *
-   * @param affiliateId - Affiliate ID
-   * @param amount - Amount in USDC
-   * @returns Mock payout result
    */
-  static createMockPayoutResult(
-    affiliateId: string,
-    amount: number
-  ): PayoutResult {
+  static createMockPayoutResult(affiliateId: string, amount: number): PayoutResult {
     return {
-      transactionId: `mock_tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      transactionId: `mock_tx_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
       fromAccount: 'GDU5SMSLS3TH7XK6G2X5Z6W6WXJ5M4GZ5S6W6WXJ5M4GZ5S6W6WXJ',
       toAccount: `G${affiliateId.slice(0, 55).padEnd(55, '0')}`,
       asset: 'USDC',
-      amount: amount.toFixed(7),
+      amount: formatStellarUsdcAmount(amount),
       fee: '300',
     };
   }
@@ -1006,9 +1177,6 @@ export function resolveStellarNetwork(
 
 /**
  * Factory function to create a Stellar service from environment variables
- *
- * @returns Configured StellarService instance
- * @throws Error if required environment variables are missing
  */
 export function createStellarService(): StellarService {
   const secretKey = process.env.STELLAR_SECRET_KEY;
@@ -1033,7 +1201,9 @@ export function createStellarService(): StellarService {
  */
 export function isValidStellarAccountId(accountId: string): boolean {
   try {
-    // Stellar keys are base32 and start with G for mainnet/testnet
+    if (typeof accountId !== 'string' || !/^G[A-Z2-7]{55}$/.test(accountId)) {
+      return false;
+    }
     const keypair = StellarSdk.Keypair.fromPublicKey(accountId);
     return keypair.publicKey() === accountId;
   } catch {
@@ -1042,13 +1212,9 @@ export function isValidStellarAccountId(accountId: string): boolean {
 }
 
 /**
- * Utility: Parse amount string to number, ensuring valid format
+ * Utility: Parse amount string or number using exact 7-decimal stroops ROUND_DOWN math
  */
 export function parseStellarAmount(amount: string | number): number {
-  const parsed = typeof amount === 'string' ? parseFloat(amount) : amount;
-  if (isNaN(parsed) || parsed <= 0) {
-    throw new Error(`Invalid Stellar amount: ${amount}`);
-  }
-  // Stellar supports up to 7 decimal places
-  return Math.round(parsed * 10000000) / 10000000;
+  const stroops = toStellarStroops(amount);
+  return new Decimal(stroops.toString()).div(STROOPS_SCALE_DECIMAL).toNumber();
 }
