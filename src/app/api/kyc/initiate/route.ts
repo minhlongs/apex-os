@@ -2,11 +2,13 @@
  * src/app/api/kyc/initiate/route.ts
  *
  * ApexOS KYC & Regulatory Compliance Engine
- * User KYC Verification Initiation Route
+ * User KYC Verification Initiation Route (Data Minimization Enforced)
  *
- * Edge-compatible endpoint generating an active identity verification session
- * with configured provider (Sumsub/Persona/Mock), setting profiles.kyc_status = 'pending',
- * and emitting an immutable compliance audit log.
+ * Per Vietnam Personal Data Protection Law 91/2025/QH15, ApexOS enforces strict
+ * data minimization and disables identity document collection (CCCD/Passport)
+ * by default (HTTP 410 Gone), relying instead on non-PII sanctions and on-chain
+ * blacklist screening. Legacy session creation is gated behind an explicit
+ * test-only override (ALLOW_LEGACY_KYC_SESSION_FOR_TESTS === 'true').
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -16,9 +18,15 @@ import { getKycProvider } from '@/lib/compliance/provider';
 import { complianceAuditService } from '@/lib/compliance/audit-service';
 import * as logger from '@/lib/logger';
 
+interface RequestWithEnv extends Request {
+  env?: {
+    DB?: D1Database;
+  };
+}
+
 function resolveDatabase(request?: Request): D1Database | null {
   try {
-    const reqDb = (request as any)?.env?.DB;
+    const reqDb = (request as RequestWithEnv | undefined)?.env?.DB;
     if (reqDb) return reqDb;
     const db = getDB();
     if (db) return db;
@@ -31,19 +39,14 @@ function resolveDatabase(request?: Request): D1Database | null {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const db = resolveDatabase(request);
-  if (!db) {
-    return NextResponse.json(
-      { success: false, error: 'Database unavailable' },
-      { status: 503 }
-    );
-  }
 
   // 1. Dual-mode authentication (Bearer token or cookie)
   let user: { id: string; email?: string } | null = null;
   try {
-    user = await getAuthenticatedUser(request, db);
-  } catch (err: any) {
-    logger.error(`[KYC Initiate] Auth extraction failed: ${err?.message || String(err)}`);
+    user = await getAuthenticatedUser(request, db ?? undefined);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error(`[KYC Initiate] Auth extraction failed: ${message}`);
     user = null;
   }
 
@@ -54,24 +57,46 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // 2. Parse optional request parameters
+  // 2. Enforce Law 91/2025/QH15 Data-Minimization Policy by default
+  if (process.env.ALLOW_LEGACY_KYC_SESSION_FOR_TESTS !== 'true') {
+    return NextResponse.json(
+      {
+        success: false,
+        code: 'KYC_DOCUMENT_COLLECTION_DISABLED',
+        error:
+          'Identity document collection is disabled under data-minimization policy (Law 91/2025/QH15). Compliance uses non-PII sanctions and on-chain blacklist screening.',
+      },
+      { status: 410 }
+    );
+  }
+
+  if (!db) {
+    return NextResponse.json(
+      { success: false, error: 'Database unavailable' },
+      { status: 503 }
+    );
+  }
+
+  // 3. Parse optional request parameters (legacy test-only override path)
   let requestedProvider: string | undefined;
   try {
     const contentType = request.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      const body = await request.json();
-      requestedProvider = body?.provider;
+      const body = (await request.json()) as { provider?: unknown };
+      if (typeof body?.provider === 'string') {
+        requestedProvider = body.provider;
+      }
     }
   } catch {
     // Body is optional
   }
 
   try {
-    // 3. Resolve KYC provider adapter and create session
+    // 4. Resolve KYC provider adapter and create session
     const provider = getKycProvider(requestedProvider);
     const sessionResult = await provider.createSession(user.id, user.email);
 
-    // 4. Update profile kyc_status = 'pending'
+    // 5. Update profile kyc_status = 'pending'
     await db
       .prepare(`
         UPDATE profiles
@@ -82,7 +107,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       .bind(user.id)
       .run();
 
-    // 5. Emit compliance audit log
+    // 6. Emit compliance audit log
     await complianceAuditService.log(db, {
       action: 'kyc_initiated',
       severity: 'low',
@@ -110,11 +135,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
       { status: 200 }
     );
-  } catch (err: any) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     logger.error(
-      `[KYC Initiate] Failed to initiate KYC session for user ${user.id}: ${
-        err?.message || String(err)
-      }`
+      `[KYC Initiate] Failed to initiate KYC session for user ${user.id}: ${message}`
     );
     return NextResponse.json(
       { success: false, error: 'Internal Server Error' },
