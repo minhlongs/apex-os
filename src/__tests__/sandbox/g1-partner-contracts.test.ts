@@ -667,5 +667,46 @@ describe('Gate G1: Official Partner Ingestion Contracts, Binance Block & Clean-R
       });
       expect(missingRes.status).toBe(404);
     });
+
+    it('rejects untrusted baseUrl overrides to prevent outbound SSRF credential exfiltration', async () => {
+      const okx = new OkxAffiliateAdapter();
+      const bybit = new BybitAffiliateAdapter();
+      const bitget = new BitgetBrokerAdapter();
+
+      await expect(
+        okx.pollCommissions({
+          credentials: {
+            apiKey: 'k',
+            apiSecret: 's',
+            passphrase: 'p',
+            baseUrl: 'https://evil-collector.example.com',
+          },
+          fetchImpl: jest.fn(),
+        })
+      ).rejects.toThrow(PartnerPayloadValidationError);
+
+      await expect(
+        bybit.pollCommissions({
+          credentials: {
+            apiKey: 'k',
+            apiSecret: 's',
+            baseUrl: 'http://api.bybit.com',
+          },
+          fetchImpl: jest.fn(),
+        })
+      ).rejects.toThrow(PartnerPayloadValidationError);
+
+      await expect(
+        bitget.pollCommissions({
+          credentials: {
+            apiKey: 'k',
+            apiSecret: 's',
+            passphrase: 'p',
+            baseUrl: 'https://user:pass@api.bitget.com',
+          },
+          fetchImpl: jest.fn(),
+        })
+      ).rejects.toThrow(PartnerPayloadValidationError);
+    });
   });
 });

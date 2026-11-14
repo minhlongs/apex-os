@@ -581,5 +581,57 @@ describe('Gate G4: Strict Webhook HMAC, 300s Replay Window, Atomic Concurrency &
         .get('bybit', 'trader:u_999') as { last_sequence: number };
       expect(wmRow.last_sequence).toBe(16);
     });
+
+    it('blocks exchange canonicalFormat replay even when attacker rotates eventId under the same valid signature', async () => {
+      const tsStr = String(FIXED_NOW_MS);
+      const rawBody = JSON.stringify({ instId: 'BTC-USDT', ordId: '9911' });
+      const sig = await computeStrictWebhookSignature({
+        secret: SECRET,
+        timestamp: tsStr,
+        eventId: 'okx_evt_orig',
+        rawBody,
+        canonicalFormat: 'okx',
+        encoding: 'base64',
+        method: 'POST',
+        requestPath: '/api/webhooks/exchange/okx',
+      });
+
+      const first = await verifyAndGuardWebhook({
+        db,
+        source: 'okx',
+        eventId: 'okx_evt_orig',
+        timestamp: tsStr,
+        signature: sig,
+        signatureEncoding: 'base64',
+        canonicalFormat: 'okx',
+        method: 'POST',
+        requestPath: '/api/webhooks/exchange/okx',
+        rawBody,
+        secret: SECRET,
+        nowMs: FIXED_NOW_MS,
+      });
+      expect(first.verified).toBe(true);
+
+      const rotatedEventIdReplay = await verifyAndGuardWebhook({
+        db,
+        source: 'okx',
+        eventId: 'okx_evt_forged_new_id',
+        timestamp: tsStr,
+        signature: sig,
+        signatureEncoding: 'base64',
+        canonicalFormat: 'okx',
+        method: 'POST',
+        requestPath: '/api/webhooks/exchange/okx',
+        rawBody,
+        secret: SECRET,
+        nowMs: FIXED_NOW_MS,
+      });
+      expect(rotatedEventIdReplay).toMatchObject({
+        verified: false,
+        statusCode: 409,
+        errorCode: 'REPLAY_DUPLICATE_EVENT_ID',
+        autoPayoutTriggered: false,
+      });
+    });
   });
 });

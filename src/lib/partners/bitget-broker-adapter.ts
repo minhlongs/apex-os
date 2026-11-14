@@ -13,6 +13,7 @@ import {
   PartnerPollRequest,
   PartnerUpstreamApiError,
   signHmacSha256,
+  validatePartnerApiBaseUrl,
 } from './types';
 
 const DEFAULT_BITGET_BASE_URL = 'https://api.bitget.com';
@@ -144,7 +145,11 @@ export class BitgetBrokerAdapter implements PartnerIngestionAdapter {
       timestampMs: nowMs,
     });
 
-    const baseUrl = (request.credentials.baseUrl ?? DEFAULT_BITGET_BASE_URL).replace(/\/+$/, '');
+    const baseUrl = validatePartnerApiBaseUrl(
+      'bitget',
+      request.credentials.baseUrl,
+      DEFAULT_BITGET_BASE_URL
+    );
     const requestUrl = queryString
       ? `${baseUrl}${endpointPath}?${queryString}`
       : `${baseUrl}${endpointPath}`;

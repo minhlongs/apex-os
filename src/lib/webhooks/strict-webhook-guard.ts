@@ -296,7 +296,8 @@ export async function ensureStrictWebhookSchema(db: D1Database): Promise<void> {
             entity_key TEXT,
             sequence_num INTEGER,
             received_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (source, event_id)
+            PRIMARY KEY (source, event_id),
+            UNIQUE (source, signature_hash)
           )`
         )
         .bind()
@@ -313,7 +314,8 @@ export async function ensureStrictWebhookSchema(db: D1Database): Promise<void> {
             entity_key TEXT,
             sequence_num INTEGER,
             received_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (source, event_id)
+            PRIMARY KEY (source, event_id),
+            UNIQUE (source, signature_hash)
           )`
         )
         .bind()
@@ -333,6 +335,14 @@ export async function ensureStrictWebhookSchema(db: D1Database): Promise<void> {
       await db.prepare('DROP TABLE webhook_nonces').bind().run();
       await db.prepare('ALTER TABLE webhook_nonces_g4 RENAME TO webhook_nonces').bind().run();
     }
+
+    await db
+      .prepare(
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_nonces_source_sig
+         ON webhook_nonces(source, signature_hash)`
+      )
+      .bind()
+      .run();
 
     await db
       .prepare(
@@ -506,8 +516,10 @@ export async function verifyAndGuardWebhook(
     return rejectWebhook(401, 'INVALID_SIGNATURE', 'Webhook HMAC-SHA256 verification failed');
   }
 
-  const inflightKey = `${source}::${eventId}`;
-  if (inFlightEventLocks.has(inflightKey)) {
+  const signatureLockFragment = input.signature.trim();
+  const inflightEventKey = `${source}::event::${eventId}`;
+  const inflightSigKey = `${source}::sig::${signatureLockFragment}`;
+  if (inFlightEventLocks.has(inflightEventKey) || inFlightEventLocks.has(inflightSigKey)) {
     return rejectWebhook(
       409,
       'REPLAY_CONCURRENT_INFLIGHT',
@@ -515,12 +527,13 @@ export async function verifyAndGuardWebhook(
     );
   }
 
-  inFlightEventLocks.add(inflightKey);
+  inFlightEventLocks.add(inflightEventKey);
+  inFlightEventLocks.add(inflightSigKey);
   try {
     await ensureStrictWebhookSchema(input.db);
 
     const [signatureHash, payloadSha256] = await Promise.all([
-      sha256Hex(input.signature.trim()),
+      sha256Hex(signatureLockFragment),
       sha256Hex(input.rawBody),
     ]);
 
@@ -529,11 +542,10 @@ export async function verifyAndGuardWebhook(
 
     const nonceInsert = await input.db
       .prepare(
-        `INSERT INTO webhook_nonces (
+        `INSERT OR IGNORE INTO webhook_nonces (
           source, event_id, signature_hash, payload_hash, webhook_timestamp, entity_key, sequence_num
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(source, event_id) DO NOTHING`
+        VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(source, eventId, signatureHash, payloadSha256, timestampMs, entityKey, sequenceNum)
       .run();
@@ -542,7 +554,7 @@ export async function verifyAndGuardWebhook(
       return rejectWebhook(
         409,
         'REPLAY_DUPLICATE_EVENT_ID',
-        `Duplicate webhook event_id rejected for (${source}, ${eventId})`
+        `Duplicate webhook event_id or signature rejected for (${source}, ${eventId})`
       );
     }
 
@@ -584,6 +596,7 @@ export async function verifyAndGuardWebhook(
       sequence: sequenceNum,
     };
   } finally {
-    inFlightEventLocks.delete(inflightKey);
+    inFlightEventLocks.delete(inflightEventKey);
+    inFlightEventLocks.delete(inflightSigKey);
   }
 }

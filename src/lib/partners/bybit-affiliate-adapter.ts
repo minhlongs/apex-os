@@ -13,6 +13,7 @@ import {
   PartnerUpstreamApiError,
   NormalizedPartnerCommissionRow,
   signHmacSha256,
+  validatePartnerApiBaseUrl,
 } from './types';
 
 const DEFAULT_BYBIT_BASE_URL = 'https://api.bybit.com';
@@ -144,7 +145,11 @@ export class BybitAffiliateAdapter implements PartnerIngestionAdapter {
       recvWindowMs: request.credentials.recvWindowMs,
     });
 
-    const baseUrl = (request.credentials.baseUrl ?? DEFAULT_BYBIT_BASE_URL).replace(/\/+$/, '');
+    const baseUrl = validatePartnerApiBaseUrl(
+      'bybit',
+      request.credentials.baseUrl,
+      DEFAULT_BYBIT_BASE_URL
+    );
     const requestUrl = queryString
       ? `${baseUrl}${endpointPath}?${queryString}`
       : `${baseUrl}${endpointPath}`;

@@ -13,6 +13,7 @@ import {
   PartnerPollRequest,
   PartnerUpstreamApiError,
   signHmacSha256,
+  validatePartnerApiBaseUrl,
 } from './types';
 
 const DEFAULT_OKX_BASE_URL = 'https://www.okx.com';
@@ -368,7 +369,11 @@ export class OkxAffiliateAdapter implements PartnerIngestionAdapter {
       timestampIso,
     });
 
-    const baseUrl = (request.credentials.baseUrl ?? DEFAULT_OKX_BASE_URL).replace(/\/+$/, '');
+    const baseUrl = validatePartnerApiBaseUrl(
+      'okx',
+      request.credentials.baseUrl,
+      DEFAULT_OKX_BASE_URL
+    );
     const fetchFn = request.fetchImpl ?? globalThis.fetch;
     const response = await fetchFn(`${baseUrl}${requestPathWithQuery}`, {
       method: 'GET',

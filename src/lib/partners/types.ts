@@ -120,13 +120,54 @@ export class PartnerUpstreamApiError extends Error {
 }
 
 export const PartnerDecimal = Decimal.clone({
-  precision: 36,
-  rounding: Decimal.ROUND_HALF_EVEN,
+  precision: 28,
+  rounding: Decimal.ROUND_DOWN,
   toExpNeg: -36,
   toExpPos: 36,
 });
 
 const UNITS_1E8 = new PartnerDecimal('100000000');
+
+export const ALLOWED_PARTNER_API_HOSTS: Record<ActivePartnerExchangeId, readonly string[]> = {
+  bybit: ['api.bybit.com', 'api.bytick.com', 'api-testnet.bybit.com'],
+  okx: ['www.okx.com', 'aws.okx.com'],
+  bitget: ['api.bitget.com'],
+};
+
+export function validatePartnerApiBaseUrl(
+  exchange: ActivePartnerExchangeId,
+  rawBaseUrl: string | undefined,
+  defaultBaseUrl: string
+): string {
+  const candidate = (rawBaseUrl ?? defaultBaseUrl).trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(candidate);
+  } catch {
+    throw new PartnerPayloadValidationError(exchange, `Invalid partner API baseUrl '${candidate}'`);
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.username !== '' ||
+    parsed.password !== '' ||
+    (parsed.pathname !== '/' && parsed.pathname !== '') ||
+    parsed.search !== '' ||
+    parsed.hash !== ''
+  ) {
+    throw new PartnerPayloadValidationError(
+      exchange,
+      `Partner API baseUrl '${candidate}' must be a bare https:// origin with no credentials, path, query, or hash`
+    );
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (!ALLOWED_PARTNER_API_HOSTS[exchange].includes(host)) {
+    throw new PartnerPayloadValidationError(
+      exchange,
+      `Untrusted partner API hostname '${host}' for ${exchange}; allowed: ${ALLOWED_PARTNER_API_HOSTS[exchange].join(', ')}`
+    );
+  }
+  return parsed.origin;
+}
 
 export function normalizeCommissionDecimal(
   exchange: PartnerExchangeId,
@@ -161,7 +202,7 @@ export function normalizeCommissionDecimal(
 
   const scaledIntStr = parsed
     .mul(UNITS_1E8)
-    .toDecimalPlaces(0, PartnerDecimal.ROUND_HALF_EVEN)
+    .toDecimalPlaces(0, PartnerDecimal.ROUND_DOWN)
     .toFixed(0);
   const signedUnits1e8 = BigInt(scaledIntStr);
   const isClawbackOrAdjustment = parsed.lte(0);

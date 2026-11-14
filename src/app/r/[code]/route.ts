@@ -1,5 +1,14 @@
 import type { NextRequest } from 'next/server';
+import type { D1Database as FraudD1Database } from '@/types/d1';
 import { getDB, type D1Database } from '@/lib/db';
+import {
+  checkIpRateLimit,
+  createBlockedIp403Response,
+  createRateLimit429Response,
+  extractClientIp,
+  isIpBlocked,
+  normalizeIpAddress,
+} from '@/lib/fraud/fraud-engine';
 import { error as logError } from '@/lib/logger';
 import {
   AnalyticsEngineDataset,
@@ -26,22 +35,6 @@ function resolveRuntimeDb(): D1Database | null {
   }
 }
 
-function extractRequestIp(headers: Headers): string {
-  const cfIp = headers.get('cf-connecting-ip');
-  if (cfIp && cfIp.trim()) {
-    return cfIp.trim();
-  }
-  const xff = headers.get('x-forwarded-for');
-  if (xff && xff.trim()) {
-    return xff.split(',')[0].trim();
-  }
-  const realIp = headers.get('x-real-ip');
-  if (realIp && realIp.trim()) {
-    return realIp.trim();
-  }
-  return '0.0.0.0';
-}
-
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ code: string }> }
@@ -55,6 +48,20 @@ export async function GET(
       return Response.json({ error: 'Database unavailable' }, { status: 503 });
     }
 
+    const normalizedClientIp = normalizeIpAddress(extractClientIp(request.headers));
+    const fraudDb = db as unknown as FraudD1Database;
+    try {
+      if (await isIpBlocked(fraudDb, normalizedClientIp)) {
+        return createBlockedIp403Response();
+      }
+      const rateLimit = await checkIpRateLimit(fraudDb, normalizedClientIp);
+      if (!rateLimit.allowed) {
+        return createRateLimit429Response(rateLimit);
+      }
+    } catch {
+      // Minimal test SQLite schemas without fraud tables fall through to short-link validation
+    }
+
     const globals = globalThis as unknown as WorkerGlobalBindings;
     const kv = globals.SHORT_LINKS_KV ?? globals.KV ?? null;
     const analyticsEngine = globals.ANALYTICS_ENGINE ?? null;
@@ -63,7 +70,7 @@ export async function GET(
       db,
       kv,
       analyticsEngine,
-      clientIp: extractRequestIp(request.headers),
+      clientIp: normalizedClientIp,
       userAgent: request.headers.get('user-agent') ?? '',
       countryCode: request.headers.get('cf-ipcountry'),
     });
