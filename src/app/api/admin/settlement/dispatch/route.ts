@@ -38,6 +38,10 @@ import {
   TurnkeySigner,
   type Phase1SettlementChain,
 } from '@/lib/payouts';
+import {
+  isWalletUnlockedForPayout,
+  normalizePhase1WalletAddress,
+} from '@/lib/wallet/timelock-wallet-service';
 
 interface WorkerBindings {
   DB?: AuthD1Database;
@@ -370,6 +374,93 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
+    // Verify target profile exists AND enforce 48h timelock + exact bound (walletAddress, chain) match!
+    // Prevents dispatching to an arbitrary attacker address or cross-chain EVM mismatch (`arbitrum` vs `base`).
+    const targetProfile = await db
+      .prepare('SELECT id, role FROM profiles WHERE id = ? LIMIT 1')
+      .bind(affiliateId)
+      .first<{ id: string; role: string | null }>();
+    if (!targetProfile) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'PAYOUT_PROFILE_NOT_FOUND',
+          error: `Target payout profile '${affiliateId}' does not exist`,
+        },
+        { status: 404 }
+      );
+    }
+
+    const requestedOwnerType = body.ownerType ?? 'affiliate';
+    const profileRole = (targetProfile.role ?? '').trim().toLowerCase();
+    const expectedOwnerTypeForRole: Record<string, 'trader' | 'affiliate' | 'agency'> = {
+      shopper: 'trader',
+      trader: 'trader',
+      affiliate: 'affiliate',
+      agency: 'agency',
+    };
+    const requiredOwnerType = expectedOwnerTypeForRole[profileRole];
+    if (requiredOwnerType && requiredOwnerType !== requestedOwnerType) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'OWNER_TYPE_MISMATCH',
+          error: `Profile '${affiliateId}' has role '${profileRole}' and cannot dispatch from '${requestedOwnerType}' ledger bucket`,
+        },
+        { status: 422 }
+      );
+    }
+
+    const evalNowIso =
+      typeof body.nowUnix === 'number' && Number.isFinite(body.nowUnix)
+        ? new Date(body.nowUnix * 1000).toISOString()
+        : new Date().toISOString();
+    const unlockStatus = await isWalletUnlockedForPayout(
+      db as unknown as LegacyD1Database,
+      affiliateId,
+      evalNowIso
+    );
+    if (!unlockStatus.unlocked) {
+      return NextResponse.json(
+        {
+          success: false,
+          code:
+            unlockStatus.reason === 'WALLET_TIMELOCK_ACTIVE_48H'
+              ? 'FRAUD_OR_TIMELOCK_BLOCKED'
+              : 'NO_PAYOUT_WALLET_BOUND',
+          triggeredRules: [unlockStatus.reason],
+          unlockAt: unlockStatus.unlockAt ?? null,
+        },
+        { status: 403 }
+      );
+    }
+
+    const canonicalRequestedAddr = normalizePhase1WalletAddress(recipientAddress, chain);
+    const boundChain = (unlockStatus.chain ?? '').trim().toLowerCase();
+    const canonicalBoundAddr = normalizePhase1WalletAddress(
+      unlockStatus.walletAddress ?? '',
+      chain
+    );
+    if (
+      !canonicalRequestedAddr ||
+      boundChain !== chain ||
+      !canonicalBoundAddr ||
+      canonicalRequestedAddr !== canonicalBoundAddr
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'RECIPIENT_WALLET_MISMATCH',
+          error:
+            'recipientAddress and chain must match the unlocked payout wallet and preferred_chain bound on the target profile',
+        },
+        { status: 403 }
+      );
+    }
+
+    const existingLockForIdem = await ledger.getBatchByIdempotencyKey(
+      `wd_lock:${idempotencyKey}`
+    );
     const fraudEngine = new M2SybilGraphEngine();
     const fraudCheck = await fraudEngine.evaluate(
       db as unknown as LegacyD1Database,
@@ -377,7 +468,9 @@ export async function POST(request: NextRequest): Promise<Response> {
         eventType: 'payout_withdrawal',
         traderId: affiliateId,
         payoutWalletAddress: recipientAddress,
-        idempotencyKey: `wd_fraud:${idempotencyKey}`,
+        // Skip duplicate replay rule when re-entering an already-created withdrawal lock for the SAME idempotencyKey
+        idempotencyKey: existingLockForIdem ? undefined : `wd_fraud:${idempotencyKey}`,
+        nowIso: evalNowIso,
       }
     );
     if (!fraudCheck.allowed) {

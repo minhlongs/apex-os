@@ -559,13 +559,13 @@ describe('KYC Provider Architecture & Edge Webhook Engine', () => {
         // Assert profile transitioned to pending
         const profile = sqlite
           .prepare('SELECT kyc_status FROM profiles WHERE id = ?')
-          .get('user_init_1') as any;
+          .get('user_init_1') as { kyc_status: string };
         expect(profile.kyc_status).toBe('pending');
 
         // Assert audit log was recorded
         const log = sqlite
           .prepare("SELECT action, severity, target_id FROM compliance_audit_logs WHERE action = 'kyc_initiated'")
-          .get() as any;
+          .get() as { action: string; severity: string; target_id: string };
         expect(log).toBeDefined();
         expect(log.target_id).toBe('user_init_1');
         expect(log.severity).toBe('low');

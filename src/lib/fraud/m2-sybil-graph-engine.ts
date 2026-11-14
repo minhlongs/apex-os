@@ -18,6 +18,7 @@ import { Engine, type RuleProperties } from 'json-rules-engine';
 import type { D1Database } from '@/lib/db';
 import {
   findAccountsSharingPayoutWallet,
+  isEvmStyleAddress,
   isWalletUnlockedForPayout,
 } from '@/lib/wallet/timelock-wallet-service';
 
@@ -28,6 +29,7 @@ export type M2FraudRuleCode =
   | 'SYBIL_REFERRAL_RING_CYCLE'
   | 'SHARED_PAYOUT_WALLET_CLUSTER'
   | 'WALLET_TIMELOCK_ACTIVE_48H'
+  | 'UNBOUND_OR_MISMATCHED_PAYOUT_WALLET'
   | 'EVENT_REPLAY_DETECTED'
   | 'AUTOMATED_SYBIL_VELOCITY_BURST';
 
@@ -342,6 +344,18 @@ function buildDeterministicRulesEngine(): Engine {
       },
       event: { type: 'WALLET_TIMELOCK_ACTIVE_48H' },
     },
+    // Rule 4a-bis: Unbound or Mismatched Payout Destination Wallet on Withdrawal
+    {
+      name: 'rule-4a-unbound-or-mismatched-payout-wallet',
+      priority: 85,
+      conditions: {
+        all: [
+          { fact: 'eventType', operator: 'equal', value: 'payout_withdrawal' },
+          { fact: 'isPayoutWalletUnboundOrMismatched', operator: 'equal', value: true },
+        ],
+      },
+      event: { type: 'UNBOUND_OR_MISMATCHED_PAYOUT_WALLET' },
+    },
     // Rule 4b: Event / Withdrawal Idempotency Replay
     {
       name: 'rule-4b-event-replay-detected',
@@ -549,8 +563,9 @@ export class M2SybilGraphEngine {
       ? sharedWalletAccounts.length
       : 0;
 
-    // Rule 4a facts: 48-hour wallet change timelock check on withdrawal
+    // Rule 4a facts: 48-hour wallet change timelock + bound payout destination match check on withdrawal
     let isWalletTimelockLocked = false;
+    let isPayoutWalletUnboundOrMismatched = false;
     let unlockAt: string | null = null;
     if (input.eventType === 'payout_withdrawal') {
       try {
@@ -559,15 +574,37 @@ export class M2SybilGraphEngine {
           input.traderId,
           evaluatedAt
         );
-        if (
-          !unlockStatus.unlocked &&
-          unlockStatus.reason === 'WALLET_TIMELOCK_ACTIVE_48H'
-        ) {
-          isWalletTimelockLocked = true;
-          unlockAt = unlockStatus.unlockAt;
+        if (!unlockStatus.unlocked) {
+          if (unlockStatus.reason === 'WALLET_TIMELOCK_ACTIVE_48H') {
+            isWalletTimelockLocked = true;
+            unlockAt = unlockStatus.unlockAt;
+          } else {
+            isPayoutWalletUnboundOrMismatched = true;
+          }
+        } else if (input.payoutWalletAddress) {
+          const requestedTrimmed = input.payoutWalletAddress.trim();
+          const boundTrimmed = (unlockStatus.walletAddress ?? '').trim();
+          const matchesBound = isEvmStyleAddress(boundTrimmed)
+            ? requestedTrimmed.toLowerCase() === boundTrimmed.toLowerCase()
+            : requestedTrimmed === boundTrimmed;
+          if (!matchesBound) {
+            isPayoutWalletUnboundOrMismatched = true;
+          }
         }
       } catch {
-        // wallet_change_requests optional in minimal schemas
+        // wallet_change_requests optional in minimal schemas; still enforce profile wallet match if present
+        if (input.payoutWalletAddress && traderCtx.walletAddress) {
+          const requestedTrimmed = input.payoutWalletAddress.trim();
+          const boundTrimmed = traderCtx.walletAddress.trim();
+          const matchesBound = isEvmStyleAddress(boundTrimmed)
+            ? requestedTrimmed.toLowerCase() === boundTrimmed.toLowerCase()
+            : requestedTrimmed === boundTrimmed;
+          if (!matchesBound) {
+            isPayoutWalletUnboundOrMismatched = true;
+          }
+        } else if (!traderCtx.walletAddress) {
+          isPayoutWalletUnboundOrMismatched = true;
+        }
       }
     }
 
@@ -586,6 +623,7 @@ export class M2SybilGraphEngine {
       hasReferralCycle: cycleResult.hasCycle,
       distinctWalletAccountCount,
       isWalletTimelockLocked,
+      isPayoutWalletUnboundOrMismatched,
       isReplayDuplicate,
       sameDeviceRecentSignups10m: input.sameDeviceRecentSignups10m ?? 0,
       subSecondClickBurstCount: input.subSecondClickBurstCount ?? 0,

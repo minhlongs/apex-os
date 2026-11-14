@@ -14,6 +14,7 @@ import {
   NormalizedPartnerCommissionRow,
   signHmacSha256,
   validatePartnerApiBaseUrl,
+  validateUsdStablecoinCommissionAsset,
 } from './types';
 
 const DEFAULT_BYBIT_BASE_URL = 'https://api.bybit.com';
@@ -230,12 +231,11 @@ export class BybitAffiliateAdapter implements PartnerIngestionAdapter {
       const rawVolume = item.tradeVol ?? item.takerVol365Day ?? '0';
       const tradeVolumeDecimal = normalizeVolumeDecimal('bybit', rawVolume);
 
-      const commissionAsset = String(item.coin ?? item.currency ?? 'USDT')
-        .trim()
-        .toUpperCase();
-      if (!commissionAsset) {
-        throw new PartnerPayloadValidationError('bybit', 'Missing commission coin');
-      }
+      const commissionAsset = validateUsdStablecoinCommissionAsset(
+        'bybit',
+        item.coin ?? item.currency ?? 'USDT',
+        `Bybit result.list[${idx}]`
+      );
 
       const eventTimestampIso = normalizeTimestampToIso(
         'bybit',

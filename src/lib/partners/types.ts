@@ -96,13 +96,18 @@ export class ForbiddenPartnerEndpointError extends Error {
 }
 
 export class PartnerPayloadValidationError extends Error {
-  public readonly code = 'INVALID_PARTNER_PAYLOAD' as const;
+  public readonly code: string;
   public readonly exchange: PartnerExchangeId;
 
-  constructor(exchange: PartnerExchangeId, message: string) {
+  constructor(
+    exchange: PartnerExchangeId,
+    message: string,
+    code = 'INVALID_PARTNER_PAYLOAD'
+  ) {
     super(message);
     this.name = 'PartnerPayloadValidationError';
     this.exchange = exchange;
+    this.code = code;
   }
 }
 
@@ -127,6 +132,32 @@ export const PartnerDecimal = Decimal.clone({
 });
 
 const UNITS_1E8 = new PartnerDecimal('100000000');
+
+export const ALLOWED_PARTNER_COMMISSION_ASSETS = ['USDC', 'USDT', 'USD'] as const;
+export type AllowedPartnerCommissionAsset = (typeof ALLOWED_PARTNER_COMMISSION_ASSETS)[number];
+
+export function validateUsdStablecoinCommissionAsset(
+  exchange: PartnerExchangeId,
+  rawAsset: unknown,
+  fieldContext: string
+): AllowedPartnerCommissionAsset {
+  const normalized =
+    rawAsset !== null && rawAsset !== undefined ? String(rawAsset).trim().toUpperCase() : '';
+  if (!normalized) {
+    throw new PartnerPayloadValidationError(
+      exchange,
+      `${fieldContext} missing commission asset currency`
+    );
+  }
+  if (!(ALLOWED_PARTNER_COMMISSION_ASSETS as readonly string[]).includes(normalized)) {
+    throw new PartnerPayloadValidationError(
+      exchange,
+      `${fieldContext} reported non-USD asset '${normalized}'; Phase 1 1:1 USD ledger ingestion accepts only ${ALLOWED_PARTNER_COMMISSION_ASSETS.join(', ')}`,
+      'UNSUPPORTED_COMMISSION_ASSET'
+    );
+  }
+  return normalized as AllowedPartnerCommissionAsset;
+}
 
 export const ALLOWED_PARTNER_API_HOSTS: Record<ActivePartnerExchangeId, readonly string[]> = {
   bybit: ['api.bybit.com', 'api.bytick.com', 'api-testnet.bybit.com'],

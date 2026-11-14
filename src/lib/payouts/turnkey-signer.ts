@@ -26,6 +26,7 @@ import {
   type EvmPhase1SettlementChain,
   type Phase1SettlementChain,
 } from './adapters/arbitrum-base-usdc-adapter';
+import { StellarNetwork, resolveStellarNetwork } from './stellar-service';
 
 function resolveStellarSdkForSigner(): typeof StellarSdkTypes {
   try {
@@ -221,6 +222,7 @@ export function attachEd25519SignatureToStellarEnvelopeXdr(params: {
   unsignedEnvelopeXdr: string;
   sigBytes: Buffer;
   networkPassphrase?: string;
+  verifySignature?: boolean;
 }): string {
   if (params.sigBytes.length !== 64) {
     throw new Error(
@@ -235,32 +237,29 @@ export function attachEd25519SignatureToStellarEnvelopeXdr(params: {
     signature: params.sigBytes,
   });
 
-  const rawNet = (process.env.STELLAR_NETWORK ?? '').trim().toLowerCase();
   const passphrase =
     params.networkPassphrase ??
-    (rawNet === 'mainnet' || rawNet === 'public'
+    (resolveStellarNetwork() === StellarNetwork.MAINNET
       ? StellarSdk.Networks.PUBLIC
       : StellarSdk.Networks.TESTNET);
 
-  try {
-    const parsedTx = StellarSdk.TransactionBuilder.fromXDR(
-      params.unsignedEnvelopeXdr,
-      passphrase
-    );
-    parsedTx.signatures.push(decoratedSig);
-    return parsedTx.toXDR();
-  } catch {
-    const altPassphrase =
-      passphrase === StellarSdk.Networks.PUBLIC
-        ? StellarSdk.Networks.TESTNET
-        : StellarSdk.Networks.PUBLIC;
-    const parsedAlt = StellarSdk.TransactionBuilder.fromXDR(
-      params.unsignedEnvelopeXdr,
-      altPassphrase
-    );
-    parsedAlt.signatures.push(decoratedSig);
-    return parsedAlt.toXDR();
+  const parsedTx = StellarSdk.TransactionBuilder.fromXDR(
+    params.unsignedEnvelopeXdr,
+    passphrase
+  );
+
+  if (params.verifySignature ?? true) {
+    const txHashBytes = Buffer.from(parsedTx.hash());
+    const signerKeypair = StellarSdk.Keypair.fromPublicKey(params.signerAddress);
+    if (!signerKeypair.verify(txHashBytes, params.sigBytes)) {
+      throw new Error(
+        `Turnkey HSM Ed25519 signature failed verification against Stellar tx hash for signer ${params.signerAddress}`
+      );
+    }
   }
+
+  parsedTx.signatures.push(decoratedSig);
+  return parsedTx.toXDR();
 }
 
 /**
@@ -654,6 +653,9 @@ export class TurnkeySigner {
          ON CONFLICT(payout_id) DO UPDATE SET
            state = 'QUEUED_COLD_SAFE',
            signer_address = excluded.signer_address,
+           assigned_nonce = NULL,
+           stellar_sequence = NULL,
+           timebounds_max_unix = NULL,
            lock_batch_id = COALESCE(settlement_broadcasts.lock_batch_id, excluded.lock_batch_id),
            safe_multisig_tx_hash = excluded.safe_multisig_tx_hash,
            error_reason = excluded.error_reason,

@@ -42,6 +42,7 @@ export interface ReconciliationInput {
   walletEvidenceId: string;
   uidAllocatedUnits: bigint;
   walletCashCollectedUnits: bigint;
+  clawbackOffsetUnits?: bigint;
   reconciledAt?: string;
   r2?: R2BucketLike;
 }
@@ -53,6 +54,8 @@ export interface ReconciliationRecord {
   walletEvidenceId: string | null;
   uidAllocatedUnits: bigint;
   walletCashCollectedUnits: bigint;
+  clawbackOffsetUnits: bigint;
+  mintedGrossUnits: bigint;
   discrepancyUnits: bigint;
   status: ReconciliationStatus;
   reconciledAt: string;
@@ -75,6 +78,8 @@ interface RawReconciliationRow {
   wallet_evidence_id: string | null;
   uid_allocated_units: number;
   wallet_cash_collected_units: number;
+  clawback_offset_units?: number | null;
+  minted_gross_units?: number | null;
   discrepancy_units: number;
   status: ReconciliationStatus;
   reconciled_at: string;
@@ -91,6 +96,11 @@ function mapReconciliationRow(row: RawReconciliationRow): ReconciliationRecord {
       row.wallet_cash_collected_units,
       'wallet_cash_collected_units'
     ),
+    clawbackOffsetUnits: fromSqlInteger(
+      row.clawback_offset_units ?? 0,
+      'clawback_offset_units'
+    ),
+    mintedGrossUnits: fromSqlInteger(row.minted_gross_units ?? 0, 'minted_gross_units'),
     discrepancyUnits: fromSqlInteger(row.discrepancy_units, 'discrepancy_units'),
     status: row.status,
     reconciledAt: row.reconciled_at,
@@ -110,7 +120,8 @@ export function absBigIntDiff(a: bigint, b: bigint): bigint {
  */
 export function evaluateCashReconciliation(
   uidAllocatedUnits: bigint,
-  walletCashCollectedUnits: bigint
+  walletCashCollectedUnits: bigint,
+  clawbackOffsetUnits: bigint = BI_ZERO
 ): { status: 'MATCHED' | 'DISCREPANCY_HALTED'; discrepancyUnits: bigint } {
   if (typeof uidAllocatedUnits !== 'bigint' || uidAllocatedUnits < BI_ZERO) {
     throw new LedgerUnitValidationError('uidAllocatedUnits must be a non-negative bigint');
@@ -120,11 +131,15 @@ export function evaluateCashReconciliation(
       'walletCashCollectedUnits must be a non-negative bigint'
     );
   }
+  if (typeof clawbackOffsetUnits !== 'bigint' || clawbackOffsetUnits < BI_ZERO) {
+    throw new LedgerUnitValidationError('clawbackOffsetUnits must be a non-negative bigint');
+  }
 
-  const discrepancyUnits = absBigIntDiff(uidAllocatedUnits, walletCashCollectedUnits);
+  const effectiveBackedUnits = walletCashCollectedUnits + clawbackOffsetUnits;
+  const discrepancyUnits = absBigIntDiff(uidAllocatedUnits, effectiveBackedUnits);
 
   if (
-    uidAllocatedUnits > walletCashCollectedUnits ||
+    uidAllocatedUnits > effectiveBackedUnits ||
     discrepancyUnits >= RECONCILIATION_TOLERANCE_UNITS_1E8
   ) {
     return {
@@ -236,9 +251,11 @@ export async function reconcilePartnerCashBatch(
     );
   }
 
+  const clawbackOffsetUnits = input.clawbackOffsetUnits ?? BI_ZERO;
   const evaluation = evaluateCashReconciliation(
     input.uidAllocatedUnits,
-    input.walletCashCollectedUnits
+    input.walletCashCollectedUnits,
+    clawbackOffsetUnits
   );
 
   const reconId = input.id?.trim() || `recon_${globalThis.crypto.randomUUID()}`;
@@ -249,8 +266,9 @@ export async function reconcilePartnerCashBatch(
       `INSERT INTO partner_cash_reconciliations (
         id, exchange, evidence_id, wallet_evidence_id,
         uid_allocated_units, wallet_cash_collected_units,
+        clawback_offset_units, minted_gross_units,
         discrepancy_units, status, reconciled_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`
     )
     .bind(
       reconId,
@@ -259,6 +277,7 @@ export async function reconcilePartnerCashBatch(
       input.walletEvidenceId,
       toSafeSqlInteger(input.uidAllocatedUnits, 'uid_allocated_units'),
       toSafeSqlInteger(input.walletCashCollectedUnits, 'wallet_cash_collected_units'),
+      toSafeSqlInteger(clawbackOffsetUnits, 'clawback_offset_units'),
       toSafeSqlInteger(evaluation.discrepancyUnits, 'discrepancy_units'),
       evaluation.status,
       reconciledAt
@@ -272,6 +291,8 @@ export async function reconcilePartnerCashBatch(
     walletEvidenceId: input.walletEvidenceId,
     uidAllocatedUnits: input.uidAllocatedUnits,
     walletCashCollectedUnits: input.walletCashCollectedUnits,
+    clawbackOffsetUnits,
+    mintedGrossUnits: BI_ZERO,
     discrepancyUnits: evaluation.discrepancyUnits,
     status: evaluation.status,
     reconciledAt,
@@ -292,6 +313,7 @@ export async function getReconciliationById(
     .prepare(
       `SELECT id, exchange, evidence_id, wallet_evidence_id,
               uid_allocated_units, wallet_cash_collected_units,
+              clawback_offset_units, minted_gross_units,
               discrepancy_units, status, reconciled_at
        FROM partner_cash_reconciliations
        WHERE id = ?`
@@ -317,6 +339,7 @@ export async function listReconciliationsByExchangeStatus(
     .prepare(
       `SELECT id, exchange, evidence_id, wallet_evidence_id,
               uid_allocated_units, wallet_cash_collected_units,
+              clawback_offset_units, minted_gross_units,
               discrepancy_units, status, reconciled_at
        FROM partner_cash_reconciliations
        WHERE exchange = ? AND status = ?
@@ -414,7 +437,8 @@ export async function assertReconciliationEligibleForMinting(
   // Re-verify discrepancy math defensively in case DB row was tampered out-of-band
   const recheck = evaluateCashReconciliation(
     recon.uidAllocatedUnits,
-    recon.walletCashCollectedUnits
+    recon.walletCashCollectedUnits,
+    recon.clawbackOffsetUnits
   );
   if (recheck.status !== 'MATCHED') {
     throw new UnreconciledCashError(
@@ -435,11 +459,14 @@ export async function assertReconciliationEligibleForMinting(
     .first<{ minted_units: number }>();
 
   const alreadyMinted = fromSqlInteger(usageRow?.minted_units ?? 0, 'minted_units');
-  const projectedTotal = alreadyMinted + params.grossCommissionUnits;
+  const trackedMinted =
+    recon.mintedGrossUnits > alreadyMinted ? recon.mintedGrossUnits : alreadyMinted;
+  const projectedTotal = trackedMinted + params.grossCommissionUnits;
+  const effectiveBackedCap = recon.walletCashCollectedUnits + recon.clawbackOffsetUnits;
   const maxAllowed =
-    recon.uidAllocatedUnits <= recon.walletCashCollectedUnits
+    recon.uidAllocatedUnits <= effectiveBackedCap
       ? recon.uidAllocatedUnits
-      : recon.walletCashCollectedUnits;
+      : effectiveBackedCap;
 
   if (projectedTotal > maxAllowed) {
     throw new UnreconciledCashError(

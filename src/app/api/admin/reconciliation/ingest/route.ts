@@ -6,12 +6,13 @@
  * Production entrypoint wiring together:
  * 1. Admin session + WebAuthn Passkey step-up (`requireAdminWithPasskeyStepUp`)
  * 2. Official Partner Ingestion Adapters (`Bybit v5`, `OKX v5 REST/CSV`, `Bitget v2`;
- *    `Binance Standard Referral Pro` hard-blocked)
- * 3. Pre-reconciliation `uidToProfileMap` completeness check (never burns a `MATCHED`
- *    reconciliation batch on unmapped trader UIDs)
+ *    `Binance Standard Referral Pro` hard-blocked; USD stablecoin `commissionAsset` allowlist)
+ * 3. Pre-reconciliation `uidToProfileMap` AND clawback target batch validation (never burns a
+ *    `MATCHED` reconciliation or writes R2 objects on unmapped UIDs or missing clawback targets)
  * 4. Fail-closed R2 Cryptographic Evidence Vault (`storeEvidenceObject` SHA-256 + 5y retention;
- *    returns `503 EVIDENCE_STORAGE_UNCONFIGURED` if `STORAGE` binding is absent)
- * 5. `CASH_COLLECTED` Reconciliation Gate (`reconcilePartnerCashBatch`, $0.01 tolerance)
+ *    returns `503 EVIDENCE_STORAGE_UNAVAILABLE` if `STORAGE` binding is absent)
+ * 5. `CASH_COLLECTED` Reconciliation Gate (`reconcilePartnerCashBatch`, $0.01 tolerance,
+ *    accounting for verified clawback offsets on mixed statements)
  * 6. Deterministic M2 Sybil/Self-Referral Graph Check (`M2SybilGraphEngine`)
  * 7. Atomic D1 Double-Entry Ledger `T+7` Inflight Minting + Clawback Adjustment (`DoubleEntryLedgerService`)
  */
@@ -29,6 +30,7 @@ import {
   IdempotencyConflictError,
   InvalidWaterfallConfigError,
   LedgerFrozenError,
+  UnreconciledCashError,
   parseUsdToLedgerUnits,
   reconcilePartnerCashBatch,
   storeEvidenceObject,
@@ -38,6 +40,7 @@ import {
 import {
   getPartnerAdapter,
   PartnerIntegrationBlockedError,
+  PartnerPayloadValidationError,
   type PartnerExchangeId,
 } from '@/lib/partners';
 
@@ -147,20 +150,103 @@ export async function POST(request: NextRequest): Promise<Response> {
       periodEndIso: body.statementPeriodEnd,
     });
 
-    // Pre-validate UID mappings BEFORE storing evidence or burning a unique MATCHED reconciliation!
+    // Pre-validate BOTH `uidToProfileMap` AND all clawback target batches BEFORE storing R2 evidence
+    // or burning a unique `MATCHED` reconciliation row!
     const uidMap = body.uidToProfileMap ?? {};
+    const clawbackMap = body.clawbackOriginalBatchMap ?? {};
+    const ledger = new DoubleEntryLedgerService(db);
+
     const unmappedTraderUids = new Set<string>();
-    let netBatchUnits = BigInt(0);
+    const resolvedClawbacks = new Map<string, string>();
+    const cumulativeClawbackPerBatch = new Map<string, bigint>();
     let positiveAllocatedSum = BigInt(0);
+    let totalClawbackUnits = BigInt(0);
 
     for (const row of parsedBatch.rows) {
-      netBatchUnits += row.signedUnits1e8;
       if (!row.isClawbackOrAdjustment && row.signedUnits1e8 > BigInt(0)) {
         positiveAllocatedSum += row.signedUnits1e8;
         const mapped = uidMap[row.traderUid];
         if (!mapped || !mapped.traderProfileId || mapped.traderProfileId.trim() === '') {
           unmappedTraderUids.add(row.traderUid);
         }
+        continue;
+      }
+
+      if (row.isClawbackOrAdjustment && row.signedUnits1e8 < BigInt(0)) {
+        const clawbackUnits = -row.signedUnits1e8;
+        totalClawbackUnits += clawbackUnits;
+
+        let targetBatchId: string | undefined =
+          clawbackMap[row.externalRecordId] ?? clawbackMap[row.traderUid];
+        if (!targetBatchId) {
+          const latestBatchRow = await db
+            .prepare(
+              `SELECT id FROM ledger_journal_batches
+               WHERE exchange = ?
+                 AND trader_uid = ?
+                 AND journal_type = 'COMMISSION_INFLIGHT'
+                 AND status IN ('INFLIGHT', 'SETTLED')
+               ORDER BY created_at DESC
+               LIMIT 1`
+            )
+            .bind(parsedBatch.exchange, row.traderUid)
+            .first<{ id: string }>();
+          targetBatchId = latestBatchRow?.id ?? undefined;
+        }
+
+        if (!targetBatchId) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: 'CLAWBACK_TARGET_BATCH_NOT_FOUND',
+              traderUid: row.traderUid,
+              externalRecordId: row.externalRecordId,
+              error: `Cannot locate original commission batch for clawback record '${row.externalRecordId}'`,
+            },
+            { status: 422 }
+          );
+        }
+
+        const origBatch = await ledger.getBatchById(targetBatchId);
+        if (
+          !origBatch ||
+          origBatch.journalType !== 'COMMISSION_INFLIGHT' ||
+          origBatch.status === 'VOIDED' ||
+          origBatch.exchange !== parsedBatch.exchange
+        ) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: 'INVALID_CLAWBACK_TARGET_BATCH',
+              traderUid: row.traderUid,
+              externalRecordId: row.externalRecordId,
+              originalBatchId: targetBatchId,
+              error: `Original commission batch '${targetBatchId}' is missing, voided, or from a different exchange`,
+            },
+            { status: 422 }
+          );
+        }
+
+        const remLegs = origBatch.metadata.remainingLegs as
+          | { grossUnits?: string }
+          | undefined;
+        const remainingGross = BigInt(String(remLegs?.grossUnits ?? '0'));
+        const projectedBatchClawback =
+          (cumulativeClawbackPerBatch.get(targetBatchId) ?? BigInt(0)) + clawbackUnits;
+        if (projectedBatchClawback > remainingGross) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: 'CLAWBACK_EXCEEDS_ORIGINAL_BATCH',
+              originalBatchId: targetBatchId,
+              error: `Clawback amount (${projectedBatchClawback.toString()}) exceeds remaining gross units (${remainingGross.toString()}) on batch '${targetBatchId}'`,
+            },
+            { status: 422 }
+          );
+        }
+
+        cumulativeClawbackPerBatch.set(targetBatchId, projectedBatchClawback);
+        resolvedClawbacks.set(row.externalRecordId, targetBatchId);
       }
     }
 
@@ -177,7 +263,6 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
-    const expectedCashUnits = netBatchUnits > BigInt(0) ? netBatchUnits : BigInt(0);
     const walletCashUnits = parseUsdToLedgerUnits(body.walletCashCollectedUsd);
 
     const partnerEvidence = await storeEvidenceObject(db, r2Bucket, {
@@ -195,15 +280,17 @@ export async function POST(request: NextRequest): Promise<Response> {
       statementPeriodEnd: body.statementPeriodEnd,
     });
 
-    const reconciliationAllocatedUnits =
-      netBatchUnits === positiveAllocatedSum ? positiveAllocatedSum : expectedCashUnits;
-
+    // Reconcile full gross positive commissions (`positiveAllocatedSum`) against net cash collected
+    // (`walletCashUnits`) plus verified batch clawback deductions (`totalClawbackUnits`), so mixed
+    // batches both verify `walletCashUnits + totalClawbackUnits ≈ positiveAllocatedSum` (< $0.01)
+    // AND allow minting all `positiveAllocatedSum` commissions up to the atomic cap!
     const reconciliation = await reconcilePartnerCashBatch(db, {
       exchange: parsedBatch.exchange,
       evidenceId: partnerEvidence.id,
       walletEvidenceId: walletEvidence.id,
-      uidAllocatedUnits: reconciliationAllocatedUnits,
+      uidAllocatedUnits: positiveAllocatedSum,
       walletCashCollectedUnits: walletCashUnits,
+      clawbackOffsetUnits: totalClawbackUnits,
       r2: r2Bucket,
     });
 
@@ -220,10 +307,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
-    const ledger = new DoubleEntryLedgerService(db);
     const fraudEngine = new M2SybilGraphEngine();
-    const clawbackMap = body.clawbackOriginalBatchMap ?? {};
-
     let mintedBatches = 0;
     let clawbackBatches = 0;
     let blockedByFraud = 0;
@@ -231,37 +315,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     for (const row of parsedBatch.rows) {
       if (row.isClawbackOrAdjustment && row.signedUnits1e8 < BigInt(0)) {
         const clawbackUnits = -row.signedUnits1e8;
-        let originalBatchId: string | undefined =
-          clawbackMap[row.externalRecordId] ?? clawbackMap[row.traderUid];
-        if (!originalBatchId) {
-          const latestBatchRow = await db
-            .prepare(
-              `SELECT id FROM ledger_journal_batches
-               WHERE exchange = ?
-                 AND trader_uid = ?
-                 AND journal_type = 'COMMISSION_INFLIGHT'
-                 AND status IN ('INFLIGHT', 'SETTLED')
-               ORDER BY created_at DESC
-               LIMIT 1`
-            )
-            .bind(parsedBatch.exchange, row.traderUid)
-            .first<{ id: string }>();
-          originalBatchId = latestBatchRow?.id ?? undefined;
-        }
-        if (!originalBatchId) {
-          return NextResponse.json(
-            {
-              success: false,
-              code: 'CLAWBACK_TARGET_BATCH_NOT_FOUND',
-              traderUid: row.traderUid,
-              externalRecordId: row.externalRecordId,
-              error: `Cannot locate original commission batch for clawback record '${row.externalRecordId}'`,
-            },
-            { status: 422 }
-          );
-        }
+        const resolvedOriginalBatchId = resolvedClawbacks.get(row.externalRecordId)!;
 
-        const resolvedOriginalBatchId: string = originalBatchId;
         await ledger.applyClawback({
           idempotencyKey: `ingest_clawback:${row.externalRecordId}`,
           originalBatchId: resolvedOriginalBatchId,
@@ -336,8 +391,11 @@ export async function POST(request: NextRequest): Promise<Response> {
         { status: 403 }
       );
     }
+    if (err instanceof PartnerPayloadValidationError || err instanceof UnreconciledCashError) {
+      return sanitizeApiErrorResponse(err, 422, err.code);
+    }
     if (err instanceof InvalidWaterfallConfigError) {
-      return sanitizeApiErrorResponse(err, 422);
+      return sanitizeApiErrorResponse(err, 422, 'INVALID_WATERFALL_CONFIG');
     }
     if (err instanceof IdempotencyConflictError) {
       return sanitizeApiErrorResponse(err, 409);

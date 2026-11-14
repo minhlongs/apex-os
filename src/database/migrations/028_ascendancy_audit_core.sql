@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS partner_cash_reconciliations (
   wallet_evidence_id TEXT REFERENCES r2_evidence_objects(id) ON DELETE RESTRICT,
   uid_allocated_units INTEGER NOT NULL CHECK (uid_allocated_units >= 0),
   wallet_cash_collected_units INTEGER NOT NULL CHECK (wallet_cash_collected_units >= 0),
+  clawback_offset_units INTEGER NOT NULL DEFAULT 0 CHECK (clawback_offset_units >= 0),
+  minted_gross_units INTEGER NOT NULL DEFAULT 0 CHECK (minted_gross_units >= 0),
   discrepancy_units INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL CHECK (status IN ('MATCHED', 'DISCREPANCY_HALTED', 'CLAWBACK_ADJUSTED')),
   reconciled_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -176,6 +178,7 @@ CREATE TABLE IF NOT EXISTS settlement_broadcasts (
   tx_hash TEXT,
   signed_raw_tx TEXT,
   rbf_candidate_tx_hash TEXT,
+  candidate_tx_hashes TEXT NOT NULL DEFAULT '[]',
   lock_batch_id TEXT,
   turnkey_activity_id TEXT,
   safe_multisig_tx_hash TEXT,

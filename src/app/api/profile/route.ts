@@ -7,6 +7,8 @@ import {
   type UpdateProfileInput,
 } from '@/types/profile';
 import { error as logError } from '@/lib/logger';
+import { isAscendancyGuardActive } from '@/lib/compliance/legacy-route-guards';
+import type { D1Database } from '@/lib/db';
 import { parseExternalIds } from './exchange-keys/route';
 
 interface ProfileRow {
@@ -190,6 +192,21 @@ export async function PATCH(request: NextRequest) {
     }
 
     if (profileUpdates.preferred_chain !== undefined) {
+      const guardActive = await isAscendancyGuardActive(
+        db as unknown as D1Database,
+        'wallet_change_requests'
+      );
+      if (guardActive) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'USE_WALLET_TIMELOCK_ENDPOINT',
+            error:
+              'Direct preferred_chain modification is disabled; use POST /api/profile/wallet/timelock (48-hour timelock)',
+          },
+          { status: 409 }
+        );
+      }
       updates.push('preferred_chain = ?');
       bindValues.push(profileUpdates.preferred_chain);
     }

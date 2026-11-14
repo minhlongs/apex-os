@@ -14,6 +14,7 @@ import {
   PartnerUpstreamApiError,
   signHmacSha256,
   validatePartnerApiBaseUrl,
+  validateUsdStablecoinCommissionAsset,
 } from './types';
 
 const DEFAULT_BITGET_BASE_URL = 'https://api.bitget.com';
@@ -236,12 +237,11 @@ export class BitgetBrokerAdapter implements PartnerIngestionAdapter {
         item.tradeVol ?? item.volume ?? item.dealSize ?? '0'
       );
 
-      const commissionAsset = String(item.coin ?? item.tokenId ?? 'USDT')
-        .trim()
-        .toUpperCase();
-      if (!commissionAsset) {
-        throw new PartnerPayloadValidationError('bitget', `Bitget data.list[${idx}] missing coin`);
-      }
+      const commissionAsset = validateUsdStablecoinCommissionAsset(
+        'bitget',
+        item.coin ?? item.tokenId ?? 'USDT',
+        `Bitget data.list[${idx}]`
+      );
 
       const eventTimestampIso = normalizeTimestampToIso(
         'bitget',

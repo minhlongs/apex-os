@@ -213,7 +213,7 @@ export class HorizonStellarBroadcastTransport implements StellarBroadcastTranspo
 
     return {
       txHash,
-      confirmed: result.successful !== false,
+      confirmed: result.successful === true,
     };
   }
 

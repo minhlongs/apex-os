@@ -1158,6 +1158,24 @@ export class DoubleEntryLedgerService {
       });
     }
 
+    const grossUnitsInt = toSafeSqlInteger(
+      waterfall.cashCollectedUnits,
+      'gross_commission_units'
+    );
+    const atomicReconCapStmt = this.db
+      .prepare(
+        `UPDATE partner_cash_reconciliations
+         SET minted_gross_units = CASE
+               WHEN status = 'MATCHED'
+                AND minted_gross_units + ? <= uid_allocated_units
+                AND minted_gross_units + ? <= wallet_cash_collected_units + clawback_offset_units
+               THEN minted_gross_units + ?
+               ELSE NULL
+             END
+         WHERE id = ?`
+      )
+      .bind(grossUnitsInt, grossUnitsInt, grossUnitsInt, input.reconciliationId);
+
     const batchInsertStmt = this.db
       .prepare(
         `INSERT INTO ledger_journal_batches (
@@ -1175,7 +1193,7 @@ export class DoubleEntryLedgerService {
         input.traderUid.trim(),
         input.reconciliationId,
         input.evidenceId,
-        toSafeSqlInteger(waterfall.cashCollectedUnits, 'gross_commission_units'),
+        grossUnitsInt,
         holdUntil,
         JSON.stringify(metadata),
         createdAt,
@@ -1188,9 +1206,8 @@ export class DoubleEntryLedgerService {
       createdAt
     );
 
-    // Ensure accounts exist BEFORE batch FK references if postings reference them;
-    // note ledger_journal_batches does not FK ledger_accounts, only ledger_postings does!
-    await this.db.batch([batchInsertStmt, ...postingStmts]);
+    // Atomic batch enforces both reconciliation cap (via NOT NULL CASE rollback) and balanced postings!
+    await this.db.batch([atomicReconCapStmt, batchInsertStmt, ...postingStmts]);
 
     const committedBatch = await this.getBatchById(batchId);
     const committedPostings = await this.getPostingsForBatch(batchId);

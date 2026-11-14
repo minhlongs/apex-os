@@ -14,6 +14,7 @@ import {
   PartnerUpstreamApiError,
   signHmacSha256,
   validatePartnerApiBaseUrl,
+  validateUsdStablecoinCommissionAsset,
 } from './types';
 
 const DEFAULT_OKX_BASE_URL = 'https://www.okx.com';
@@ -221,10 +222,11 @@ export async function parseOkxStatementCsv(
       );
     }
 
-    const commissionAsset = (cells[ccyIdx] ?? '').trim().toUpperCase();
-    if (!commissionAsset) {
-      throw new PartnerPayloadValidationError('okx', `OKX CSV row ${lineIdx} missing ccy value`);
-    }
+    const commissionAsset = validateUsdStablecoinCommissionAsset(
+      'okx',
+      cells[ccyIdx],
+      `OKX CSV row ${lineIdx}`
+    );
 
     const commissionNorm = normalizeCommissionDecimal('okx', cells[rebateIdx], 'rebate');
     const tradeVolumeDecimal =
@@ -288,12 +290,11 @@ function normalizeOkxRecord(
     item.tradeVol ?? item.vol ?? item.fillSz ?? '0'
   );
 
-  const commissionAsset = String(item.ccy ?? item.rebateCcy ?? item.feeCcy ?? 'USDT')
-    .trim()
-    .toUpperCase();
-  if (!commissionAsset) {
-    throw new PartnerPayloadValidationError('okx', `OKX data[${index}] missing currency`);
-  }
+  const commissionAsset = validateUsdStablecoinCommissionAsset(
+    'okx',
+    item.ccy ?? item.rebateCcy ?? item.feeCcy ?? 'USDT',
+    `OKX data[${index}]`
+  );
 
   const eventTimestampIso = normalizeTimestampToIso(
     'okx',
