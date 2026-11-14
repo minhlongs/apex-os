@@ -70,6 +70,11 @@ maxRequests: 60,
 windowMs: 60_000,
 prefix: 'affiliate',
 }),
+'/api/b2b': createRateLimiter({
+maxRequests: 30,
+windowMs: 60_000,
+prefix: 'b2b-proof',
+}),
 '/api/payouts': createRateLimiter({
 maxRequests: 10,
 windowMs: 60_000,

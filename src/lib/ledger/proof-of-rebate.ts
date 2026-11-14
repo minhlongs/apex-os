@@ -34,6 +34,11 @@ export interface ProofOfRebateWaterfallUnits {
   doubleEntryBalanced: boolean;
 }
 
+export interface ProofOfRebateClawbackState {
+  clawedBackUnits: string;
+  remainingGrossUnits: string;
+}
+
 export interface ProofOfRebateEvidenceAnchor {
   evidenceId: string;
   sourceKind: string;
@@ -62,6 +67,7 @@ export interface ProofOfRebateRecord {
   grossCommissionUnits: string;
   grossCommissionUsd: string;
   waterfallUnits: ProofOfRebateWaterfallUnits;
+  clawbackState: ProofOfRebateClawbackState;
   evidence: ProofOfRebateEvidenceAnchor;
   reconciliation: ProofOfRebateReconciliationAnchor;
   settlement: {
@@ -169,9 +175,10 @@ export async function getProofOfRebateByBatchId(
 
   const maskedUid = maskTraderUid(batch.traderUid);
 
-  // Lookup optional finalized payout tx_hash if batch itself didn't store one
+  // Lookup optional finalized payout tx_hash ONLY when the batch itself is SETTLED
+  // and the withdrawal lock occurred on or after the batch's creation timestamp
   let settledTxHash = batch.settledTxHash;
-  if (!settledTxHash) {
+  if (!settledTxHash && batch.status === 'SETTLED') {
     const l1Id =
       typeof batch.metadata.l1AffiliateId === 'string'
         ? batch.metadata.l1AffiliateId
@@ -184,20 +191,34 @@ export async function getProofOfRebateByBatchId(
             `SELECT lp.batch_id
              FROM ledger_postings lp
              WHERE lp.account_id = ? AND lp.leg_role = 'USER_WITHDRAWAL_LOCK'
+               AND lp.created_at >= ?
              ORDER BY lp.created_at DESC
              LIMIT 1`
           )
-          .bind(affiliateAcct.id)
+          .bind(affiliateAcct.id, batch.createdAt)
           .first<{ batch_id: string }>();
         if (recentLockPosting) {
           const lockBatch = await ledger.getBatchById(recentLockPosting.batch_id);
-          if (lockBatch?.settledTxHash) {
+          if (lockBatch?.status === 'SETTLED' && lockBatch.settledTxHash) {
             settledTxHash = lockBatch.settledTxHash;
           }
         }
       }
     }
   }
+
+  const rawRemainingLegs =
+    typeof batch.metadata.remainingLegs === 'object' && batch.metadata.remainingLegs !== null
+      ? (batch.metadata.remainingLegs as Record<string, unknown>)
+      : {};
+  const clawbackState: ProofOfRebateClawbackState = {
+    clawedBackUnits:
+      typeof batch.metadata.clawedBackUnits === 'string' ? batch.metadata.clawedBackUnits : '0',
+    remainingGrossUnits:
+      typeof rawRemainingLegs.grossUnits === 'string'
+        ? rawRemainingLegs.grossUnits
+        : batch.grossCommissionUnits.toString(),
+  };
 
   const waterfallUnits: ProofOfRebateWaterfallUnits = {
     clawbackReserveUnits: reserveUnits.toString(),
@@ -234,6 +255,7 @@ export async function getProofOfRebateByBatchId(
     maskedTraderUid: maskedUid,
     grossCommissionUnits: batch.grossCommissionUnits.toString(),
     waterfallUnits,
+    clawbackState,
     payloadSha256: evidenceAnchor.payloadSha256,
     walletPayloadSha256: reconciliationAnchor.walletPayloadSha256,
     reconciliationStatus: reconciliationAnchor.status,
@@ -250,6 +272,7 @@ export async function getProofOfRebateByBatchId(
     grossCommissionUnits: batch.grossCommissionUnits.toString(),
     grossCommissionUsd: formatLedgerUnitsToUsd(batch.grossCommissionUnits),
     waterfallUnits,
+    clawbackState,
     evidence: evidenceAnchor,
     reconciliation: reconciliationAnchor,
     settlement: {

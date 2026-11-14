@@ -205,7 +205,7 @@ export function normalizeCommissionDecimal(
     .toDecimalPlaces(0, PartnerDecimal.ROUND_FLOOR)
     .toFixed(0);
   const signedUnits1e8 = BigInt(scaledIntStr);
-  const isClawbackOrAdjustment = signedUnits1e8 <= 0n;
+  const isClawbackOrAdjustment = signedUnits1e8 <= BigInt(0);
 
   return {
     decimalString: parsed.toFixed(),

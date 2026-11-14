@@ -947,11 +947,15 @@ export class DoubleEntryLedgerService {
           this.db
             .prepare(
               `UPDATE ledger_accounts
-               SET settled_balance_units = settled_balance_units + ?,
+               SET settled_balance_units = CASE
+                     WHEN allow_negative = 1 OR settled_balance_units + ? >= 0
+                     THEN settled_balance_units + ?
+                     ELSE NULL
+                   END,
                    updated_at = ?
                WHERE id = ?`
             )
-            .bind(signedDelta, nowIso, p.account.id)
+            .bind(signedDelta, signedDelta, nowIso, p.account.id)
         );
       }
     }
@@ -1279,10 +1283,11 @@ export class DoubleEntryLedgerService {
       this.db
         .prepare(
           `UPDATE ledger_journal_batches
-           SET status = 'SETTLED', updated_at = ?
-           WHERE id = ? AND status = 'INFLIGHT'`
+           SET status = CASE WHEN status = 'INFLIGHT' AND updated_at = ? THEN 'SETTLED' ELSE NULL END,
+               updated_at = ?
+           WHERE id = ?`
         )
-        .bind(nowIso, batchId)
+        .bind(batch.updatedAt, nowIso, batchId)
     );
 
     const results = await this.db.batch(stmts);
@@ -1508,10 +1513,12 @@ export class DoubleEntryLedgerService {
       const updateOriginalStmt = this.db
         .prepare(
           `UPDATE ledger_journal_batches
-           SET status = ?, metadata = ?, updated_at = ?
-           WHERE id = ? AND status = 'INFLIGHT'`
+           SET status = CASE WHEN status = 'INFLIGHT' AND updated_at = ? THEN ? ELSE NULL END,
+               metadata = ?,
+               updated_at = ?
+           WHERE id = ?`
         )
-        .bind(newOrigStatus, JSON.stringify(updatedOrigMeta), nowIso, original.id);
+        .bind(original.updatedAt, newOrigStatus, JSON.stringify(updatedOrigMeta), nowIso, original.id);
 
       const postingStmts = this.buildPostingAndBalanceStatements(
         clawbackBatchId,
@@ -1615,10 +1622,18 @@ export class DoubleEntryLedgerService {
           this.db
             .prepare(
               `UPDATE ledger_journal_batches
-               SET status = ?, metadata = ?, updated_at = ?
-               WHERE id = ? AND status = 'INFLIGHT'`
+               SET status = CASE WHEN status = 'INFLIGHT' AND updated_at = ? THEN ? ELSE NULL END,
+                   metadata = ?,
+                   updated_at = ?
+               WHERE id = ?`
             )
-            .bind(newCandStatus, JSON.stringify(updatedCandMeta), nowIso, candidateRow.id)
+            .bind(
+              candidateRow.updated_at,
+              newCandStatus,
+              JSON.stringify(updatedCandMeta),
+              nowIso,
+              candidateRow.id
+            )
         );
 
         plannedPostings.push({
@@ -1744,10 +1759,12 @@ export class DoubleEntryLedgerService {
     const updateSettledOrigStmt = this.db
       .prepare(
         `UPDATE ledger_journal_batches
-         SET metadata = ?, updated_at = ?
-         WHERE id = ? AND status = 'SETTLED'`
+         SET status = CASE WHEN status = 'SETTLED' AND updated_at = ? THEN 'SETTLED' ELSE NULL END,
+             metadata = ?,
+             updated_at = ?
+         WHERE id = ?`
       )
-      .bind(JSON.stringify(updatedSettledOrigMeta), nowIso, original.id);
+      .bind(original.updatedAt, JSON.stringify(updatedSettledOrigMeta), nowIso, original.id);
 
     const postingStmts = this.buildPostingAndBalanceStatements(
       clawbackBatchId,
@@ -1996,10 +2013,19 @@ export class DoubleEntryLedgerService {
     const updateLockStmt = this.db
       .prepare(
         `UPDATE ledger_journal_batches
-         SET status = 'SETTLED', settled_tx_hash = ?, metadata = ?, updated_at = ?
-         WHERE id = ? AND status = 'INFLIGHT'`
+         SET status = CASE WHEN status = 'INFLIGHT' AND updated_at = ? THEN 'SETTLED' ELSE NULL END,
+             settled_tx_hash = ?,
+             metadata = ?,
+             updated_at = ?
+         WHERE id = ?`
       )
-      .bind(params.txHash.trim(), JSON.stringify(updatedLockMeta), nowIso, lockBatch.id);
+      .bind(
+        lockBatch.updatedAt,
+        params.txHash.trim(),
+        JSON.stringify(updatedLockMeta),
+        nowIso,
+        lockBatch.id
+      );
 
     const postingStmts = this.buildPostingAndBalanceStatements(
       finalizeBatchId,
@@ -2134,10 +2160,12 @@ export class DoubleEntryLedgerService {
     const updateLockStmt = this.db
       .prepare(
         `UPDATE ledger_journal_batches
-         SET status = 'VOIDED', metadata = ?, updated_at = ?
-         WHERE id = ? AND status = 'INFLIGHT'`
+         SET status = CASE WHEN status = 'INFLIGHT' AND updated_at = ? THEN 'VOIDED' ELSE NULL END,
+             metadata = ?,
+             updated_at = ?
+         WHERE id = ?`
       )
-      .bind(JSON.stringify(updatedLockMeta), nowIso, lockBatch.id);
+      .bind(lockBatch.updatedAt, JSON.stringify(updatedLockMeta), nowIso, lockBatch.id);
 
     const postingStmts = this.buildPostingAndBalanceStatements(
       revertBatchId,

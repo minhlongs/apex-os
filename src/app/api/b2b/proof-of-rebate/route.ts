@@ -11,7 +11,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import type { D1Database } from '@/lib/auth/adapters/d1-adapter';
+import type { D1Database as AuthD1Database } from '@/lib/auth/adapters/d1-adapter';
+import { getAuthenticatedUser } from '@/lib/auth/session-helper';
+import type { D1Database as LegacyD1Database } from '@/lib/db';
 import { error as logError } from '@/lib/logger';
 import {
   getProofOfRebateByBatchId,
@@ -20,7 +22,7 @@ import {
 } from '@/lib/ledger';
 
 interface RuntimeBindings {
-  DB?: D1Database;
+  DB?: AuthD1Database;
   STORAGE?: R2BucketLike;
 }
 
@@ -31,6 +33,68 @@ function resolveBindings(): RuntimeBindings {
   return {
     DB: globalScope.DB,
     STORAGE: globalScope.STORAGE,
+  };
+}
+
+function timingSafeStringEqual(a: string, b: string): boolean {
+  if (a.length !== b.length || a.length === 0) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+async function authorizeB2bProofCaller(
+  request: NextRequest,
+  db: AuthD1Database
+): Promise<
+  | { authorized: true; userId: string | null; isAdmin: boolean; isServiceKey: boolean }
+  | { authorized: false; response: NextResponse }
+> {
+  const configuredB2bKey = process.env.B2B_PROOF_API_KEY?.trim();
+  const providedB2bKey = request.headers.get('x-b2b-api-key')?.trim();
+  if (configuredB2bKey && providedB2bKey && timingSafeStringEqual(configuredB2bKey, providedB2bKey)) {
+    return { authorized: true, userId: null, isAdmin: true, isServiceKey: true };
+  }
+
+  let sessionUser: { id: string; email?: string } | null = null;
+  try {
+    sessionUser = await getAuthenticatedUser(request, db as unknown as LegacyD1Database);
+  } catch {
+    sessionUser = null;
+  }
+
+  if (!sessionUser?.id) {
+    return {
+      authorized: false,
+      response: NextResponse.json(
+        {
+          success: false,
+          error: 'UNAUTHORIZED',
+          message: 'Authenticated session or valid x-b2b-api-key is required',
+        },
+        { status: 401, headers: { 'Cache-Control': 'no-store' } }
+      ),
+    };
+  }
+
+  let isAdmin = false;
+  try {
+    const profileRow = await db
+      .prepare('SELECT role FROM profiles WHERE id = ?')
+      .bind(sessionUser.id)
+      .first<{ role: string }>();
+    isAdmin = profileRow?.role === 'admin';
+  } catch {
+    isAdmin = false;
+  }
+
+  return {
+    authorized: true,
+    userId: sessionUser.id,
+    isAdmin,
+    isServiceKey: false,
   };
 }
 
@@ -104,10 +168,44 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const r2ToVerify = verifyR2 && r2 ? r2 : undefined;
+    const authz = await authorizeB2bProofCaller(request, db);
+    if (!authz.authorized) {
+      return authz.response;
+    }
 
     if (rawBatchId !== null) {
-      const proof = await getProofOfRebateByBatchId(db, rawBatchId.trim(), {
+      const batchId = rawBatchId.trim();
+      if (!authz.isAdmin && authz.userId) {
+        const batchMetaRow = await db
+          .prepare('SELECT metadata FROM ledger_journal_batches WHERE id = ?')
+          .bind(batchId)
+          .first<{ metadata: string }>();
+        if (batchMetaRow) {
+          let parsedMeta: Record<string, unknown> = {};
+          try {
+            parsedMeta = JSON.parse(batchMetaRow.metadata) as Record<string, unknown>;
+          } catch {
+            parsedMeta = {};
+          }
+          const isOwner =
+            parsedMeta.traderId === authz.userId ||
+            parsedMeta.l1AffiliateId === authz.userId ||
+            parsedMeta.b2bAgencyId === authz.userId;
+          if (!isOwner) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: 'FORBIDDEN_TENANT_SCOPE',
+                message: 'Caller is not authorized to inspect this rebate batch',
+              },
+              { status: 403, headers: { 'Cache-Control': 'no-store' } }
+            );
+          }
+        }
+      }
+
+      const r2ToVerify = verifyR2 && r2 ? r2 : undefined;
+      const proof = await getProofOfRebateByBatchId(db, batchId, {
         r2: r2ToVerify,
       });
       if (!proof) {
@@ -131,9 +229,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
 
     const affiliateId = (rawAffiliateId ?? '').trim();
+    if (!authz.isAdmin && authz.userId !== affiliateId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'FORBIDDEN_TENANT_SCOPE',
+          message: 'Caller may only list Proof-of-Rebate records for their own affiliateId',
+        },
+        { status: 403, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
+    // Disallow unbounded R2 object re-reads on multi-row list queries unless admin/service key
+    const listR2ToVerify = verifyR2 && authz.isAdmin && r2 ? r2 : undefined;
     const proofs = await listProofsOfRebateByAffiliateId(db, affiliateId, {
       limit,
-      r2: r2ToVerify,
+      r2: listR2ToVerify,
     });
 
     return NextResponse.json(

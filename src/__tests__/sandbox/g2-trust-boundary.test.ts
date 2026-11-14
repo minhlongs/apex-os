@@ -292,9 +292,10 @@ describe('Gate G2: Trust Boundary, R2 Evidence Integrity & Idempotency Fingerpri
     expect((caughtError as IdempotencyConflictError).statusCode).toBe(422);
   });
 
-  it('serves PII-redacted Proof-of-Rebate via GET /api/b2b/proof-of-rebate without leaking raw UID or email', async () => {
+  it('serves PII-redacted Proof-of-Rebate via GET /api/b2b/proof-of-rebate without leaking raw UID or email and enforces caller auth', async () => {
     (globalThis as unknown as { DB?: unknown }).DB = db;
     (globalThis as unknown as { STORAGE?: unknown }).STORAGE = r2;
+    process.env.B2B_PROOF_API_KEY = 'b2b-sandbox-test-key-999';
 
     const uidEv = await storeEvidenceObject(db, r2, {
       exchange: 'kucoin',
@@ -353,8 +354,15 @@ describe('Gate G2: Trust Boundary, R2 Evidence Integrity & Idempotency Fingerpri
       nowIso: '2026-11-09T01:05:00.000Z',
     });
 
+    // Unauthenticated request must be rejected with 401
+    const unauthRes = await getProofOfRebateRoute(
+      new NextRequest(`https://apex.exchange/api/b2b/proof-of-rebate?batchId=${recorded.batch.id}`)
+    );
+    expect(unauthRes.status).toBe(401);
+
     const reqByBatch = new NextRequest(
-      `https://apex.exchange/api/b2b/proof-of-rebate?batchId=${recorded.batch.id}&verifyR2=true`
+      `https://apex.exchange/api/b2b/proof-of-rebate?batchId=${recorded.batch.id}&verifyR2=true`,
+      { headers: { 'x-b2b-api-key': 'b2b-sandbox-test-key-999' } }
     );
     const resByBatch = await getProofOfRebateRoute(reqByBatch);
     expect(resByBatch.status).toBe(200);
@@ -395,7 +403,8 @@ describe('Gate G2: Trust Boundary, R2 Evidence Integrity & Idempotency Fingerpri
     expect(bodyByBatch.proof.settlement.settledTxHash).toBe('0xabc123def456settledhash');
 
     const reqByAffiliate = new NextRequest(
-      'https://apex.exchange/api/b2b/proof-of-rebate?affiliateId=b2b_partner_desk&limit=10'
+      'https://apex.exchange/api/b2b/proof-of-rebate?affiliateId=b2b_partner_desk&limit=10',
+      { headers: { 'x-b2b-api-key': 'b2b-sandbox-test-key-999' } }
     );
     const resByAffiliate = await getProofOfRebateRoute(reqByAffiliate);
     expect(resByAffiliate.status).toBe(200);
@@ -405,5 +414,6 @@ describe('Gate G2: Trust Boundary, R2 Evidence Integrity & Idempotency Fingerpri
     };
     expect(bodyByAff.success).toBe(true);
     expect(bodyByAff.count).toBe(1);
+    delete process.env.B2B_PROOF_API_KEY;
   });
 });

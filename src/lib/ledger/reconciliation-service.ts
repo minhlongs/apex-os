@@ -211,6 +211,30 @@ export async function reconcilePartnerCashBatch(
       `walletEvidenceId must have source_kind='wallet_statement' (received '${walletEvidence.sourceKind}')`
     );
   }
+  if (
+    uidEvidence.statementPeriodStart !== walletEvidence.statementPeriodStart ||
+    uidEvidence.statementPeriodEnd !== walletEvidence.statementPeriodEnd
+  ) {
+    throw new UnreconciledCashError(
+      'EVIDENCE_PERIOD_MISMATCH',
+      `Statement period mismatch between UID evidence (${uidEvidence.statementPeriodStart}..${uidEvidence.statementPeriodEnd}) and wallet evidence (${walletEvidence.statementPeriodStart}..${walletEvidence.statementPeriodEnd})`
+    );
+  }
+
+  const existingMatched = await db
+    .prepare(
+      `SELECT id FROM partner_cash_reconciliations
+       WHERE status = 'MATCHED' AND (evidence_id = ? OR wallet_evidence_id = ?)
+       LIMIT 1`
+    )
+    .bind(input.evidenceId, input.walletEvidenceId)
+    .first<{ id: string }>();
+  if (existingMatched) {
+    throw new UnreconciledCashError(
+      'EVIDENCE_ALREADY_RECONCILED',
+      `Evidence has already been used in MATCHED reconciliation "${existingMatched.id}"`
+    );
+  }
 
   const evaluation = evaluateCashReconciliation(
     input.uidAllocatedUnits,

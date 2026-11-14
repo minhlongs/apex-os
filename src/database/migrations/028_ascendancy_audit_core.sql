@@ -63,6 +63,10 @@ CREATE INDEX IF NOT EXISTS idx_partner_recon_exchange_status
   ON partner_cash_reconciliations(exchange, status, reconciled_at);
 CREATE INDEX IF NOT EXISTS idx_partner_recon_evidence
   ON partner_cash_reconciliations(evidence_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_partner_recon_unique_matched_evidence
+  ON partner_cash_reconciliations(evidence_id) WHERE status = 'MATCHED';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_partner_recon_unique_matched_wallet_evidence
+  ON partner_cash_reconciliations(wallet_evidence_id) WHERE status = 'MATCHED' AND wallet_evidence_id IS NOT NULL;
 
 -- ============================================================================
 -- 4. Atomic Double-Entry Ledger (BIGINT 10^-8 USD minor units)

@@ -303,6 +303,28 @@ Detailed evaluation metrics for alert rules and automated triggers.
 
 ---
 
+## 10B. Audited Proof-of-Rebate, Timelock, Passkey & Settlement Routes (v1.5.0 / Viability Audit)
+
+### GET `/r/[code]`
+Clean-room short-link redirector (`/r/[code]` — Phong bì Chuyển hướng Ngắn Sạch) backed by KV (5m TTL) + D1 `short_links`, IP blocklist & dual-window rate limiting, partner domain HTTPS allowlist, and SHA-256 IP/UA anonymization.
+
+### GET `/api/b2b/proof-of-rebate`
+Authenticated (`Better Auth` session or `x-b2b-api-key`) PII-redacted cryptographic rebate proof lookup (`?batchId=...` or `?affiliateId=...&limit=25`) returning masked trader UID (`***1234`), `10^-8` USD Safe-Spread Waterfall split, R2 `payload_sha256`, `CASH_COLLECTED` reconciliation status, and `settled_tx_hash`.
+
+### GET / POST / PATCH / DELETE `/api/profile/wallet/timelock`
+Owner-scoped 48-hour payout wallet-change timelock (`stellar` | `arbitrum` | `base`), blocking shared payout wallets (`409`) and sanctioned addresses (`403`), with instant owner emergency cancellation.
+
+### GET / POST `/api/admin/passkey`
+FIDO2 / WebAuthn Passkey registration and single-use 5-minute challenge verification issuing short-lived `x-passkey-stepup-token` assertions for privileged admin mutations.
+
+### POST `/api/admin/reconciliation/ingest` & POST `/api/admin/settlement/dispatch`
+Admin + WebAuthn Passkey step-up protected pipelines for official partner ingestion (`Bybit v5`, `OKX v5`, `Bitget v2`; `Binance Standard Referral Pro` returns `403 BINANCE_REFERRAL_PRO_UID_UNAVAILABLE`), `CASH_COLLECTED` R2 reconciliation, and Turnkey HSM (`<=$250/tx`, `<=$1,500/24h`) + `BROADCAST_PENDING` recovery settlement.
+
+### POST `/api/kyc/initiate` (Disabled — `410 Gone`)
+Returns `410 KYC_DOCUMENT_COLLECTION_DISABLED` under Vietnam Personal Data Protection Law `91/2025/QH15` data-minimization rules; compliance relies on edge Geo-Fencing (`451`), OFAC sanctions, and Circle `isBlacklisted` checks.
+
+---
+
 ## 11. Error Response Standards
 
 All API responses follow consistent JSON error envelopes:
