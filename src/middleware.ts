@@ -75,6 +75,11 @@ maxRequests: 30,
 windowMs: 60_000,
 prefix: 'b2b-proof',
 }),
+'/api/admin': createRateLimiter({
+maxRequests: 20,
+windowMs: 60_000,
+prefix: 'admin-api',
+}),
 '/api/payouts': createRateLimiter({
 maxRequests: 10,
 windowMs: 60_000,

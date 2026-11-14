@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { D1Database as AuthD1Database } from '@/lib/auth/adapters/d1-adapter';
 import { getAuthenticatedUser } from '@/lib/auth/session-helper';
+import { redactPiiForReadOnlyAi } from '@/lib/compliance/pii-redactor';
 import type { D1Database as LegacyD1Database } from '@/lib/db';
 import { error as logError } from '@/lib/logger';
 import {
@@ -105,6 +106,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const rawAffiliateId = url.searchParams.get('affiliateId');
     const rawLimit = url.searchParams.get('limit');
     const verifyR2 = url.searchParams.get('verifyR2') === 'true';
+    const aiContext = url.searchParams.get('aiContext') === 'true';
+    const rawAiTools = url.searchParams.get('aiTools');
+    const requestedTools = rawAiTools
+      ? rawAiTools
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : undefined;
+
+    if (requestedTools && requestedTools.length > 0) {
+      try {
+        redactPiiForReadOnlyAi({}, { requestedTools });
+      } catch (toolErr) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'FORBIDDEN_AI_TOOL',
+            message:
+              toolErr instanceof Error
+                ? toolErr.message
+                : 'Requested AI tool violates read-only policy',
+          },
+          { status: 403, headers: { 'Cache-Control': 'no-store' } }
+        );
+      }
+    }
 
     if (!rawBatchId && !rawAffiliateId) {
       return NextResponse.json(
@@ -219,10 +246,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         );
       }
 
+      const safeProof = aiContext
+        ? redactPiiForReadOnlyAi(proof, { requestedTools }).redacted
+        : proof;
+
       return NextResponse.json(
         {
           success: true,
-          proof,
+          proof: safeProof,
         },
         { status: 200, headers: { 'Cache-Control': 'no-store' } }
       );
@@ -246,13 +277,16 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       limit,
       r2: listR2ToVerify,
     });
+    const safeProofs = aiContext
+      ? redactPiiForReadOnlyAi(proofs, { requestedTools }).redacted
+      : proofs;
 
     return NextResponse.json(
       {
         success: true,
         affiliateId,
-        count: proofs.length,
-        proofs,
+        count: safeProofs.length,
+        proofs: safeProofs,
       },
       { status: 200, headers: { 'Cache-Control': 'no-store' } }
     );

@@ -28,6 +28,7 @@ import {
 } from '@simplewebauthn/server';
 import type { D1Database } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth/session-helper';
+import { redactPiiForReadOnlyAi } from '@/lib/compliance/pii-redactor';
 
 type PasskeyTransport = NonNullable<
   RegistrationResponseJSON['response']['transports']
@@ -867,7 +868,7 @@ export function sanitizeApiErrorResponse(
   const safeMessage =
     status >= 500
       ? 'Internal Server Error'
-      : scrubEnvSecretsFromText(rawDetail);
+      : redactPiiForReadOnlyAi(scrubEnvSecretsFromText(rawDetail)).redacted;
 
   return NextResponse.json(
     {

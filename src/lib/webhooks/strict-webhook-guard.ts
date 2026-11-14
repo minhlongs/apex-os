@@ -2,7 +2,7 @@ import type { D1Database } from '@/lib/auth/adapters/d1-adapter';
 
 export const STRICT_WEBHOOK_REPLAY_WINDOW_MS = 300_000;
 
-export type WebhookCanonicalFormat = 'standard' | 'bybit' | 'okx' | 'bitget';
+export type WebhookCanonicalFormat = 'standard' | 'raw_body' | 'bybit' | 'okx' | 'bitget';
 
 export type StrictWebhookErrorCode =
   | 'MISSING_SOURCE_OR_EVENT_ID'
@@ -187,6 +187,9 @@ export function buildCanonicalWebhookSigningPayload(params: {
   requestPath?: string;
 }): string {
   const format = params.canonicalFormat;
+  if (format === 'raw_body') {
+    return params.rawBody;
+  }
   if (format === 'standard') {
     return `${params.timestamp}.${params.eventId}.${params.rawBody}`;
   }

@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS ledger_journal_batches (
   gross_commission_units INTEGER NOT NULL DEFAULT 0 CHECK (gross_commission_units >= 0),
   hold_until TEXT,
   settled_tx_hash TEXT,
+  payout_id TEXT,
   metadata TEXT NOT NULL DEFAULT '{}',
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -120,6 +121,9 @@ CREATE INDEX IF NOT EXISTS idx_ledger_batches_recon
   ON ledger_journal_batches(reconciliation_id);
 CREATE INDEX IF NOT EXISTS idx_ledger_batches_exchange_uid
   ON ledger_journal_batches(exchange, trader_uid, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_withdrawal_lock_active_payout
+  ON ledger_journal_batches(payout_id)
+  WHERE journal_type = 'WITHDRAWAL_LOCK' AND status IN ('INFLIGHT', 'SETTLED') AND payout_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS ledger_postings (
   id TEXT PRIMARY KEY,
@@ -143,6 +147,7 @@ CREATE TABLE IF NOT EXISTS signer_nonces (
   chain TEXT NOT NULL CHECK (chain IN ('arbitrum', 'base', 'stellar')),
   signer_address TEXT NOT NULL,
   next_nonce INTEGER NOT NULL DEFAULT 0 CHECK (next_nonce >= 0),
+  next_sequence_text TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (chain, signer_address)
 );
@@ -169,6 +174,9 @@ CREATE TABLE IF NOT EXISTS settlement_broadcasts (
   stellar_sequence TEXT,
   timebounds_max_unix INTEGER,
   tx_hash TEXT,
+  signed_raw_tx TEXT,
+  rbf_candidate_tx_hash TEXT,
+  lock_batch_id TEXT,
   turnkey_activity_id TEXT,
   safe_multisig_tx_hash TEXT,
   error_reason TEXT,
@@ -180,6 +188,8 @@ CREATE INDEX IF NOT EXISTS idx_settlement_broadcasts_state_chain
   ON settlement_broadcasts(state, chain, updated_at);
 CREATE INDEX IF NOT EXISTS idx_settlement_broadcasts_affiliate_created
   ON settlement_broadcasts(affiliate_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_settlement_broadcasts_lock_batch
+  ON settlement_broadcasts(lock_batch_id) WHERE lock_batch_id IS NOT NULL;
 
 -- ============================================================================
 -- 6. 48-Hour Wallet Timelock & Admin WebAuthn Passkeys

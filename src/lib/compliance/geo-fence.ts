@@ -61,6 +61,7 @@ export const HARD_BLOCKED_JURISDICTIONS: ReadonlySet<string> = new Set<string>([
   ...ADDITIONAL_RESTRICTED_JURISDICTIONS,
   ...EEA_MEMBER_STATES,
   ...SANCTIONED_JURISDICTIONS,
+  'T1', // Cloudflare Tor exit node sentinel — fail-closed against jurisdiction bypass
 ]);
 
 export type GeoFenceBlockCode = 'GEO_RESTRICTED' | 'GEO_RESTRICTED_VN_KILLSWITCH';
@@ -69,6 +70,7 @@ export interface GeoFenceOptions {
   db?: D1Database | null;
   blockVnSignups?: boolean;
   bypassPrefixes?: readonly string[];
+  trustVercelGeoHeader?: boolean;
 }
 
 export interface GeoFenceDecision {
@@ -84,32 +86,43 @@ const DEFAULT_BYPASS_PREFIXES: readonly string[] = ['/api/health', '/api/cron'];
 const VN_KILLSWITCH_ROUTE_PATTERNS: readonly RegExp[] = [
   /^\/(?:(?:en|vi)\/)?(?:signup|register|onboarding)(?:\/|$)/i,
   /^\/(?:(?:en|vi)\/)?(?:affiliate|deals)(?:\/|$)/i,
-  /^\/api\/auth\/(?:signup|sign-up|register)(?:\/|$)/i,
+  /^\/(?:(?:en|vi)\/)?telegram(?:\/|$)/i,
+  /^\/api\/auth\/(?:signup|sign-up|register|telegram)(?:\/|$)/i,
   /^\/api\/(?:onboarding|affiliate|deals|tracking\/click)(?:\/|$)/i,
   /^\/(?:r|ref)(?:\/|$)/i,
 ];
 
 /**
- * Extracts ISO-3166-1 alpha-2 country code from Cloudflare or Vercel edge headers.
- * Returns null in local development / unit tests when no geo header is present
- * or when Cloudflare emits the 'XX' unknown sentinel.
+ * Extracts ISO-3166-1 alpha-2 country code (or Cloudflare 'T1' Tor sentinel) strictly from
+ * Cloudflare edge `CF-IPCountry` headers by default so unauthenticated clients cannot spoof
+ * `x-vercel-ip-country` behind Cloudflare Workers/Pages.
  */
-export function extractCountryCode(request: Request): string | null {
+export function extractCountryCode(
+  request: Request,
+  options?: { trustVercelGeoHeader?: boolean }
+): string | null {
+  const trustVercel =
+    options?.trustVercelGeoHeader ?? process.env.TRUST_VERCEL_GEO_HEADER === 'true';
   const raw =
     request.headers.get('CF-IPCountry') ??
     request.headers.get('cf-ipcountry') ??
-    request.headers.get('x-vercel-ip-country');
+    (trustVercel ? request.headers.get('x-vercel-ip-country') : null);
 
   if (!raw) {
     return null;
   }
 
   const normalized = raw.trim().toUpperCase();
-  if (!normalized || normalized === 'XX' || !/^[A-Z]{2}$/.test(normalized)) {
+  if (!normalized || normalized === 'XX') {
     return null;
   }
 
-  return normalized;
+  // Cloudflare emits 'T1' for Tor exit nodes; standard jurisdictions are 2 uppercase letters.
+  if (normalized === 'T1' || /^[A-Z]{2}$/.test(normalized)) {
+    return normalized;
+  }
+
+  return null;
 }
 
 export function isVnSignupOrReferralRoute(url: URL): boolean {
@@ -173,11 +186,15 @@ export async function evaluateGeoFence(
     return {
       allowed: true,
       status: 200,
-      country: extractCountryCode(request),
+      country: extractCountryCode(request, {
+        trustVercelGeoHeader: options?.trustVercelGeoHeader,
+      }),
     };
   }
 
-  const country = extractCountryCode(request);
+  const country = extractCountryCode(request, {
+    trustVercelGeoHeader: options?.trustVercelGeoHeader,
+  });
   if (!country) {
     return {
       allowed: true,

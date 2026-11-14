@@ -16,6 +16,7 @@
  *      NEVER signed by the hot wallet and transitions deterministically to `QUEUED_COLD_SAFE`.
  */
 
+import type * as StellarSdkTypes from '@stellar/stellar-sdk';
 import Decimal from 'decimal.js';
 import { Turnkey } from '@turnkey/sdk-server';
 import { keccak256, type Hex } from 'viem';
@@ -25,6 +26,30 @@ import {
   type EvmPhase1SettlementChain,
   type Phase1SettlementChain,
 } from './adapters/arbitrum-base-usdc-adapter';
+
+function resolveStellarSdkForSigner(): typeof StellarSdkTypes {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('@stellar/stellar-sdk') as typeof StellarSdkTypes;
+  } catch (err) {
+    const isEsmSyntaxError =
+      err !== null &&
+      typeof err === 'object' &&
+      (err as { name?: string }).name === 'SyntaxError';
+    if (isEsmSyntaxError && typeof process !== 'undefined' && process.versions?.node) {
+      const getBuiltin = (
+        process as unknown as { getBuiltinModule?: (id: string) => unknown }
+      ).getBuiltinModule;
+      if (typeof getBuiltin === 'function') {
+        const nodeMod = getBuiltin('node:module') as {
+          createRequire: (origin: string) => NodeRequire;
+        };
+        return nodeMod.createRequire(__filename)('@stellar/stellar-sdk') as typeof StellarSdkTypes;
+      }
+    }
+    throw err;
+  }
+}
 
 // ============================================================================
 // Policy Constants (Exact Integer Units at 10^-8 USD)
@@ -127,6 +152,7 @@ export interface ColdSafeQueueProposal {
   amountUnits1e8: bigint;
   chainTokenUnits: string;
   chainDecimals: 6 | 7;
+  lockBatchId?: string | null;
   reason: string;
 }
 
@@ -145,10 +171,96 @@ export interface ColdSafeQueueResult {
 interface TurnkeyRawPayloadApiResponse {
   activity?: {
     id?: string;
+    result?: {
+      signRawPayloadResult?: {
+        r?: string;
+        s?: string;
+        v?: string;
+      };
+    };
   };
   r?: string;
   s?: string;
   v?: string;
+}
+
+function extractTurnkeySignatureComponents(
+  response: TurnkeyRawPayloadApiResponse,
+  payoutId: string
+): { rHex: string; sHex: string; vHex: string; activityId: string } {
+  const nested = response.activity?.result?.signRawPayloadResult;
+  const rCandidate = (response.r ?? nested?.r ?? '').replace(/^0x/i, '').trim();
+  const sCandidate = (response.s ?? nested?.s ?? '').replace(/^0x/i, '').trim();
+  const vCandidate = (response.v ?? nested?.v ?? '').replace(/^0x/i, '').trim();
+
+  if (
+    !/^[0-9a-fA-F]{1,64}$/.test(rCandidate) ||
+    !/^[0-9a-fA-F]{1,64}$/.test(sCandidate) ||
+    BigInt(`0x${rCandidate}`) === BigInt(0) ||
+    BigInt(`0x${sCandidate}`) === BigInt(0)
+  ) {
+    throw new Error(
+      `Turnkey HSM returned invalid or empty signature components (r/s) for payout ${payoutId}`
+    );
+  }
+
+  return {
+    rHex: rCandidate.padStart(64, '0').toLowerCase(),
+    sHex: sCandidate.padStart(64, '0').toLowerCase(),
+    vHex: vCandidate,
+    activityId: response.activity?.id ?? `tk_act_${payoutId}`,
+  };
+}
+
+/**
+ * Attaches a raw 64-byte Ed25519 signature (`r || s`) as a Stellar `xdr.DecoratedSignature`
+ * onto an unsigned Stellar XDR envelope using the 4-byte signature hint of `signerAddress`.
+ */
+export function attachEd25519SignatureToStellarEnvelopeXdr(params: {
+  signerAddress: string;
+  unsignedEnvelopeXdr: string;
+  sigBytes: Buffer;
+  networkPassphrase?: string;
+}): string {
+  if (params.sigBytes.length !== 64) {
+    throw new Error(
+      `Stellar Ed25519 signature must be exactly 64 bytes (received ${params.sigBytes.length})`
+    );
+  }
+  const StellarSdk = resolveStellarSdkForSigner();
+  const rawPubKey = StellarSdk.StrKey.decodeEd25519PublicKey(params.signerAddress);
+  const signatureHint = Buffer.from(rawPubKey.subarray(rawPubKey.length - 4));
+  const decoratedSig = new StellarSdk.xdr.DecoratedSignature({
+    hint: signatureHint,
+    signature: params.sigBytes,
+  });
+
+  const rawNet = (process.env.STELLAR_NETWORK ?? '').trim().toLowerCase();
+  const passphrase =
+    params.networkPassphrase ??
+    (rawNet === 'mainnet' || rawNet === 'public'
+      ? StellarSdk.Networks.PUBLIC
+      : StellarSdk.Networks.TESTNET);
+
+  try {
+    const parsedTx = StellarSdk.TransactionBuilder.fromXDR(
+      params.unsignedEnvelopeXdr,
+      passphrase
+    );
+    parsedTx.signatures.push(decoratedSig);
+    return parsedTx.toXDR();
+  } catch {
+    const altPassphrase =
+      passphrase === StellarSdk.Networks.PUBLIC
+        ? StellarSdk.Networks.TESTNET
+        : StellarSdk.Networks.PUBLIC;
+    const parsedAlt = StellarSdk.TransactionBuilder.fromXDR(
+      params.unsignedEnvelopeXdr,
+      altPassphrase
+    );
+    parsedAlt.signatures.push(decoratedSig);
+    return parsedAlt.toXDR();
+  }
 }
 
 /**
@@ -192,16 +304,23 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
       hashFunction: 'HASH_FUNCTION_NO_OP',
     })) as unknown as TurnkeyRawPayloadApiResponse;
 
-    const rRaw = (response.r ?? '').replace(/^0x/, '').padStart(64, '0');
-    const sRaw = (response.s ?? '').replace(/^0x/, '').padStart(64, '0');
-    const vNum = parseInt((response.v ?? '0').replace(/^0x/, '') || '0', 16);
-    const yParity: 0 | 1 = vNum % 2 === 1 ? 1 : 0;
+    const { rHex, sHex, vHex, activityId } = extractTurnkeySignatureComponents(
+      response,
+      params.payoutId
+    );
+    if (!/^[0-9a-fA-F]{1,4}$/.test(vHex)) {
+      throw new Error(
+        `Turnkey HSM returned invalid EVM recovery parameter (v) for payout ${params.payoutId}`
+      );
+    }
+    const vNum = parseInt(vHex, 16);
+    const yParity: 0 | 1 = vNum === 27 || vNum === 0 ? 0 : vNum === 28 || vNum === 1 ? 1 : (vNum % 2 === 1 ? 1 : 0);
 
     return {
-      r: `0x${rRaw}`,
-      s: `0x${sRaw}`,
+      r: `0x${rHex}`,
+      s: `0x${sHex}`,
       yParity,
-      activityId: response.activity?.id ?? `tk_act_${params.payoutId}`,
+      activityId,
     };
   }
 
@@ -221,16 +340,23 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
       hashFunction: 'HASH_FUNCTION_NOT_APPLICABLE',
     })) as unknown as TurnkeyRawPayloadApiResponse;
 
-    const rHex = (response.r ?? '').replace(/^0x/, '').padStart(64, '0');
-    const sHex = (response.s ?? '').replace(/^0x/, '').padStart(64, '0');
+    const { rHex, sHex, activityId } = extractTurnkeySignatureComponents(
+      response,
+      params.payoutId
+    );
     const sigBytes = Buffer.from(`${rHex}${sHex}`, 'hex');
     const signatureBase64 = sigBytes.toString('base64');
+    const signedEnvelopeXdr = attachEd25519SignatureToStellarEnvelopeXdr({
+      signerAddress: params.signerAddress,
+      unsignedEnvelopeXdr: params.unsignedEnvelopeXdr,
+      sigBytes,
+    });
 
     return {
-      signedEnvelopeXdr: params.unsignedEnvelopeXdr,
+      signedEnvelopeXdr,
       txHash: cleanHash,
       signatureBase64,
-      activityId: response.activity?.id ?? `tk_act_${params.payoutId}`,
+      activityId,
     };
   }
 }
@@ -519,14 +645,16 @@ export class TurnkeySigner {
            chain_decimals,
            state,
            signer_address,
+           lock_batch_id,
            safe_multisig_tx_hash,
            error_reason,
            created_at,
            updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED_COLD_SAFE', ?, ?, ?, datetime('now'), datetime('now'))
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED_COLD_SAFE', ?, ?, ?, ?, datetime('now'), datetime('now'))
          ON CONFLICT(payout_id) DO UPDATE SET
            state = 'QUEUED_COLD_SAFE',
            signer_address = excluded.signer_address,
+           lock_batch_id = COALESCE(settlement_broadcasts.lock_batch_id, excluded.lock_batch_id),
            safe_multisig_tx_hash = excluded.safe_multisig_tx_hash,
            error_reason = excluded.error_reason,
            updated_at = datetime('now')`
@@ -541,6 +669,7 @@ export class TurnkeySigner {
         proposal.chainTokenUnits,
         proposal.chainDecimals,
         safeAddress,
+        proposal.lockBatchId ?? null,
         safeMultisigTxHash,
         proposal.reason
       )

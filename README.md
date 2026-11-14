@@ -1,7 +1,7 @@
 # ApexOS — Auditable Proof-of-Rebate & B2B Crypto Fee Ledger (v1.5.0)
 
 [![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](./package.json)
-[![Tests](https://img.shields.io/badge/tests-168%20suites%20%7C%203%2C532%20passed-brightgreen.svg)](./src/__tests__/sandbox)
+[![Tests](https://img.shields.io/badge/tests-169%20suites%20%7C%203%2C536%20passed-brightgreen.svg)](./src/__tests__/sandbox)
 [![TypeCheck](https://img.shields.io/badge/typescript-0%20errors-brightgreen.svg)](#testing)
 [![Bundle Size](https://img.shields.io/badge/mobile%20bundle-5.4%20MB%20(%3C50MB)-success.svg)](./apex-os-mobile)
 [![License](https://img.shields.io/badge/license-Private-red.svg)](#license)

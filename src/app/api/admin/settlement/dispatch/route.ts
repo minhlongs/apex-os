@@ -1,15 +1,16 @@
 /**
- * Passkey-Protected Phase 1 Multichain Settlement Dispatch & Timeout Recovery Route
+ * Passkey-Protected Phase 1 Multichain Settlement Dispatch, Timeout Recovery & Cold-Safe Resolution Route
  *
  * POST /api/admin/settlement/dispatch
  *
  * Production entrypoint wiring together:
  * 1. Admin session + WebAuthn Passkey step-up (`requireAdminWithPasskeyStepUp`)
  * 2. Deterministic M2 Anti-Fraud & 48h Wallet-Change Timelock Check (`M2SybilGraphEngine`)
- * 3. Atomic D1 Double-Entry Ledger Withdrawal Lock (`lockSettledForWithdrawal`)
+ * 3. Atomic D1 Double-Entry Ledger Withdrawal Lock (`lockSettledForWithdrawal`, 1:1 per `payoutId`)
  * 4. Turnkey HSM Enclave Signer Isolation ($250/tx, $1,500/24h -> Safe 2-of-3 Cold Queue)
  *    + Phase 1 Multichain USDC (`stellar` 7-dec, `arbitrum` 6-dec, `base` 6-dec, min $10)
  *    + `BROADCAST_PENDING` Uncertain RPC Timeout Recovery (`BroadcastRecoveryMachine`)
+ *    + Full ledger lock reconciliation on `dispatch`, `recover`, and `resolve_cold_safe`
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -18,15 +19,23 @@ import {
   requireAdminWithPasskeyStepUp,
   sanitizeApiErrorResponse,
 } from '@/lib/auth/passkey-step-up';
+import { SanctionsScreeningService } from '@/lib/compliance/sanctions-service';
 import type { D1Database as LegacyD1Database } from '@/lib/db';
 import { M2SybilGraphEngine } from '@/lib/fraud/m2-sybil-graph-engine';
 import {
   DoubleEntryLedgerService,
+  IdempotencyConflictError,
+  InsufficientSettledBalanceError,
+  LedgerFrozenError,
+  LedgerStateTransitionError,
   parseUsdToLedgerUnits,
 } from '@/lib/ledger';
 import {
+  ArbitrumBaseUsdcAdapter,
   assertPhase1ChainEnabled,
   BroadcastRecoveryMachine,
+  HorizonStellarBroadcastTransport,
+  TurnkeySigner,
   type Phase1SettlementChain,
 } from '@/lib/payouts';
 
@@ -36,7 +45,7 @@ interface WorkerBindings {
 }
 
 interface SettlementDispatchBody {
-  action?: 'dispatch' | 'recover';
+  action?: 'dispatch' | 'recover' | 'resolve_cold_safe';
   payoutId?: string;
   idempotencyKey?: string;
   affiliateId?: string;
@@ -45,6 +54,109 @@ interface SettlementDispatchBody {
   recipientAddress?: string;
   amountUsd?: string;
   usdcReferencePriceUsd?: string;
+  bumpGasRbf?: boolean;
+  reexecuteExpired?: boolean;
+  nowUnix?: number;
+  coldResolution?: 'CONFIRMED' | 'CANCELLED';
+  txHash?: string;
+  reason?: string;
+}
+
+/**
+ * Lazily constructs a production `BroadcastRecoveryMachine` from Turnkey HSM + RPC/Horizon
+ * environment configuration when `bindings.SETTLEMENT_MACHINE` is not explicitly injected.
+ * Never reads or holds raw `STELLAR_SECRET_KEY` or EVM private keys in Worker memory.
+ */
+function resolveSettlementMachine(
+  bindings: WorkerBindings,
+  db: LegacyD1Database
+): BroadcastRecoveryMachine | null {
+  if (bindings.SETTLEMENT_MACHINE) {
+    return bindings.SETTLEMENT_MACHINE;
+  }
+
+  const turnkeyOrgId = process.env.TURNKEY_ORGANIZATION_ID?.trim();
+  const turnkeyPubKey = process.env.TURNKEY_API_PUBLIC_KEY?.trim();
+  const turnkeyPrivKey = process.env.TURNKEY_API_PRIVATE_KEY?.trim();
+  const evmHotAddr = process.env.TURNKEY_EVM_HOT_WALLET_ADDRESS?.trim();
+  const stellarHotAddr = process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS?.trim();
+
+  if (
+    !turnkeyOrgId ||
+    !turnkeyPubKey ||
+    !turnkeyPrivKey ||
+    !evmHotAddr ||
+    !stellarHotAddr
+  ) {
+    return null;
+  }
+
+  const networkMode: 'mainnet' | 'testnet' =
+    process.env.SETTLEMENT_NETWORK_MODE === 'testnet' ||
+    process.env.STELLAR_NETWORK === 'testnet'
+      ? 'testnet'
+      : 'mainnet';
+
+  const signer = new TurnkeySigner({
+    turnkeyCredentials: {
+      apiBaseUrl: process.env.TURNKEY_API_BASE_URL?.trim() || 'https://api.turnkey.com',
+      apiPublicKey: turnkeyPubKey,
+      apiPrivateKey: turnkeyPrivKey,
+      organizationId: turnkeyOrgId,
+    },
+    evmHotWalletAddress: evmHotAddr,
+    stellarHotWalletAddress: stellarHotAddr,
+    safeColdMultisigAddresses: {
+      arbitrum: process.env.SAFE_COLD_ARBITRUM_ADDRESS?.trim(),
+      base: process.env.SAFE_COLD_BASE_ADDRESS?.trim(),
+      stellar: process.env.SAFE_COLD_STELLAR_ADDRESS?.trim(),
+    },
+  });
+
+  const arbitrumAdapter = new ArbitrumBaseUsdcAdapter({
+    chain: 'arbitrum',
+    networkMode,
+    hotWalletAddress: evmHotAddr,
+    primaryRpcUrl: process.env.ARBITRUM_RPC_URL?.trim(),
+    fallbackRpcUrl: process.env.ARBITRUM_FALLBACK_RPC_URL?.trim(),
+  });
+
+  const baseAdapter = new ArbitrumBaseUsdcAdapter({
+    chain: 'base',
+    networkMode,
+    hotWalletAddress: evmHotAddr,
+    primaryRpcUrl: process.env.BASE_RPC_URL?.trim(),
+    fallbackRpcUrl: process.env.BASE_FALLBACK_RPC_URL?.trim(),
+  });
+
+  const stellarTransport = new HorizonStellarBroadcastTransport({
+    horizonUrl: process.env.STELLAR_HORIZON_URL?.trim(),
+    usdcIssuer: process.env.STELLAR_USDC_ISSUER?.trim(),
+  });
+
+  return new BroadcastRecoveryMachine({
+    db,
+    turnkeySigner: signer,
+    evmAdapters: {
+      arbitrum: arbitrumAdapter,
+      base: baseAdapter,
+    },
+    stellarTransport,
+    sanctionsService: new SanctionsScreeningService(),
+  });
+}
+
+async function resolveLockBatchIdForPayout(
+  ledger: DoubleEntryLedgerService,
+  machine: BroadcastRecoveryMachine,
+  payoutId: string
+): Promise<string | null> {
+  const record = await machine.getSettlementRecord(payoutId);
+  if (record?.lock_batch_id) {
+    return record.lock_batch_id;
+  }
+  const activeLock = await ledger.getActiveWithdrawalLockByPayoutId(payoutId);
+  return activeLock?.id ?? null;
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -72,10 +184,15 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     const body = (await request.json()) as SettlementDispatchBody;
     const action = body.action ?? 'dispatch';
-    const machine = bindings.SETTLEMENT_MACHINE;
+    const machine = resolveSettlementMachine(bindings, db as unknown as LegacyD1Database);
+    const ledger = new DoubleEntryLedgerService(db);
 
+    // ========================================================================
+    // Action 1: Recover Uncertain `BROADCAST_PENDING` Payout & Settle Ledger Lock
+    // ========================================================================
     if (action === 'recover') {
-      if (!body.payoutId) {
+      const payoutId = body.payoutId?.trim();
+      if (!payoutId) {
         return NextResponse.json(
           { success: false, code: 'MISSING_PAYOUT_ID', error: 'payoutId is required for recovery' },
           { status: 400 }
@@ -91,10 +208,116 @@ export async function POST(request: NextRequest): Promise<Response> {
           { status: 503 }
         );
       }
-      const recovered = await machine.recoverUncertainBroadcast(body.payoutId);
-      return NextResponse.json({ success: true, recovery: recovered }, { status: 200 });
+
+      const lockBatchId = await resolveLockBatchIdForPayout(ledger, machine, payoutId);
+      const recovered = await machine.recoverUncertainBroadcast(payoutId, {
+        nowUnix: body.nowUnix,
+        bumpGasRbf: body.bumpGasRbf,
+        reexecuteExpired: body.reexecuteExpired,
+        usdcReferencePriceUsd: body.usdcReferencePriceUsd,
+      });
+
+      if (lockBatchId) {
+        const lockBatch = await ledger.getBatchById(lockBatchId);
+        if (lockBatch && lockBatch.status === 'INFLIGHT') {
+          if (recovered.state === 'CONFIRMED' && recovered.txHash) {
+            await ledger.finalizeWithdrawal({
+              idempotencyKey: `wd_rec_fin:${payoutId}`,
+              lockBatchId,
+              txHash: recovered.txHash,
+            });
+          } else if (
+            recovered.state === 'FAILED_ABORTED' ||
+            (recovered.state === 'EXPIRED_RECOVERED' && !body.reexecuteExpired)
+          ) {
+            await ledger.revertWithdrawal({
+              idempotencyKey: `wd_rec_rev:${payoutId}`,
+              lockBatchId,
+              reason:
+                recovered.reason ??
+                `Settlement recovery terminal non-confirmed state: ${recovered.state}`,
+            });
+          }
+        }
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          lockBatchId,
+          recovery: recovered,
+        },
+        { status: 200 }
+      );
     }
 
+    // ========================================================================
+    // Action 2: Resolve `QUEUED_COLD_SAFE` Safe 2-of-3 Cold Multisig Payout
+    // ========================================================================
+    if (action === 'resolve_cold_safe') {
+      const payoutId = body.payoutId?.trim();
+      if (!payoutId || (body.coldResolution !== 'CONFIRMED' && body.coldResolution !== 'CANCELLED')) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'MISSING_COLD_RESOLUTION_FIELDS',
+            error: "payoutId and coldResolution ('CONFIRMED' | 'CANCELLED') are required",
+          },
+          { status: 400 }
+        );
+      }
+      if (!machine) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'SETTLEMENT_TRANSPORT_UNCONFIGURED',
+            error: 'Turnkey HSM settlement machine is not configured in this environment',
+          },
+          { status: 503 }
+        );
+      }
+
+      const lockBatchId = await resolveLockBatchIdForPayout(ledger, machine, payoutId);
+      const updatedRecord = await machine.resolveColdSafeBroadcast({
+        payoutId,
+        resolution: body.coldResolution,
+        txHash: body.txHash,
+        reason: body.reason,
+      });
+
+      if (lockBatchId) {
+        const lockBatch = await ledger.getBatchById(lockBatchId);
+        if (lockBatch && lockBatch.status === 'INFLIGHT') {
+          if (updatedRecord.state === 'CONFIRMED' && updatedRecord.tx_hash) {
+            await ledger.finalizeWithdrawal({
+              idempotencyKey: `wd_cold_fin:${payoutId}`,
+              lockBatchId,
+              txHash: updatedRecord.tx_hash,
+            });
+          } else if (updatedRecord.state === 'FAILED_ABORTED') {
+            await ledger.revertWithdrawal({
+              idempotencyKey: `wd_cold_rev:${payoutId}`,
+              lockBatchId,
+              reason:
+                updatedRecord.error_reason ?? 'Safe 2-of-3 cold multisig proposal cancelled',
+            });
+          }
+        }
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          lockBatchId,
+          settlement: updatedRecord,
+        },
+        { status: 200 }
+      );
+    }
+
+    // ========================================================================
+    // Action 3: Primary Phase 1 Settlement Dispatch
+    // ========================================================================
     if (
       !body.payoutId ||
       !body.idempotencyKey ||
@@ -114,17 +337,47 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
+    const payoutId = body.payoutId.trim();
+    const idempotencyKey = body.idempotencyKey.trim();
+    const affiliateId = body.affiliateId.trim();
+    const recipientAddress = body.recipientAddress.trim();
+
     assertPhase1ChainEnabled(body.chain);
-    const chain = body.chain as Phase1SettlementChain;
+    const chain = body.chain.trim().toLowerCase() as Phase1SettlementChain;
+
+    // Fail BEFORE locking any ledger funds if the settlement transport is not configured!
+    if (!machine) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'SETTLEMENT_TRANSPORT_UNCONFIGURED',
+          error: 'Turnkey HSM settlement machine is not configured in this environment',
+        },
+        { status: 503 }
+      );
+    }
+
+    // Prevent `payoutId` reuse with a distinct `idempotencyKey` from locking a second withdrawal!
+    const existingSettlement = await machine.getSettlementRecord(payoutId);
+    if (existingSettlement && existingSettlement.idempotency_key !== idempotencyKey) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'IDEMPOTENCY_CONFLICT',
+          error: `payoutId '${payoutId}' is already bound to a different idempotencyKey`,
+        },
+        { status: 409 }
+      );
+    }
 
     const fraudEngine = new M2SybilGraphEngine();
     const fraudCheck = await fraudEngine.evaluate(
       db as unknown as LegacyD1Database,
       {
         eventType: 'payout_withdrawal',
-        traderId: body.affiliateId,
-        payoutWalletAddress: body.recipientAddress,
-        idempotencyKey: `wd_fraud:${body.idempotencyKey}`,
+        traderId: affiliateId,
+        payoutWalletAddress: recipientAddress,
+        idempotencyKey: `wd_fraud:${idempotencyKey}`,
       }
     );
     if (!fraudCheck.allowed) {
@@ -140,63 +393,106 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const amountUnits1e8 = parseUsdToLedgerUnits(body.amountUsd);
-    const ledger = new DoubleEntryLedgerService(db);
     const lockResult = await ledger.lockSettledForWithdrawal({
-      idempotencyKey: `wd_lock:${body.idempotencyKey}`,
+      idempotencyKey: `wd_lock:${idempotencyKey}`,
       ownerType: body.ownerType ?? 'affiliate',
-      ownerId: body.affiliateId,
+      ownerId: affiliateId,
       amountUnits: amountUnits1e8,
-      payoutId: body.payoutId,
+      payoutId,
     });
 
-    if (!machine) {
-      await ledger.revertWithdrawal({
-        idempotencyKey: `wd_revert_unconf:${body.idempotencyKey}`,
-        lockBatchId: lockResult.batch.id,
-        reason: 'Turnkey settlement transport unconfigured',
-      });
+    // Reverted Withdrawal Lock Double-Spend Guard:
+    // If `lockResult.isReplay === true` AND `lockResult.batch.status === 'VOIDED'`,
+    // a prior attempt with this `idempotencyKey` failed pre-broadcast and already refunded
+    // the user's balance. NEVER call `machine.executeSettlement` against a VOIDED lock!
+    if (lockResult.isReplay && lockResult.batch.status === 'VOIDED') {
       return NextResponse.json(
         {
           success: false,
-          code: 'SETTLEMENT_TRANSPORT_UNCONFIGURED',
-          error: 'Turnkey HSM settlement machine is not configured in this environment',
+          code: 'IDEMPOTENCY_KEY_PREVIOUSLY_VOIDED',
+          lockBatchId: lockResult.batch.id,
+          error:
+            'Withdrawal lock for this idempotencyKey was previously reverted after a pre-broadcast abort; submit a new payoutId and idempotencyKey to retry',
         },
-        { status: 503 }
+        { status: 409 }
+      );
+    }
+
+    // If `lockResult.isReplay === true` AND `lockResult.batch.status === 'SETTLED'`,
+    // return the already-finalized settlement deterministically without re-executing.
+    if (lockResult.isReplay && lockResult.batch.status === 'SETTLED') {
+      return NextResponse.json(
+        {
+          success: true,
+          isReplay: true,
+          lockBatchId: lockResult.batch.id,
+          settlement: existingSettlement ?? {
+            payoutId,
+            chain,
+            state: 'CONFIRMED',
+            txHash: lockResult.batch.settledTxHash,
+          },
+        },
+        { status: 200 }
       );
     }
 
     let dispatchResult;
     try {
       dispatchResult = await machine.executeSettlement({
-        payoutId: body.payoutId,
-        idempotencyKey: body.idempotencyKey,
-        affiliateId: body.affiliateId,
+        payoutId,
+        idempotencyKey,
+        affiliateId,
         chain,
-        recipientAddress: body.recipientAddress,
+        recipientAddress,
         amountUnits1e8,
+        lockBatchId: lockResult.batch.id,
         usdcReferencePriceUsd: body.usdcReferencePriceUsd ?? '1.0000',
+        nowUnix: body.nowUnix,
       });
     } catch (execErr) {
-      await ledger.revertWithdrawal({
-        idempotencyKey: `wd_rev_err:${body.idempotencyKey}`,
-        lockBatchId: lockResult.batch.id,
-        reason: execErr instanceof Error ? execErr.message : 'Pre-signing safety check failed',
-      });
+      // Only revert the withdrawal lock if `machine` NEVER persisted an in-flight/committed
+      // broadcast record (`SIGNING`, `BROADCAST_PENDING`, `CONFIRMED`, `QUEUED_COLD_SAFE`)!
+      const persistedAfterErr = await machine.getSettlementRecord(payoutId).catch(() => null);
+      const unsafeToRevert =
+        persistedAfterErr !== null &&
+        (persistedAfterErr.state === 'SIGNING' ||
+          persistedAfterErr.state === 'BROADCAST_PENDING' ||
+          persistedAfterErr.state === 'CONFIRMED' ||
+          persistedAfterErr.state === 'QUEUED_COLD_SAFE');
+
+      if (!unsafeToRevert) {
+        const currentLock = await ledger.getBatchById(lockResult.batch.id);
+        if (currentLock && currentLock.status === 'INFLIGHT') {
+          await ledger.revertWithdrawal({
+            idempotencyKey: `wd_rev_err:${idempotencyKey}`,
+            lockBatchId: lockResult.batch.id,
+            reason:
+              execErr instanceof Error ? execErr.message : 'Pre-signing safety check failed',
+          });
+        }
+      }
       throw execErr;
     }
 
     if (dispatchResult.state === 'CONFIRMED' && dispatchResult.txHash) {
-      await ledger.finalizeWithdrawal({
-        idempotencyKey: `wd_fin:${body.idempotencyKey}`,
-        lockBatchId: lockResult.batch.id,
-        txHash: dispatchResult.txHash,
-      });
+      const currentLock = await ledger.getBatchById(lockResult.batch.id);
+      if (currentLock && currentLock.status === 'INFLIGHT') {
+        await ledger.finalizeWithdrawal({
+          idempotencyKey: `wd_fin:${idempotencyKey}`,
+          lockBatchId: lockResult.batch.id,
+          txHash: dispatchResult.txHash,
+        });
+      }
     } else if (dispatchResult.state === 'FAILED_ABORTED') {
-      await ledger.revertWithdrawal({
-        idempotencyKey: `wd_rev:${body.idempotencyKey}`,
-        lockBatchId: lockResult.batch.id,
-        reason: dispatchResult.reason ?? 'Pre-broadcast safety abort',
-      });
+      const currentLock = await ledger.getBatchById(lockResult.batch.id);
+      if (currentLock && currentLock.status === 'INFLIGHT') {
+        await ledger.revertWithdrawal({
+          idempotencyKey: `wd_rev:${idempotencyKey}`,
+          lockBatchId: lockResult.batch.id,
+          reason: dispatchResult.reason ?? 'Pre-broadcast safety abort',
+        });
+      }
     }
 
     return NextResponse.json(
@@ -208,6 +504,15 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: dispatchResult.state === 'FAILED_ABORTED' ? 422 : 200 }
     );
   } catch (err) {
+    if (err instanceof IdempotencyConflictError) {
+      return sanitizeApiErrorResponse(err, 409);
+    }
+    if (err instanceof InsufficientSettledBalanceError || err instanceof LedgerStateTransitionError) {
+      return sanitizeApiErrorResponse(err, 422);
+    }
+    if (err instanceof LedgerFrozenError) {
+      return sanitizeApiErrorResponse(err, 503);
+    }
     return sanitizeApiErrorResponse(err, 400);
   }
 }

@@ -13,17 +13,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB, type D1Database } from '@/lib/db';
 import { getAuthenticatedUser, resolveDatabase } from '@/lib/auth/session-helper';
+import { isAscendancyGuardActive } from '@/lib/compliance/legacy-route-guards';
 import { error as logError, warn as logWarn } from '@/lib/logger';
+import {
+  isPhase1PayoutChain,
+  proposeTimelockedWalletChange,
+} from '@/lib/wallet/timelock-wallet-service';
+import {
+  SUPPORTED_CHAINS,
+  validateWalletAddress,
+  type SupportedChain,
+} from '@/lib/wallet/address-validation';
 
-export type SupportedChain = 'ethereum' | 'solana' | 'stellar';
-
-export const SUPPORTED_CHAINS: readonly SupportedChain[] = ['ethereum', 'solana', 'stellar'] as const;
-
-export const CHAIN_ADDRESS_REGEX: Record<SupportedChain, RegExp> = {
-  ethereum: /^0x[0-9a-fA-F]{40}$/,
-  solana: /^[1-9A-HJ-NP-Za-km-z]{32,44}$/,
-  stellar: /^G[A-Z2-7]{55}$/,
-};
+export type { SupportedChain };
 
 function getDatabase(): D1Database | null {
   try {
@@ -38,15 +40,6 @@ function getDatabase(): D1Database | null {
     const globalDb = (globalThis as unknown as { DB?: D1Database }).DB;
     return globalDb || null;
   }
-}
-
-/**
- * Validates wallet address against the specified chain standard
- */
-export function validateWalletAddress(address: string, chain: SupportedChain): boolean {
-  const regex = CHAIN_ADDRESS_REGEX[chain];
-  if (!regex) return false;
-  return regex.test(address);
 }
 
 /**
@@ -92,7 +85,65 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const normalizedChain = rawChain.trim().toLowerCase() as SupportedChain;
+    const normalizedInputChain = rawChain.trim().toLowerCase();
+
+    // 3. Acquire database early so Phase 1 48h Timelock & Chain Gate can run before legacy checks
+    const db = getDatabase();
+    if (await isAscendancyGuardActive(db, 'wallet_change_requests')) {
+      if (!db) {
+        return NextResponse.json(
+          { success: false, error: 'Database service unavailable' },
+          { status: 503 }
+        );
+      }
+      if (!isPhase1PayoutChain(normalizedInputChain)) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'PHASE1_CHAIN_DISABLED',
+            error: `Unsupported payout network '${rawChain}'. Phase 1 supports only: stellar, arbitrum, base.`,
+          },
+          { status: 400 }
+        );
+      }
+      if (!rawAddress || typeof rawAddress !== 'string' || rawAddress.trim().length === 0) {
+        return NextResponse.json(
+          { success: false, code: 'INVALID_WALLET_ADDRESS', error: 'Invalid wallet address format for network' },
+          { status: 400 }
+        );
+      }
+      const timelockProposal = await proposeTimelockedWalletChange(db, {
+        authenticatedUserId: user.id,
+        proposedAddress: rawAddress.trim(),
+        proposedChain: normalizedInputChain,
+        requestedIp:
+          request.headers.get('cf-connecting-ip') ??
+          request.headers.get('x-forwarded-for') ??
+          null,
+      });
+      if (!timelockProposal.success) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: timelockProposal.code,
+            error: timelockProposal.error,
+          },
+          { status: timelockProposal.status }
+        );
+      }
+      return NextResponse.json(
+        {
+          success: true,
+          timelocked: true,
+          code: timelockProposal.code,
+          unlockAt: timelockProposal.request?.unlock_at ?? null,
+          request: timelockProposal.request,
+        },
+        { status: 202 }
+      );
+    }
+
+    const normalizedChain = normalizedInputChain as SupportedChain;
     if (!SUPPORTED_CHAINS.includes(normalizedChain)) {
       return NextResponse.json(
         { success: false, error: `Unsupported blockchain network: '${rawChain}'` },
@@ -115,8 +166,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // 3. Acquire database
-    const db = getDatabase();
     if (!db) {
       logError('[Profile:Wallet] Database service unavailable');
       return NextResponse.json(
@@ -245,6 +294,18 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
       return NextResponse.json(
         { success: false, error: 'Database service unavailable' },
         { status: 503 }
+      );
+    }
+
+    if (await isAscendancyGuardActive(db, 'wallet_change_requests')) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'USE_WALLET_TIMELOCK_ENDPOINT',
+          error:
+            'Direct payout wallet unbinding is disabled to prevent 48-hour timelock bypass; manage pending wallet changes via /api/profile/wallet/timelock',
+        },
+        { status: 409 }
       );
     }
 

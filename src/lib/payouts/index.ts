@@ -100,6 +100,7 @@ export {
   ArbitrumBaseUsdcAdapter,
   CANONICAL_ARBITRUM_NATIVE_USDC,
   CANONICAL_BASE_NATIVE_USDC,
+  CIRCLE_IS_BLACKLISTED_SELECTOR,
   EVM_USDC_DECIMALS,
   MIN_WITHDRAWAL_UNITS_1E8,
   assertPhase1ChainEnabled,
@@ -109,15 +110,23 @@ export type {
   Phase1SettlementChain,
   EvmPhase1SettlementChain,
   LegacyDisabledSettlementChain,
+  EvmJsonRpcTransport,
 } from './adapters/arbitrum-base-usdc-adapter';
 export {
   TurnkeySigner,
+  TurnkeyServerHsmTransport,
+  attachEd25519SignatureToStellarEnvelopeXdr,
   HOT_WALLET_SINGLE_TX_CAP_UNITS_1E8,
   HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8,
   COLD_SAFE_MIN_RESERVE_BPS,
 } from './turnkey-signer';
+export { HorizonStellarBroadcastTransport } from './stellar-horizon-transport';
 export { BroadcastRecoveryMachine } from './broadcast-recovery-machine';
-export type { SettlementBroadcastState, SettlementBroadcastRow } from './broadcast-recovery-machine';
+export type {
+  SettlementBroadcastState,
+  SettlementBroadcastRow,
+  StellarBroadcastTransport,
+} from './broadcast-recovery-machine';
 export {
   evaluateUsdcPegBand,
   enforceUsdcPegCircuitBreaker,

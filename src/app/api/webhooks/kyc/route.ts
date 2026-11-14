@@ -153,6 +153,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // 3b. Enforce Law 91/2025/QH15 data-minimization policy before mutating profiles or releasing payouts
+  let kycDisabledByMigration = false;
+  try {
+    const sentinel = await db
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'system_runtime_flags' LIMIT 1"
+      )
+      .first<{ name?: string }>();
+    kycDisabledByMigration = sentinel?.name === 'system_runtime_flags';
+  } catch {
+    kycDisabledByMigration = false;
+  }
+
+  const isProdOrEnforced =
+    isProduction ||
+    process.env.APP_ENV === 'production' ||
+    process.env.ENFORCE_ASCENDANCY_GUARDS === 'true' ||
+    kycDisabledByMigration;
+
+  if (isProdOrEnforced && process.env.ALLOW_LEGACY_KYC_SESSION_FOR_TESTS !== 'true') {
+    return NextResponse.json(
+      {
+        success: false,
+        code: 'KYC_DOCUMENT_COLLECTION_DISABLED',
+        error:
+          'Identity document KYC webhooks are disabled under Law 91/2025/QH15 data-minimization policy.',
+      },
+      { status: 410 }
+    );
+  }
+
   // 4. Parse standardized event
   let event: any;
   try {

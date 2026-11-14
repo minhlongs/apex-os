@@ -7,10 +7,13 @@
  * 1. Admin session + WebAuthn Passkey step-up (`requireAdminWithPasskeyStepUp`)
  * 2. Official Partner Ingestion Adapters (`Bybit v5`, `OKX v5 REST/CSV`, `Bitget v2`;
  *    `Binance Standard Referral Pro` hard-blocked)
- * 3. R2 Cryptographic Evidence Vault (`storeEvidenceObject` SHA-256 + 5y retention)
- * 4. `CASH_COLLECTED` Reconciliation Gate (`reconcilePartnerCashBatch`, $0.01 tolerance)
- * 5. Deterministic M2 Sybil/Self-Referral Graph Check (`M2SybilGraphEngine`)
- * 6. Atomic D1 Double-Entry Ledger `T+7` Inflight Minting (`DoubleEntryLedgerService`)
+ * 3. Pre-reconciliation `uidToProfileMap` completeness check (never burns a `MATCHED`
+ *    reconciliation batch on unmapped trader UIDs)
+ * 4. Fail-closed R2 Cryptographic Evidence Vault (`storeEvidenceObject` SHA-256 + 5y retention;
+ *    returns `503 EVIDENCE_STORAGE_UNCONFIGURED` if `STORAGE` binding is absent)
+ * 5. `CASH_COLLECTED` Reconciliation Gate (`reconcilePartnerCashBatch`, $0.01 tolerance)
+ * 6. Deterministic M2 Sybil/Self-Referral Graph Check (`M2SybilGraphEngine`)
+ * 7. Atomic D1 Double-Entry Ledger `T+7` Inflight Minting + Clawback Adjustment (`DoubleEntryLedgerService`)
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -23,11 +26,14 @@ import type { D1Database as LegacyD1Database } from '@/lib/db';
 import { M2SybilGraphEngine } from '@/lib/fraud/m2-sybil-graph-engine';
 import {
   DoubleEntryLedgerService,
-  InMemoryR2Bucket,
+  IdempotencyConflictError,
+  InvalidWaterfallConfigError,
+  LedgerFrozenError,
   parseUsdToLedgerUnits,
   reconcilePartnerCashBatch,
   storeEvidenceObject,
   type R2BucketLike,
+  type WaterfallConfig,
 } from '@/lib/ledger';
 import {
   getPartnerAdapter,
@@ -40,6 +46,15 @@ interface WorkerBindings {
   STORAGE?: R2BucketLike;
 }
 
+interface UidProfileMapping {
+  traderProfileId: string;
+  l1AffiliateId?: string | null;
+  b2bAgencyId?: string | null;
+  waterfallConfig?: Partial<WaterfallConfig>;
+  traderEmail?: string;
+  referrerEmail?: string;
+}
+
 interface IngestRequestPayload {
   exchange?: string;
   statementPeriodStart?: string;
@@ -47,15 +62,9 @@ interface IngestRequestPayload {
   rawPartnerPayload?: string;
   rawWalletStatementPayload?: string;
   walletCashCollectedUsd?: string;
-  uidToProfileMap?: Record<
-    string,
-    {
-      traderProfileId: string;
-      l1AffiliateId?: string | null;
-      traderEmail?: string;
-      referrerEmail?: string;
-    }
-  >;
+  uidToProfileMap?: Record<string, UidProfileMapping>;
+  clawbackOriginalBatchMap?: Record<string, string>;
+  recoverClawbackFromFutureInflight?: boolean;
 }
 
 const VALID_EXCHANGES: readonly PartnerExchangeId[] = [
@@ -98,6 +107,24 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const adapter = getPartnerAdapter(rawExchange);
+    if (adapter.status === 'BLOCKED') {
+      await adapter.parsePayload('');
+    }
+
+    // Fail closed if immutable R2 evidence storage is not bound in this Worker environment!
+    const r2Bucket = bindings.STORAGE;
+    if (!r2Bucket) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'EVIDENCE_STORAGE_UNAVAILABLE',
+          error:
+            'Immutable R2 evidence vault binding (STORAGE) is required for partner reconciliation',
+        },
+        { status: 503 }
+      );
+    }
+
     if (
       !body.rawPartnerPayload ||
       !body.rawWalletStatementPayload ||
@@ -105,9 +132,6 @@ export async function POST(request: NextRequest): Promise<Response> {
       !body.statementPeriodStart ||
       !body.statementPeriodEnd
     ) {
-      if (adapter.status === 'BLOCKED') {
-        await adapter.parsePayload('');
-      }
       return NextResponse.json(
         {
           success: false,
@@ -123,7 +147,39 @@ export async function POST(request: NextRequest): Promise<Response> {
       periodEndIso: body.statementPeriodEnd,
     });
 
-    const r2Bucket = bindings.STORAGE ?? new InMemoryR2Bucket();
+    // Pre-validate UID mappings BEFORE storing evidence or burning a unique MATCHED reconciliation!
+    const uidMap = body.uidToProfileMap ?? {};
+    const unmappedTraderUids = new Set<string>();
+    let netBatchUnits = BigInt(0);
+    let positiveAllocatedSum = BigInt(0);
+
+    for (const row of parsedBatch.rows) {
+      netBatchUnits += row.signedUnits1e8;
+      if (!row.isClawbackOrAdjustment && row.signedUnits1e8 > BigInt(0)) {
+        positiveAllocatedSum += row.signedUnits1e8;
+        const mapped = uidMap[row.traderUid];
+        if (!mapped || !mapped.traderProfileId || mapped.traderProfileId.trim() === '') {
+          unmappedTraderUids.add(row.traderUid);
+        }
+      }
+    }
+
+    if (unmappedTraderUids.size > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'UNMAPPED_TRADER_UIDS',
+          unmappedUids: Array.from(unmappedTraderUids),
+          error:
+            'Every positive partner commission UID must map to a verified traderProfileId before reconciliation',
+        },
+        { status: 422 }
+      );
+    }
+
+    const expectedCashUnits = netBatchUnits > BigInt(0) ? netBatchUnits : BigInt(0);
+    const walletCashUnits = parseUsdToLedgerUnits(body.walletCashCollectedUsd);
+
     const partnerEvidence = await storeEvidenceObject(db, r2Bucket, {
       exchange: parsedBatch.exchange,
       sourceKind: parsedBatch.evidence.sourceKind,
@@ -139,19 +195,14 @@ export async function POST(request: NextRequest): Promise<Response> {
       statementPeriodEnd: body.statementPeriodEnd,
     });
 
-    let positiveAllocatedSum = BigInt(0);
-    for (const row of parsedBatch.rows) {
-      if (!row.isClawbackOrAdjustment && row.signedUnits1e8 > BigInt(0)) {
-        positiveAllocatedSum += row.signedUnits1e8;
-      }
-    }
+    const reconciliationAllocatedUnits =
+      netBatchUnits === positiveAllocatedSum ? positiveAllocatedSum : expectedCashUnits;
 
-    const walletCashUnits = parseUsdToLedgerUnits(body.walletCashCollectedUsd);
     const reconciliation = await reconcilePartnerCashBatch(db, {
       exchange: parsedBatch.exchange,
       evidenceId: partnerEvidence.id,
       walletEvidenceId: walletEvidence.id,
-      uidAllocatedUnits: positiveAllocatedSum,
+      uidAllocatedUnits: reconciliationAllocatedUnits,
       walletCashCollectedUnits: walletCashUnits,
       r2: r2Bucket,
     });
@@ -171,20 +222,62 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     const ledger = new DoubleEntryLedgerService(db);
     const fraudEngine = new M2SybilGraphEngine();
-    const uidMap = body.uidToProfileMap ?? {};
+    const clawbackMap = body.clawbackOriginalBatchMap ?? {};
 
     let mintedBatches = 0;
+    let clawbackBatches = 0;
     let blockedByFraud = 0;
 
     for (const row of parsedBatch.rows) {
-      if (row.isClawbackOrAdjustment || row.signedUnits1e8 <= BigInt(0)) {
-        continue;
-      }
-      const mapped = uidMap[row.traderUid];
-      if (!mapped?.traderProfileId) {
+      if (row.isClawbackOrAdjustment && row.signedUnits1e8 < BigInt(0)) {
+        const clawbackUnits = -row.signedUnits1e8;
+        let originalBatchId: string | undefined =
+          clawbackMap[row.externalRecordId] ?? clawbackMap[row.traderUid];
+        if (!originalBatchId) {
+          const latestBatchRow = await db
+            .prepare(
+              `SELECT id FROM ledger_journal_batches
+               WHERE exchange = ?
+                 AND trader_uid = ?
+                 AND journal_type = 'COMMISSION_INFLIGHT'
+                 AND status IN ('INFLIGHT', 'SETTLED')
+               ORDER BY created_at DESC
+               LIMIT 1`
+            )
+            .bind(parsedBatch.exchange, row.traderUid)
+            .first<{ id: string }>();
+          originalBatchId = latestBatchRow?.id ?? undefined;
+        }
+        if (!originalBatchId) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: 'CLAWBACK_TARGET_BATCH_NOT_FOUND',
+              traderUid: row.traderUid,
+              externalRecordId: row.externalRecordId,
+              error: `Cannot locate original commission batch for clawback record '${row.externalRecordId}'`,
+            },
+            { status: 422 }
+          );
+        }
+
+        const resolvedOriginalBatchId: string = originalBatchId;
+        await ledger.applyClawback({
+          idempotencyKey: `ingest_clawback:${row.externalRecordId}`,
+          originalBatchId: resolvedOriginalBatchId,
+          clawbackUnits,
+          reason: `Partner adjustment ${parsedBatch.exchange}:${row.externalRecordId}`,
+          recoverFromFutureInflight: Boolean(body.recoverClawbackFromFutureInflight),
+        });
+        clawbackBatches += 1;
         continue;
       }
 
+      if (row.signedUnits1e8 <= BigInt(0)) {
+        continue;
+      }
+
+      const mapped = uidMap[row.traderUid]!;
       let effectiveL1AffiliateId = mapped.l1AffiliateId ?? null;
       if (effectiveL1AffiliateId) {
         const fraudVerdict = await fraudEngine.evaluate(
@@ -209,6 +302,8 @@ export async function POST(request: NextRequest): Promise<Response> {
         traderUid: row.traderUid,
         traderId: mapped.traderProfileId,
         l1AffiliateId: effectiveL1AffiliateId,
+        b2bAgencyId: mapped.b2bAgencyId ?? null,
+        waterfallConfig: mapped.waterfallConfig,
         reconciliationId: reconciliation.id,
         evidenceId: partnerEvidence.id,
         grossCommissionUnits: row.signedUnits1e8,
@@ -224,6 +319,7 @@ export async function POST(request: NextRequest): Promise<Response> {
         partnerEvidenceSha256: partnerEvidence.payloadSha256,
         walletEvidenceSha256: walletEvidence.payloadSha256,
         mintedBatches,
+        clawbackBatches,
         blockedByFraud,
       },
       { status: 200 }
@@ -239,6 +335,15 @@ export async function POST(request: NextRequest): Promise<Response> {
         },
         { status: 403 }
       );
+    }
+    if (err instanceof InvalidWaterfallConfigError) {
+      return sanitizeApiErrorResponse(err, 422);
+    }
+    if (err instanceof IdempotencyConflictError) {
+      return sanitizeApiErrorResponse(err, 409);
+    }
+    if (err instanceof LedgerFrozenError) {
+      return sanitizeApiErrorResponse(err, 503);
     }
     return sanitizeApiErrorResponse(err, 500);
   }

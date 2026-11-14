@@ -92,6 +92,24 @@ export async function createEarnings(
 
   const shares = splitCommission(commission.total, DEFAULT_TIER_RATES);
 
+  // Enforce Decree 40/2018/ND-CP 1-tier lock when Ascendancy double-entry ledger is active
+  let singleTierLocked =
+    process.env.NODE_ENV === 'production' ||
+    process.env.APP_ENV === 'production' ||
+    process.env.APP_ENV === 'staging';
+  if (!singleTierLocked) {
+    try {
+      const auditSentinel = await db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ledger_journal_batches' LIMIT 1"
+        )
+        .first<{ name?: string }>();
+      singleTierLocked = auditSentinel?.name === 'ledger_journal_batches';
+    } catch {
+      singleTierLocked = false;
+    }
+  }
+
   const earnings1Id = await insertEarning(db, {
     conversionId,
     affiliateId,
@@ -103,7 +121,7 @@ export async function createEarnings(
   });
   earningsIds.push(earnings1Id);
 
-  if (!tree.parent_id) {
+  if (singleTierLocked || !tree.parent_id) {
     return earningsIds;
   }
 

@@ -88,6 +88,7 @@ import {
 } from '@/lib/webhooks/error-responses';
 import { getDB } from '@/lib/db';
 import type { D1Database } from '@/lib/db';
+import { guardLegacyExchangeWebhook } from '@/lib/compliance/legacy-route-guards';
 import { error as logError, info as logInfo, warn as logWarn } from '@/lib/logger';
 import { commissionOf, createEarnings, toUsdc } from '@/lib/webhooks/earnings';
 
@@ -301,6 +302,20 @@ export async function POST(request: NextRequest): Promise<Response> {
         WebhookErrorResponses.invalidPayload('Could not parse KuCoin webhook payload', requestId),
         { status: getHttpStatusCode(WebhookErrorCode.INVALID_PAYLOAD) }
       );
+    }
+
+    const strictKuCoinRes = await guardLegacyExchangeWebhook({
+      db,
+      source: 'kucoin',
+      eventId: `${trade.symbol}:${trade.orderId}`,
+      timestamp: headers['kc-api-timestamp'] ?? null,
+      signature: headers['kc-api-sign'] ?? null,
+      rawBody,
+      secret: getKuCoinWebhookSecret(),
+      requestPath: '/api/webhooks/exchange/kucoin',
+    });
+    if (strictKuCoinRes) {
+      return strictKuCoinRes;
     }
 
     // Replay protection

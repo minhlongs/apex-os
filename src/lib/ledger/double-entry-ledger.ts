@@ -828,6 +828,31 @@ export class DoubleEntryLedgerService {
     return row ? mapBatchRow(row) : null;
   }
 
+  async getActiveWithdrawalLockByPayoutId(
+    payoutId: string
+  ): Promise<LedgerJournalBatchRecord | null> {
+    const trimmed = payoutId.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const row = await this.db
+      .prepare(
+        `SELECT id, idempotency_key, payload_fingerprint, journal_type, status,
+                exchange, trader_uid, reconciliation_id, evidence_id,
+                gross_commission_units, hold_until, settled_tx_hash,
+                metadata, created_at, updated_at
+         FROM ledger_journal_batches
+         WHERE journal_type = 'WITHDRAWAL_LOCK'
+           AND payout_id = ?
+           AND status IN ('INFLIGHT', 'SETTLED')
+         ORDER BY created_at DESC
+         LIMIT 1`
+      )
+      .bind(trimmed)
+      .first<RawBatchRow>();
+    return row ? mapBatchRow(row) : null;
+  }
+
   async getPostingsForBatch(batchId: string): Promise<LedgerPostingRecord[]> {
     const res = await this.db
       .prepare(
@@ -1839,6 +1864,14 @@ export class DoubleEntryLedgerService {
       };
     }
 
+    const trimmedPayoutId = input.payoutId.trim();
+    const existingPayoutLock = await this.getActiveWithdrawalLockByPayoutId(trimmedPayoutId);
+    if (existingPayoutLock) {
+      throw new IdempotencyConflictError(
+        `payoutId:${trimmedPayoutId} already has an active or finalized withdrawal lock (${existingPayoutLock.id})`
+      );
+    }
+
     const userSpec = buildAccountSpec(input.ownerType, input.ownerId.trim(), false);
     const existingAcct = await this.getAccountByCode(userSpec.accountCode);
     const available = existingAcct ? existingAcct.settledBalanceUnits : BI_ZERO;
@@ -1855,7 +1888,7 @@ export class DoubleEntryLedgerService {
     const metadata = {
       ownerType: input.ownerType,
       ownerId: input.ownerId.trim(),
-      payoutId: input.payoutId.trim(),
+      payoutId: trimmedPayoutId,
       lockedAmountUnits: input.amountUnits.toString(),
       resolution: 'LOCKED',
     };
@@ -1884,15 +1917,16 @@ export class DoubleEntryLedgerService {
         `INSERT INTO ledger_journal_batches (
           id, idempotency_key, payload_fingerprint, journal_type, status,
           exchange, trader_uid, reconciliation_id, evidence_id,
-          gross_commission_units, hold_until, settled_tx_hash,
+          gross_commission_units, hold_until, settled_tx_hash, payout_id,
           metadata, created_at, updated_at
-        ) VALUES (?, ?, ?, 'WITHDRAWAL_LOCK', 'INFLIGHT', NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?)`
+        ) VALUES (?, ?, ?, 'WITHDRAWAL_LOCK', 'INFLIGHT', NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?, ?)`
       )
       .bind(
         batchId,
         input.idempotencyKey,
         fingerprint,
         toSafeSqlInteger(input.amountUnits, 'withdrawal_amount_units'),
+        trimmedPayoutId,
         JSON.stringify(metadata),
         nowIso,
         nowIso
