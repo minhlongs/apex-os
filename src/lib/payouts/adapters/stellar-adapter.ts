@@ -5,12 +5,15 @@
  * Implements PayoutChainAdapter for the Stellar network using StellarService
  */
 
+import Decimal from 'decimal.js';
 import {
   StellarService,
   createStellarService,
   isValidStellarAccountId,
   StellarNetwork,
   resolveStellarNetwork,
+  CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
+  STELLAR_STROOPS_PER_USDC,
 } from '../stellar-service';
 import type {
   FeeEstimateParams,
@@ -23,7 +26,9 @@ import type {
 import { BasePayoutChainAdapter } from './adapter-interface';
 
 export const STELLAR_OFFICIAL_USDC_ISSUER =
-  'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5';
+  CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER;
+
+const STROOPS_PER_XLM_DECIMAL = new Decimal(STELLAR_STROOPS_PER_USDC.toString());
 
 export interface StellarAdapterOptions {
   stellarService?: StellarService;
@@ -40,7 +45,7 @@ export class StellarAdapter extends BasePayoutChainAdapter {
   constructor(options?: StellarAdapterOptions) {
     super();
     this.network = resolveStellarNetwork(options?.network);
-    this.xlmPriceUsd = options?.xlmPriceUsd ?? 0.12; // Configurable XLM/USD estimate
+    this.xlmPriceUsd = options?.xlmPriceUsd ?? 0.12;
     if (options?.stellarService) {
       this.stellarService = options.stellarService;
     }
@@ -61,7 +66,6 @@ export class StellarAdapter extends BasePayoutChainAdapter {
         ) {
           throw err;
         }
-        // Fallback to valid official USDC issuer if unconfigured in environment
         this.stellarService = new StellarService({
           network: resolvedNetwork,
           usdcIssuer: process.env.STELLAR_USDC_ISSUER || STELLAR_OFFICIAL_USDC_ISSUER,
@@ -78,7 +82,6 @@ export class StellarAdapter extends BasePayoutChainAdapter {
     if (typeof address !== 'string') {
       return false;
     }
-    // G-prefixed base32 string of length 56
     if (!/^G[A-Z2-7]{55}$/.test(address)) {
       return false;
     }
@@ -86,12 +89,26 @@ export class StellarAdapter extends BasePayoutChainAdapter {
   }
 
   /**
+   * Verify recipient holds an existing authorized USDC trustline (never sponsors reserves)
+   */
+  async hasUsdcTrustline(address: string): Promise<boolean> {
+    if (!this.validateAddress(address)) {
+      return false;
+    }
+    return this.getService().hasUsdcTrustline(address);
+  }
+
+  /**
    * Estimate fee for Stellar USDC transfer (stroops converted to XLM and USD)
    */
-  async estimateFee(params: FeeEstimateParams): Promise<ChainFeeEstimate> {
-    const feeStroops = 300; // Standard operation fee (3x base fee of 100 stroops)
-    const nativeFeeAmount = feeStroops / 10_000_000; // 0.00003 XLM
-    const feeUsd = Number((nativeFeeAmount * this.xlmPriceUsd).toFixed(6));
+  async estimateFee(_params: FeeEstimateParams): Promise<ChainFeeEstimate> {
+    const feeStroops = 300;
+    const nativeFeeDec = new Decimal(feeStroops).div(STROOPS_PER_XLM_DECIMAL);
+    const nativeFeeAmount = nativeFeeDec.toNumber();
+    const feeUsd = nativeFeeDec
+      .mul(this.xlmPriceUsd)
+      .toDecimalPlaces(6, Decimal.ROUND_DOWN)
+      .toNumber();
 
     return {
       chain: 'stellar',
@@ -106,7 +123,7 @@ export class StellarAdapter extends BasePayoutChainAdapter {
   }
 
   /**
-   * Send USDC payout via Stellar payment operation
+   * Send USDC payout via Stellar payment operation after verifying USDC trustline
    */
   async sendPayout(params: PayoutExecutionParams): Promise<PayoutExecutionResult> {
     if (!this.validateAddress(params.recipientAddress)) {
@@ -118,6 +135,14 @@ export class StellarAdapter extends BasePayoutChainAdapter {
 
     try {
       const service = this.getService();
+      const hasTrustline = await service.hasUsdcTrustline(params.recipientAddress);
+      if (!hasTrustline) {
+        return this.createFailedResult(
+          params,
+          `Recipient account ${params.recipientAddress} lacks an active authorized USDC trustline (trustline sponsorship disabled)`
+        );
+      }
+
       const result = await service.sendPayout(
         params.recipientAddress,
         params.amount,
@@ -125,8 +150,12 @@ export class StellarAdapter extends BasePayoutChainAdapter {
       );
 
       const feeStroops = parseInt(result.fee, 10) || 300;
-      const gasFeeNative = feeStroops / 10_000_000;
-      const gasFeeUsd = Number((gasFeeNative * this.xlmPriceUsd).toFixed(6));
+      const gasFeeNativeDec = new Decimal(feeStroops).div(STROOPS_PER_XLM_DECIMAL);
+      const gasFeeNative = gasFeeNativeDec.toNumber();
+      const gasFeeUsd = gasFeeNativeDec
+        .mul(this.xlmPriceUsd)
+        .toDecimalPlaces(6, Decimal.ROUND_DOWN)
+        .toNumber();
 
       return {
         success: true,
@@ -207,8 +236,14 @@ export class StellarAdapter extends BasePayoutChainAdapter {
     const hotWallet = health.senderAccount || 'UNCONFIGURED';
     const nativeBalance = health.senderBalanceXLM || 0;
     const usdcBalance = health.senderBalanceUSDC || 0;
-    const nativeBalanceUsd = Number((nativeBalance * this.xlmPriceUsd).toFixed(2));
-    const totalUsdValue = Number((usdcBalance + nativeBalanceUsd).toFixed(2));
+    const nativeBalanceUsd = new Decimal(nativeBalance)
+      .mul(this.xlmPriceUsd)
+      .toDecimalPlaces(2, Decimal.ROUND_DOWN)
+      .toNumber();
+    const totalUsdValue = new Decimal(usdcBalance)
+      .plus(nativeBalanceUsd)
+      .toDecimalPlaces(2, Decimal.ROUND_DOWN)
+      .toNumber();
 
     return {
       chain: 'stellar',

@@ -6,8 +6,13 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { error as logError } from '@/lib/logger';
-import { StellarService, StellarNetwork } from '@/lib/payouts/stellar-service'
+import { error as logError } from '@/lib/logger'
+import {
+  StellarService,
+  StellarNetwork,
+  CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
+  CANONICAL_STELLAR_TESTNET_USDC_ISSUER,
+} from '@/lib/payouts/stellar-service'
 
 // KV storage key for Stellar config
 const STELLAR_CONFIG_KEY = 'stellar_config'
@@ -20,8 +25,8 @@ interface KVNamespace {
 }
 
 // Helper to get KV namespace
-function getKV() {
-  return (globalThis as unknown as { KV: KVNamespace }).KV
+function getKV(): KVNamespace | undefined {
+  return (globalThis as unknown as { KV?: KVNamespace }).KV
 }
 
 // Helper to check if user is admin
@@ -41,8 +46,9 @@ export async function requireAdmin(): Promise<boolean> {
     cookiesObj[cookie.name] = cookie.value
   }
 
-  const db = (globalThis as unknown as { DB: Parameters<typeof import('@/lib/auth/auth-factory').createAuth>[0]['DB'] }).DB!
-  const sessionResult = await createAuth({ DB: db as any }).api.getSession({
+  type AuthFactoryDb = Parameters<typeof import('@/lib/auth/auth-factory').createAuth>[0]['DB']
+  const db = (globalThis as unknown as { DB: AuthFactoryDb }).DB
+  const sessionResult = await createAuth({ DB: db }).api.getSession({
     headers,
     cookies: cookiesObj,
   })
@@ -145,7 +151,7 @@ function getDefaultConfig(): StellarConfig {
   return {
     network: StellarNetwork.TESTNET,
     secretKeyConfigured: false,
-    usdcIssuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGZX3UPOJ2FJ3FNB6DK6L3',
+    usdcIssuer: CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
     horizonUrl: 'https://horizon.stellar.org',
     senderAccountId: null,
     updatedAt: new Date().toISOString(),
@@ -170,7 +176,6 @@ export async function updateStellarConfig(
       return { success: false, error: 'KV namespace not configured' }
     }
 
-    // Get current config
     const current = getDefaultConfig()
     const stored = await kv.get(STELLAR_CONFIG_KEY)
     if (stored) {
@@ -182,7 +187,6 @@ export async function updateStellarConfig(
       }
     }
 
-    // Apply updates
     if (updates.network) {
       if (!Object.values(StellarNetwork).includes(updates.network)) {
         return { success: false, error: `Invalid network: ${updates.network}` }
@@ -191,7 +195,6 @@ export async function updateStellarConfig(
     }
 
     if (updates.horizonUrl) {
-      // Validate URL format
       try {
         new URL(updates.horizonUrl)
         current.horizonUrl = updates.horizonUrl
@@ -202,10 +205,8 @@ export async function updateStellarConfig(
 
     current.updatedAt = new Date().toISOString()
 
-    // Save to KV
     await kv.put(STELLAR_CONFIG_KEY, JSON.stringify(current))
 
-    // Clear caches
     revalidatePath('/api/admin/settings/stellar')
     revalidatePath('/api/admin/notifications')
 
@@ -242,10 +243,8 @@ export async function testStellarConnection(): Promise<{
   }
 
   try {
-    // Get current config
     const { config } = await getStellarSettings()
 
-    // Check if secret key is available in env
     const secretKey = process.env.STELLAR_SECRET_KEY
     if (!secretKey) {
       return {
@@ -259,7 +258,6 @@ export async function testStellarConnection(): Promise<{
       }
     }
 
-    // Create service and run health check
     const service = new StellarService({
       network: config.network,
       horizonUrl: config.horizonUrl || undefined,
@@ -293,7 +291,6 @@ export async function testStellarConnection(): Promise<{
 
 /**
  * Create a mainnet wallet using xPortal/Stellar Laboratory guidance
- * This is a helper action that returns instructions for wallet creation
  */
 export async function getWalletCreationInstructions(): Promise<{
   testnet: { url: string; description: string }
@@ -333,20 +330,23 @@ export async function getUSDCInfo(network: StellarNetwork): Promise<{
   explorerUrl: string
   network: string
 }> {
-  const config: Record<StellarNetwork, {
-    issuer: string
-    horizonUrl: string
-    explorerUrl: string
-  }> = {
+  const config: Record<
+    StellarNetwork,
+    {
+      issuer: string
+      horizonUrl: string
+      explorerUrl: string
+    }
+  > = {
     [StellarNetwork.TESTNET]: {
-      issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
+      issuer: CANONICAL_STELLAR_TESTNET_USDC_ISSUER,
       horizonUrl: 'https://horizon-testnet.stellar.org',
-      explorerUrl: 'https://stellar.expert/explorer/testnet/asset/USDC-GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
+      explorerUrl: `https://stellar.expert/explorer/testnet/asset/USDC-${CANONICAL_STELLAR_TESTNET_USDC_ISSUER}`,
     },
     [StellarNetwork.MAINNET]: {
-      issuer: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGZX3UPOJ2FJ3FNB6DK6L3',
+      issuer: CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
       horizonUrl: 'https://horizon.stellar.org',
-      explorerUrl: 'https://stellar.expert/explorer/mainnet/asset/USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGZX3UPOJ2FJ3FNB6DK6L3',
+      explorerUrl: `https://stellar.expert/explorer/public/asset/USDC-${CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER}`,
     },
   }
 
