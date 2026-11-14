@@ -58,8 +58,11 @@ export async function GET(
       if (!rateLimit.allowed) {
         return createRateLimit429Response(rateLimit);
       }
-    } catch {
-      // Minimal test SQLite schemas without fraud tables fall through to short-link validation
+    } catch (fraudErr) {
+      const msg = fraudErr instanceof Error ? fraudErr.message : String(fraudErr);
+      if (!/no such table:\s*(blocked_ips|deal_clicks)/i.test(msg)) {
+        throw fraudErr;
+      }
     }
 
     const globals = globalThis as unknown as WorkerGlobalBindings;

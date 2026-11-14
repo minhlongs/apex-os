@@ -498,7 +498,7 @@ export async function verifyAndGuardWebhook(
   );
 
   const canonicalBuffer = toArrayBuffer(encoder.encode(canonicalPayload));
-  let signatureValid = false;
+  let verifiedDigestHex: string | null = null;
   for (const candidate of signatureCandidates) {
     const valid = await getSubtle().verify(
       'HMAC',
@@ -507,18 +507,19 @@ export async function verifyAndGuardWebhook(
       canonicalBuffer
     );
     if (valid) {
-      signatureValid = true;
+      verifiedDigestHex = Array.from(candidate)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
       break;
     }
   }
 
-  if (!signatureValid) {
+  if (!verifiedDigestHex) {
     return rejectWebhook(401, 'INVALID_SIGNATURE', 'Webhook HMAC-SHA256 verification failed');
   }
 
-  const signatureLockFragment = input.signature.trim();
   const inflightEventKey = `${source}::event::${eventId}`;
-  const inflightSigKey = `${source}::sig::${signatureLockFragment}`;
+  const inflightSigKey = `${source}::sig::${verifiedDigestHex}`;
   if (inFlightEventLocks.has(inflightEventKey) || inFlightEventLocks.has(inflightSigKey)) {
     return rejectWebhook(
       409,
@@ -533,7 +534,7 @@ export async function verifyAndGuardWebhook(
     await ensureStrictWebhookSchema(input.db);
 
     const [signatureHash, payloadSha256] = await Promise.all([
-      sha256Hex(signatureLockFragment),
+      sha256Hex(verifiedDigestHex),
       sha256Hex(input.rawBody),
     ]);
 

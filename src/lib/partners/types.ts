@@ -202,10 +202,10 @@ export function normalizeCommissionDecimal(
 
   const scaledIntStr = parsed
     .mul(UNITS_1E8)
-    .toDecimalPlaces(0, PartnerDecimal.ROUND_DOWN)
+    .toDecimalPlaces(0, PartnerDecimal.ROUND_FLOOR)
     .toFixed(0);
   const signedUnits1e8 = BigInt(scaledIntStr);
-  const isClawbackOrAdjustment = parsed.lte(0);
+  const isClawbackOrAdjustment = signedUnits1e8 <= 0n;
 
   return {
     decimalString: parsed.toFixed(),
