@@ -660,14 +660,14 @@ export const AdminFraudActionSchema = z.object({
   reason: z.string().min(3, 'Audit reason must contain at least 3 characters'),
   blockIpAlso: z.boolean().optional(),
   expiresAt: z.string().datetime().optional().nullable(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const CreateBlockedIpSchema = z.object({
   ipAddress: z.string().min(1, 'IP address is required'),
   reason: z.string().min(3, 'Reason must contain at least 3 characters'),
   expiresAt: z.string().datetime().optional().nullable(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 // ============================================================================

@@ -66,7 +66,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     const parseResult = CreatePaymentSchema.safeParse(body);
     if (!parseResult.success) {
       return NextResponse.json(
-        { success: false, error: 'Validation failed', details: parseResult.error.errors },
+        { success: false, error: 'Validation failed', details: parseResult.error.issues },
         { status: 400 }
       );
     }
@@ -199,7 +199,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { success: false, error: 'Validation failed', details: error.errors },
+        { success: false, error: 'Validation failed', details: error.issues },
         { status: 400 }
       );
     }
