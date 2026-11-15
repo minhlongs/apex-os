@@ -6,59 +6,111 @@
 import {
   StellarService,
   StellarNetwork,
+  USDC_CONFIG,
+  STELLAR_USDC_DECIMALS,
+  STELLAR_STROOPS_PER_USDC,
+  STELLAR_TIMEBOUNDS_SECONDS,
+  CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
   createStellarService,
   isValidStellarAccountId,
   parseStellarAmount,
+  toStellarStroops,
+  fromStellarStroops,
+  formatStellarUsdcAmount,
   PayoutDatabase,
 } from '@/lib/payouts/stellar-service';
 
-// Keypair and Horizon are defined in the jest.mock('stellar-sdk') factory
-// but not exported from the source module — retrieve them from the mock directly.
-const mockedModule = jest.requireMock('stellar-sdk') as {
+const mockedModule = jest.requireMock('@stellar/stellar-sdk') as {
   Keypair: { fromSecret: jest.Mock; fromPublicKey: jest.Mock };
   Horizon: { Server: jest.Mock };
+  TransactionBuilder: jest.Mock;
 };
-const Keypair = mockedModule.Keypair;
 const Horizon = mockedModule.Horizon;
 
 // ============================================================================
 // Mock Setup
 // ============================================================================
 
-// Hold references to mock functions for test assertions
-// Use var (not let) to avoid TDZ from jest.mock() hoisting
-// var is undefined at function scope top, assignable before declaration
 var horizonServerMock: jest.Mock;
 var keypairFromSecretMock: jest.Mock;
 
-jest.mock('stellar-sdk', () => {
+jest.mock('@stellar/stellar-sdk', () => {
   const MOCKS_GLOBAL_KEY = '__STELLAR_MOCKS__';
 
   const SENDER_ACCOUNT = 'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U';
   const RECIPIENT_ACCOUNT = 'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V';
 
   interface StellarMocks {
-    txChain: any;
-    server: any;
-    account: any;
+    txChain: {
+      transactionId: jest.Mock;
+      transaction: jest.Mock;
+    };
+    server: {
+      fetchStatus: jest.Mock;
+      loadAccount: jest.Mock;
+      submitTransaction: jest.Mock;
+      transactions: jest.Mock;
+    };
+    builderInstance: {
+      addOperation: jest.Mock;
+      addMemo: jest.Mock;
+      setTimeout: jest.Mock;
+      build: jest.Mock;
+    };
+    account: {
+      accountId: () => string;
+      sequence: string;
+      thresholds: { low_threshold: number; med_threshold: number; high_threshold: number };
+      balances: Array<{
+        asset_code?: string;
+        asset_issuer?: string | null;
+        balance: string;
+        asset_type: string;
+        is_authorized?: boolean;
+      }>;
+      exists?: boolean;
+    };
     reset: () => void;
   }
 
   const createMockAccount = () => ({
     accountId: () => SENDER_ACCOUNT,
-    sequence: () => '1234567890',
+    sequence: '1234567890',
     thresholds: { low_threshold: 1, med_threshold: 2, high_threshold: 3 },
     balances: [
-      { asset_code: 'USDC', asset_issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM', balance: '100.0000000', asset_type: 'credit_alphanum4' },
+      {
+        asset_code: 'USDC',
+        asset_issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
+        balance: '100.0000000',
+        asset_type: 'credit_alphanum4',
+        is_authorized: true,
+      },
       { asset_code: 'XLM', asset_issuer: null, balance: '10.0000000', asset_type: 'native' },
     ],
   });
 
+  const callMock = jest.fn();
+  const builderInstance = {
+    addOperation: jest.fn().mockReturnThis(),
+    addMemo: jest.fn().mockReturnThis(),
+    setTimeout: jest.fn().mockReturnThis(),
+    build: jest.fn(() => ({
+      operations: [
+        {
+          type: 'payment',
+          destination: RECIPIENT_ACCOUNT,
+          asset: { getCode: () => 'USDC' },
+          amount: '10.5000000',
+        },
+      ],
+      sign: jest.fn(),
+    })),
+  };
+
   const mocks: StellarMocks = {
     txChain: {
-      transactionId: jest.fn().mockReturnValue({
-        call: jest.fn(),
-      }),
+      transactionId: jest.fn().mockReturnValue({ call: callMock }),
+      transaction: jest.fn().mockReturnValue({ call: callMock }),
     },
     server: {
       fetchStatus: jest.fn(),
@@ -66,23 +118,34 @@ jest.mock('stellar-sdk', () => {
       submitTransaction: jest.fn(),
       transactions: jest.fn(() => mocks.txChain),
     },
+    builderInstance,
     account: createMockAccount(),
     reset: () => {
-      mocks.txChain.transactionId().call.mockClear();
+      callMock.mockClear();
+      mocks.txChain.transactionId.mockClear();
+      mocks.txChain.transaction.mockClear();
       mocks.server.fetchStatus.mockClear();
       mocks.server.loadAccount.mockClear();
       mocks.server.submitTransaction.mockClear();
       mocks.server.transactions.mockClear();
+      mocks.builderInstance.addOperation.mockClear();
+      mocks.builderInstance.addMemo.mockClear();
+      mocks.builderInstance.setTimeout.mockClear();
+      mocks.builderInstance.build.mockClear();
       mocks.account = createMockAccount();
     },
   };
 
-  (global as any)[MOCKS_GLOBAL_KEY] = mocks;
+  (global as unknown as Record<string, unknown>)[MOCKS_GLOBAL_KEY] = mocks;
 
   horizonServerMock = jest.fn(() => mocks.server);
   keypairFromSecretMock = jest.fn(() => ({ publicKey: () => SENDER_ACCOUNT }));
 
   return {
+    Networks: {
+      PUBLIC: 'Public Global Stellar Network ; September 2015',
+      TESTNET: 'Test SDF Network ; September 2015',
+    },
     Keypair: {
       fromSecret: keypairFromSecretMock,
       fromPublicKey: jest.fn((publicKey: string) => {
@@ -92,24 +155,49 @@ jest.mock('stellar-sdk', () => {
         return { publicKey: () => publicKey };
       }),
     },
-    Asset: jest.fn((code, issuer) => ({ getCode: () => code, issuer })),
+    Asset: jest.fn((code: string, issuer: string) => ({ getCode: () => code, issuer })),
     Horizon: { Server: horizonServerMock },
-    TransactionBuilder: jest.fn(() => ({
-      addOperation: jest.fn().mockReturnThis(),
-      addMemo: jest.fn().mockReturnThis(),
-      setTimeout: jest.fn().mockReturnThis(),
-      build: jest.fn(() => ({
-        operations: [{ type: 'payment', destination: RECIPIENT_ACCOUNT, asset: { getCode: () => 'USDC' }, amount: '10.5000000' }],
-        sign: jest.fn(),
-      })),
-    })),
-    Operation: { payment: jest.fn((opts) => opts) },
-    Memo: { text: jest.fn((text) => ({ type: 'text', value: text })) },
+    TransactionBuilder: jest.fn(() => mocks.builderInstance),
+    Operation: { payment: jest.fn((opts: unknown) => opts) },
+    Memo: { text: jest.fn((text: string) => ({ type: 'text', value: text })) },
   };
 });
 
-function getMocks(): any {
-  return (global as any)['__STELLAR_MOCKS__'];
+interface GlobalMockHandle {
+  txChain: {
+    transactionId: jest.Mock;
+    transaction: jest.Mock;
+  };
+  server: {
+    fetchStatus: jest.Mock;
+    loadAccount: jest.Mock;
+    submitTransaction: jest.Mock;
+    transactions: jest.Mock;
+  };
+  builderInstance: {
+    addOperation: jest.Mock;
+    addMemo: jest.Mock;
+    setTimeout: jest.Mock;
+    build: jest.Mock;
+  };
+  account: {
+    accountId: () => string;
+    sequence: string;
+    thresholds: { low_threshold: number; med_threshold: number; high_threshold: number };
+    balances: Array<{
+      asset_code?: string;
+      asset_issuer?: string | null;
+      balance: string;
+      asset_type: string;
+      is_authorized?: boolean;
+    }>;
+    exists?: boolean;
+  };
+  reset: () => void;
+}
+
+function getMocks(): GlobalMockHandle {
+  return (global as unknown as Record<string, GlobalMockHandle>)['__STELLAR_MOCKS__'];
 }
 
 // ============================================================================
@@ -125,15 +213,15 @@ describe('StellarService', () => {
     if (mocks) mocks.reset();
 
     if (mocks) {
-      mocks.server.loadAccount.mockResolvedValue(mocks.account as any);
+      mocks.server.loadAccount.mockResolvedValue(mocks.account);
       mocks.server.fetchStatus.mockResolvedValue({});
       mocks.server.submitTransaction.mockResolvedValue({
         id: 'mock_transaction_123',
         fee_charged: '300',
         envelope_xdr: 'mock_envelope',
         created_at: '2025-01-01T00:00:00Z',
-      } as any);
-      mocks.txChain.transactionId().call.mockResolvedValue({
+      });
+      mocks.txChain.transaction().call.mockResolvedValue({
         id: 'tx123',
         successful: true,
         operations: [
@@ -142,6 +230,7 @@ describe('StellarService', () => {
             destination: 'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V',
             amount: '10.0000000',
             asset_type: 'credit_alphanum4',
+            asset_code: 'USDC',
             asset_issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
           },
         ],
@@ -149,30 +238,34 @@ describe('StellarService', () => {
     }
   });
 
-  describe('Configuration', () => {
+  describe('Configuration & Canonical Circle Issuer', () => {
     it('should initialize with testnet as default', () => {
       service = new StellarService({});
       expect(service.getNetwork()).toBe(StellarNetwork.TESTNET);
     });
 
-    it('should accept custom network configuration', () => {
+    it('should configure canonical Circle Mainnet Stellar USDC issuer', () => {
+      expect(CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER).toBe(
+        'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'
+      );
+      expect(USDC_CONFIG[StellarNetwork.MAINNET].issuer).toBe(
+        'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'
+      );
       service = new StellarService({ network: StellarNetwork.MAINNET });
       expect(service.getNetwork()).toBe(StellarNetwork.MAINNET);
+      expect(service.getUSDCAsset().issuer).toBe(
+        'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN'
+      );
     });
 
     it('should load secret key and get account ID', () => {
       const secretKey = 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6';
       service = new StellarService({ secretKey });
       expect(service.hasSenderAccount()).toBe(true);
-      expect(service.getSenderAccountId()).toBe('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U');
+      expect(service.getSenderAccountId()).toBe(
+        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U'
+      );
     });
-
-  it('should handle invalid secret key gracefully', () => {
-    // Skipped: Keypair.fromSecret is fully mocked and always returns a valid object,
-    // so this test cannot trigger the error path. The try/catch in the source
-    // (stellar-service.ts:301-307) handles real Keypair.fromSecret errors.
-    expect(true).toBe(true);
-  });
 
     it('should accept custom USDC issuer', () => {
       const customIssuer = 'GCUSTOMISSUER12345678901234567890123456789012';
@@ -187,45 +280,77 @@ describe('StellarService', () => {
     });
   });
 
-  describe('Account Operations', () => {
+  describe('Account & Trustline Operations', () => {
+    const validAddr = 'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7VA';
+
     beforeEach(() => {
-      service = new StellarService({ secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6' });
+      service = new StellarService({
+        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+      });
     });
 
     it('should load existing account', async () => {
-      const account = await service.getAccount('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U');
+      const account = await service.getAccount(validAddr);
       expect(account).not.toBeNull();
       expect(account?.exists).toBe(true);
       expect(account?.balances).toHaveLength(2);
     });
 
-    it('should return null for non-existent account', async () => {
+    it('should return exists=false for non-existent account', async () => {
       mocks.server.loadAccount.mockRejectedValueOnce({ status: 404 });
-      const account = await service.getAccount('GBDIFFERENT12345678901234567890123456789012');
+      const account = await service.getAccount(validAddr);
       expect(account?.exists).toBe(false);
       expect(account?.balances).toHaveLength(0);
     });
 
+    it('should verify existing authorized USDC trustline without sponsoring', async () => {
+      expect(await service.hasUsdcTrustline(validAddr)).toBe(true);
+
+      // Unauthorized trustline returns false
+      mocks.account.balances = [
+        {
+          asset_code: 'USDC',
+          asset_issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
+          balance: '0.0000000',
+          asset_type: 'credit_alphanum4',
+          is_authorized: false,
+        },
+      ];
+      expect(await service.hasUsdcTrustline(validAddr)).toBe(false);
+
+      // Missing trustline returns false
+      mocks.account.balances = [
+        { asset_code: 'XLM', asset_issuer: null, balance: '10.0000000', asset_type: 'native' },
+      ];
+      expect(await service.hasUsdcTrustline(validAddr)).toBe(false);
+
+      // Non-existent account returns false
+      mocks.server.loadAccount.mockRejectedValueOnce({ status: 404 });
+      expect(await service.hasUsdcTrustline(validAddr)).toBe(false);
+    });
+
     it('should fetch USDC balance correctly', async () => {
-      const balance = await service.getUSDCBalance('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U');
+      const balance = await service.getUSDCBalance(validAddr);
       expect(balance).toBe(100);
     });
 
     it('should return 0 for account without USDC', async () => {
-      mocks.account.balances = [{ asset_code: 'XLM', asset_issuer: null, balance: '10.0000000', asset_type: 'native' }];
-      mocks.server.loadAccount.mockResolvedValue(mocks.account as any);
-      const balance = await service.getUSDCBalance('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U');
+      mocks.account.balances = [
+        { asset_code: 'XLM', asset_issuer: null, balance: '10.0000000', asset_type: 'native' },
+      ];
+      mocks.server.loadAccount.mockResolvedValue(mocks.account);
+      const balance = await service.getUSDCBalance(validAddr);
       expect(balance).toBe(0);
     });
 
     it('should fetch XLM balance correctly', async () => {
-      const balance = await service.getXLMBalance('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U');
+      const balance = await service.getXLMBalance(validAddr);
       expect(balance).toBe(10);
     });
 
     it('should throw on network errors', async () => {
       mocks.server.loadAccount.mockRejectedValueOnce(new Error('Network error'));
-      await expect(service.getAccount('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U')).rejects.toThrow('Network error');
+      await expect(service.getAccount(validAddr)).rejects.toThrow('Network error');
     });
   });
 
@@ -236,7 +361,9 @@ describe('StellarService', () => {
 
     it('should not allow friendbot on mainnet', async () => {
       const mainnetService = new StellarService({ network: StellarNetwork.MAINNET });
-      const result = await mainnetService.fundTestnetAccount('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U');
+      const result = await mainnetService.fundTestnetAccount(
+        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U'
+      );
       expect(result.success).toBe(false);
       expect(result.message).toContain('only available on testnet');
     });
@@ -245,90 +372,113 @@ describe('StellarService', () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: true,
         json: jest.fn().mockResolvedValue({ result: 'Account created' }),
-      }) as any;
+      }) as unknown as typeof fetch;
 
-      // Account does not exist initially, friendbot should succeed
       mocks.server.loadAccount.mockRejectedValueOnce({ status: 404 });
 
-      const result = await service.fundTestnetAccount('GBNEWACCOUNT12345678901234567890123456789012', 50);
+      const result = await service.fundTestnetAccount(
+        'GBNEWACCOUNT12345678901234567890123456789012',
+        50
+      );
       expect(result.success).toBe(true);
       expect(result.message).toContain('50 XLM');
     });
 
-    it('should handle friendbot failure (account exists)', async () => {
-      mocks.account.exists = true;
-      mocks.server.loadAccount.mockResolvedValueOnce(mocks.account as any);
-      const result = await service.fundTestnetAccount('GBEXISTING12345678901234567890123456789012');
-      expect(result.success).toBe(false);
-      expect(result.message).toContain('already exists');
-    });
-
     it('should not fund already existing account', async () => {
       mocks.account.exists = true;
-      mocks.server.loadAccount.mockResolvedValueOnce(mocks.account as any);
-      const result = await service.fundTestnetAccount('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U');
+      mocks.server.loadAccount.mockResolvedValueOnce(mocks.account);
+      const result = await service.fundTestnetAccount(
+        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U'
+      );
       expect(result.success).toBe(false);
       expect(result.message).toContain('already exists');
     });
   });
 
-  describe('Payout Operations', () => {
+  describe('Payout Operations & 180s TimeBounds', () => {
     beforeEach(() => {
-      service = new StellarService({ secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6' });
+      service = new StellarService({
+        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+      });
     });
 
-    it('should send a USDC payout successfully', async () => {
-      const result = await service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', '10.5');
+    it('should send a USDC payout successfully and set explicit 180s TimeBounds', async () => {
+      const result = await service.sendPayout(
+        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V',
+        '10.5'
+      );
       expect(result.transactionId).toBe('mock_transaction_123');
-      expect(result.fromAccount).toBe('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U');
-      expect(result.toAccount).toBe('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V');
+      expect(result.fromAccount).toBe(
+        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U'
+      );
+      expect(result.toAccount).toBe(
+        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V'
+      );
       expect(result.asset).toBe('USDC');
       expect(result.amount).toBe('10.5000000');
+      expect(mocks.builderInstance.setTimeout).toHaveBeenCalledWith(STELLAR_TIMEBOUNDS_SECONDS);
+      expect(STELLAR_TIMEBOUNDS_SECONDS).toBe(180);
     });
 
     it('should fail without sender account', async () => {
       service = new StellarService({ network: StellarNetwork.TESTNET });
-      await expect(service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 10))
-        .rejects.toThrow('Sender account not configured');
+      await expect(
+        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 10)
+      ).rejects.toThrow('Sender account not configured');
     });
 
     it('should validate positive amount', async () => {
-      await expect(service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 0))
-        .rejects.toThrow('Invalid payout amount');
+      await expect(
+        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 0)
+      ).rejects.toThrow('Invalid payout amount');
     });
 
     it('should check USDC balance before sending', async () => {
-      mocks.account.balances = [{ asset_code: 'XLM', asset_issuer: null, balance: '10.0000000', asset_type: 'native' }];
-      mocks.server.loadAccount.mockResolvedValue(mocks.account as any);
-      await expect(service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 10))
-        .rejects.toThrow('Insufficient USDC balance');
+      mocks.account.balances = [
+        { asset_code: 'XLM', asset_issuer: null, balance: '10.0000000', asset_type: 'native' },
+      ];
+      mocks.server.loadAccount.mockResolvedValue(mocks.account);
+      await expect(
+        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 10)
+      ).rejects.toThrow('Insufficient USDC balance');
     });
 
     it('should check XLM balance for fees', async () => {
       mocks.account.balances = [
-        { asset_code: 'USDC', asset_issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM', balance: '100.0000000', asset_type: 'credit_alphanum4' },
+        {
+          asset_code: 'USDC',
+          asset_issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
+          balance: '100.0000000',
+          asset_type: 'credit_alphanum4',
+        },
         { asset_code: 'XLM', asset_issuer: null, balance: '0.0000001', asset_type: 'native' },
       ];
-      mocks.server.loadAccount.mockResolvedValue(mocks.account as any);
-      await expect(service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', '1'))
-        .rejects.toThrow('Insufficient XLM for fee');
+      mocks.server.loadAccount.mockResolvedValue(mocks.account);
+      await expect(
+        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', '1')
+      ).rejects.toThrow('Insufficient XLM for fee');
     });
 
     it('should handle transaction submission failures', async () => {
-      mocks.server.loadAccount.mockResolvedValue(mocks.account as any);
-      mocks.server.submitTransaction.mockRejectedValueOnce(new Error('Transaction failed: insufficient balance'));
-      await expect(service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', '10'))
-        .rejects.toThrow('Transaction failed');
+      mocks.server.loadAccount.mockResolvedValue(mocks.account);
+      mocks.server.submitTransaction.mockRejectedValueOnce(
+        new Error('Transaction failed: insufficient balance')
+      );
+      await expect(
+        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', '10')
+      ).rejects.toThrow('Transaction failed');
     });
   });
 
   describe('Transaction Verification', () => {
     beforeEach(() => {
-      service = new StellarService({ secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6' });
+      service = new StellarService({
+        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+      });
     });
 
     it('should verify successful payout transaction', async () => {
-      mocks.txChain.transactionId().call.mockResolvedValue({
+      mocks.txChain.transaction().call.mockResolvedValue({
         id: 'tx123',
         successful: true,
         operations: [
@@ -336,25 +486,32 @@ describe('StellarService', () => {
             type: 'payment',
             destination: 'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V',
             amount: '10.0000000',
-            asset: { code: 'USDC', issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM' },
+            asset: {
+              code: 'USDC',
+              issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
+            },
           },
         ],
       });
 
-      const result = await service.verifyPayout('tx123', 10, 'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V');
+      const result = await service.verifyPayout(
+        'tx123',
+        10,
+        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V'
+      );
       expect(result.verified).toBe(true);
       expect(result.details).not.toBeNull();
     });
 
     it('should reject non-existent transaction', async () => {
-      mocks.txChain.transactionId().call.mockRejectedValue({ status: 404 });
+      mocks.txChain.transaction().call.mockRejectedValue({ status: 404 });
       const result = await service.verifyPayout('nonexistent_tx');
       expect(result.verified).toBe(false);
       expect(result.reason).toBe('Transaction not found');
     });
 
     it('should reject failed transaction', async () => {
-      mocks.txChain.transactionId().call.mockResolvedValue({
+      mocks.txChain.transaction().call.mockResolvedValue({
         id: 'tx123',
         successful: false,
       });
@@ -364,7 +521,7 @@ describe('StellarService', () => {
     });
 
     it('should validate recipient address', async () => {
-      mocks.txChain.transactionId().call.mockResolvedValue({
+      mocks.txChain.transaction().call.mockResolvedValue({
         id: 'tx123',
         successful: true,
         operations: [
@@ -372,18 +529,25 @@ describe('StellarService', () => {
             type: 'payment',
             destination: 'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V',
             amount: '10.0000000',
-            asset: { code: 'USDC', issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM' },
+            asset: {
+              code: 'USDC',
+              issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
+            },
           },
         ],
       });
 
-      const result = await service.verifyPayout('tx123', 10, 'GBWRONGADDRESS123456789012345678901234567890');
+      const result = await service.verifyPayout(
+        'tx123',
+        10,
+        'GBWRONGADDRESS123456789012345678901234567890'
+      );
       expect(result.verified).toBe(false);
       expect(result.reason).toContain('Recipient mismatch');
     });
 
     it('should validate amount', async () => {
-      mocks.txChain.transactionId().call.mockResolvedValue({
+      mocks.txChain.transaction().call.mockResolvedValue({
         id: 'tx123',
         successful: true,
         operations: [
@@ -391,7 +555,10 @@ describe('StellarService', () => {
             type: 'payment',
             destination: 'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V',
             amount: '10.0000000',
-            asset: { code: 'USDC', issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM' },
+            asset: {
+              code: 'USDC',
+              issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
+            },
           },
         ],
       });
@@ -439,9 +606,11 @@ describe('StellarService', () => {
       ]);
       mockDb.createPayout.mockResolvedValue('payout123');
       mockDb.markEarningsPaid.mockResolvedValue(2);
-      mocks.server.loadAccount.mockResolvedValue(mocks.account as any);
+      mocks.server.loadAccount.mockResolvedValue(mocks.account);
 
-      service = new StellarService({ secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6' });
+      service = new StellarService({
+        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+      });
     });
 
     it('should process batch payouts correctly', async () => {
@@ -465,15 +634,26 @@ describe('StellarService', () => {
     });
 
     it('should handle dry run mode', async () => {
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase, { dryRun: true });
+      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase, {
+        dryRun: true,
+      });
       expect(result.successful).toBe(2);
       expect(result.results[0]).toHaveProperty('transactionId');
-      expect(result.results[0].transactionId).toContain('DRY_RUN');
+      if ('transactionId' in result.results[0]) {
+        expect(result.results[0].transactionId).toContain('DRY_RUN');
+      }
     });
 
     it('should skip invalid wallet addresses', async () => {
       mockDb.getPendingEarnings.mockResolvedValue([
-        { id: 'earn1', affiliate_id: 'affiliate1', amount: 10, wallet_address: 'INVALID_ADDRESS', affiliate_name: 'Invalid', affiliate_email: 'invalid@example.com' },
+        {
+          id: 'earn1',
+          affiliate_id: 'affiliate1',
+          amount: 10,
+          wallet_address: 'INVALID_ADDRESS',
+          affiliate_name: 'Invalid',
+          affiliate_email: 'invalid@example.com',
+        },
       ]);
       const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
       expect(result.failed).toBe(1);
@@ -482,7 +662,14 @@ describe('StellarService', () => {
 
     it('should respect limit parameter', async () => {
       mockDb.getPendingEarnings.mockResolvedValue([
-        { id: 'earn1', affiliate_id: 'affiliate1', amount: 10, wallet_address: 'GBVALIDWALLET123456789012345678901234567890', affiliate_name: 'User', affiliate_email: 'user@example.com' },
+        {
+          id: 'earn1',
+          affiliate_id: 'affiliate1',
+          amount: 10,
+          wallet_address: 'GBVALIDWALLET2345672345672345672345672345672345672345672',
+          affiliate_name: 'User',
+          affiliate_email: 'user@example.com',
+        },
       ]);
       await service.processBatchPayouts(mockDb as unknown as PayoutDatabase, { limit: 1 });
       expect(mockDb.getPendingEarnings).toHaveBeenCalledWith(1);
@@ -492,7 +679,7 @@ describe('StellarService', () => {
       mocks.server.submitTransaction.mockRejectedValueOnce(new Error('Transaction failed'));
       const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
       expect(result.failed).toBeGreaterThan(0);
-      expect(result.results.some(r => 'error' in r)).toBe(true);
+      expect(result.results.some((r) => 'error' in r)).toBe(true);
     });
 
     it('should return empty result when no pending earnings', async () => {
@@ -506,11 +693,13 @@ describe('StellarService', () => {
 
   describe('Health Check', () => {
     beforeEach(() => {
-      service = new StellarService({ secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6' });
+      service = new StellarService({
+        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+      });
     });
 
     it('should report healthy status when all systems operational', async () => {
-      mocks.server.loadAccount.mockResolvedValue(mocks.account as any);
+      mocks.server.loadAccount.mockResolvedValue(mocks.account);
       const health = await service.healthCheck();
       expect(health.healthy).toBe(true);
       expect(health.horizonConnected).toBe(true);
@@ -547,9 +736,9 @@ describe('StellarService', () => {
       process.env.STELLAR_USDC_ISSUER = 'GCUSTOMISSUER12345678901234567890123456789012';
       process.env.STELLAR_HORIZON_URL = 'https://custom-horizon.example.com';
 
-      const service = createStellarService();
-      expect(service.getNetwork()).toBe(StellarNetwork.MAINNET);
-      expect(service.hasSenderAccount()).toBe(true);
+      const created = createStellarService();
+      expect(created.getNetwork()).toBe(StellarNetwork.MAINNET);
+      expect(created.hasSenderAccount()).toBe(true);
 
       delete process.env.STELLAR_SECRET_KEY;
       delete process.env.STELLAR_NETWORK;
@@ -560,31 +749,48 @@ describe('StellarService', () => {
     it('should warn when secret key is missing', () => {
       const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       createStellarService();
-      expect(consoleSpy).toHaveBeenCalledWith('[ApexOS]', expect.stringContaining('STELLAR_SECRET_KEY'));
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[ApexOS]',
+        expect.stringContaining('STELLAR_SECRET_KEY')
+      );
       consoleSpy.mockRestore();
     });
   });
 
-  describe('Utility Functions', () => {
+  describe('7-Decimal Stroops Integer Math & Utility Functions', () => {
     it('should validate Stellar account IDs', () => {
-      expect(isValidStellarAccountId('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7VA')).toBe(true);
-      expect(isValidStellarAccountId('GDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U')).toBe(false);
+      expect(
+        isValidStellarAccountId('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7VA')
+      ).toBe(true);
+      expect(
+        isValidStellarAccountId('GDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U')
+      ).toBe(false);
       expect(isValidStellarAccountId('invalid')).toBe(false);
       expect(isValidStellarAccountId('')).toBe(false);
-      expect(isValidStellarAccountId('CDU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U')).toBe(false);
+      expect(
+        isValidStellarAccountId('CDU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U')
+      ).toBe(false);
     });
 
-    it('should parse Stellar amounts correctly', () => {
+    it('should enforce exact 7-decimal stroops ROUND_DOWN math without float drift', () => {
+      expect(STELLAR_USDC_DECIMALS).toBe(7);
+      expect(STELLAR_STROOPS_PER_USDC).toBe(BigInt(10000000));
+      expect(toStellarStroops('12.3456789')).toBe(BigInt(123456789));
+      expect(toStellarStroops('10.123456789')).toBe(BigInt(101234567));
+      expect(fromStellarStroops(BigInt(123456789))).toBe('12.3456789');
+      expect(formatStellarUsdcAmount('10.123456789')).toBe('10.1234567');
+
       expect(parseStellarAmount('10.1234567')).toBe(10.1234567);
       expect(parseStellarAmount(10.5)).toBe(10.5);
       expect(parseStellarAmount('0.0000001')).toBe(0.0000001);
-      expect(parseStellarAmount('10.123456789')).toBe(10.1234568);
+      expect(parseStellarAmount('10.123456789')).toBe(10.1234567);
     });
 
     it('should throw on invalid amount', () => {
       expect(() => parseStellarAmount('abc')).toThrow('Invalid Stellar amount');
       expect(() => parseStellarAmount(0)).toThrow('Invalid Stellar amount');
       expect(() => parseStellarAmount(-5)).toThrow('Invalid Stellar amount');
+      expect(() => toStellarStroops(0)).toThrow('Invalid Stellar amount');
     });
   });
 

@@ -15,6 +15,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { guardLegacyAdminPayoutMutation } from '@/lib/compliance/legacy-route-guards';
 import { verifyAdminPayoutAccess } from '@/lib/payouts/admin-auth';
 import { batchSettlementService } from '@/lib/payouts/batch-settlement-service';
 import type { SupportedPayoutChain, BatchSettlementOptions } from '@/lib/payouts/types';
@@ -140,6 +141,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     // action === 'execute'
+    if (!options.dryRun) {
+      const legacyBlock = await guardLegacyAdminPayoutMutation(request, authResult.db);
+      if (legacyBlock) {
+        return legacyBlock;
+      }
+    }
+
     const execution = await batchSettlementService.executeBatch(options);
     return NextResponse.json(
       {

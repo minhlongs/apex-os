@@ -104,13 +104,6 @@ const PREPOPULATED_WATCHLIST: WatchlistEntry[] = [
     source: 'OFAC Specially Designated Nationals List',
     riskScore: 1.0,
   },
-  {
-    address: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
-    chain: 'stellar',
-    reason: 'OFAC Watchlist - Malicious Cluster',
-    source: 'OFAC Specially Designated Nationals List',
-    riskScore: 1.0,
-  },
 ];
 
 export class SanctionsScreeningService implements ISanctionsScreeningService {

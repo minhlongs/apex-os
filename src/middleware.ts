@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
-import { createRateLimiter, getClientIP } from './lib/rate-limiter'
+import { createRateLimiter } from './lib/rate-limiter'
 import { initializeDB } from './lib/db'
 import { warn as logWarn } from './lib/logger'
+import { evaluateGeoFence, buildGeoRestrictedResponse } from './lib/compliance/geo-fence'
 
-const DEFAULT_LOCALE = 'vi'
-const SUPPORTED_LOCALES = ['vi', 'en']
+export const DEFAULT_LOCALE = 'en'
+export const SUPPORTED_LOCALES = ['en', 'vi'] as const
 
 // Paths that skip all middleware processing (health checks, cron)
 const SKIP_PATHS = [
@@ -26,14 +27,19 @@ return SKIP_PATHS.some((prefix) => pathname.startsWith(prefix))
 // Extract locale from pathname (first segment)
 function extractLocale(pathname: string): string | null {
 const segments = pathname.split('/').filter(Boolean)
-if (segments.length > 0 && SUPPORTED_LOCALES.includes(segments[0] as any)) {
-return segments[0] as string
+if (segments.length > 0 && (SUPPORTED_LOCALES as readonly string[]).includes(segments[0])) {
+return segments[0]
 }
 return null
 }
 
 // Rate limiter instances
 const rateLimiters = {
+'/r/': createRateLimiter({
+maxRequests: 30,
+windowMs: 60_000,
+prefix: 'shortlink-click',
+}),
 '/api/tracking/click': createRateLimiter({
 maxRequests: 30,
 windowMs: 60_000,
@@ -63,6 +69,16 @@ prefix: 'deals',
 maxRequests: 60,
 windowMs: 60_000,
 prefix: 'affiliate',
+}),
+'/api/b2b': createRateLimiter({
+maxRequests: 30,
+windowMs: 60_000,
+prefix: 'b2b-proof',
+}),
+'/api/admin': createRateLimiter({
+maxRequests: 20,
+windowMs: 60_000,
+prefix: 'admin-api',
 }),
 '/api/payouts': createRateLimiter({
 maxRequests: 10,
@@ -119,13 +135,19 @@ if (isApiPath(pathname) && shouldSkip(pathname)) {
 return NextResponse.next()
 }
 
-// 3. Locale handling for pages (skip API routes)
-if (!isApiPath(pathname)) {
+// 2.5. Edge Geo-Fencing + BLOCK_VN_SIGNUPS kill-switch
+const geoDecision = await evaluateGeoFence(request)
+if (!geoDecision.allowed) {
+return buildGeoRestrictedResponse(geoDecision)
+}
+
+// 3. Locale handling for pages (skip API routes and clean-room shortlinks /r/:code)
+if (!isApiPath(pathname) && !pathname.startsWith('/r/')) {
 const locale = extractLocale(pathname)
 if (!locale) {
 // No locale in path, redirect to default
 const url = request.nextUrl.clone()
-url.pathname = `/${DEFAULT_LOCALE}${pathname}`
+url.pathname = pathname === '/' ? `/${DEFAULT_LOCALE}` : `/${DEFAULT_LOCALE}${pathname}`
 return NextResponse.redirect(url)
 }
 }
@@ -137,7 +159,7 @@ return NextResponse.next()
 export const config = {
 matcher: [
 '/((?!_next|favicon.ico|.*\\..*|public).*)',
-'/(vi|en)/((?!_next|favicon.ico|.*\\..*).*)',
+'/(en|vi)/((?!_next|favicon.ico|.*\\..*).*)',
 '/api/:path*',
 ],
 }

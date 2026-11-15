@@ -1,8 +1,8 @@
 {
-  "name": "ApexOS - Crypto Cashback & Affiliate Hub",
+  "name": "ApexOS - Trading Fee Analytics & Rebate Ledger",
   "short_name": "ApexOS",
-  "description": "Global crypto cashback platform and affiliate hub. Earn cashback on crypto trades, multi-tier commissions.",
-  "start_url": "/",
+  "description": "Non-custodial B2B trading fee analytics and single-tier rebate ledger.",
+  "start_url": "/en",
   "display": "standalone",
   "background_color": "#000000",
   "theme_color": "#000000",
@@ -22,6 +22,6 @@
     }
   ],
   "categories": ["finance", "productivity"],
-  "lang": "vi",
+  "lang": "en",
   "dir": "ltr"
 }

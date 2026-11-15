@@ -31,7 +31,12 @@
   },
   "dependencies": {
     "@amplitude/analytics-browser": "^2.44.1",
-    "better-auth": "0.8.7-beta.5",
+    "@simplewebauthn/server": "^14.1.0",
+    "@stellar/stellar-sdk": "^17.4.0",
+    "@turnkey/sdk-server": "^8.9.1",
+    "better-auth": "^1.7.23",
+    "decimal.js": "^10.6.0",
+    "json-rules-engine": "^7.3.1",
     "lucide-react": "^0.441.0",
     "mixpanel-browser": "^2.80.0",
     "next": "16.4.3",
@@ -41,9 +46,9 @@
     "react-is": "18.3.1",
     "recharts": "^3.8.1",
     "resend": "^6.14.0",
-    "stellar-sdk": "^12.3.0",
+    "viem": "^2.57.19",
     "web-vitals": "^5.3.0",
-    "zod": "^3.23.0",
+    "zod": "^4.6.7",
     "zustand": "^4.5.0"
   },
   "devDependencies": {
@@ -69,8 +74,8 @@
     "tailwindcss": "^3.4.0",
     "ts-jest": "^29.1.0",
     "typescript": "^5.4.0",
-    "wrangler": "4.152.0",
-    "webpack": "^5.112.2"
+    "webpack": "^5.112.2",
+    "wrangler": "4.152.0"
   },
   "jest": {
     "preset": "ts-jest",
@@ -103,5 +108,11 @@
     "setupFilesAfterEnv": [
       "<rootDir>/jest.setup.ts"
     ]
+  },
+  "overrides": {
+    "follow-redirects": "^1.16.3",
+    "source-map-js": "^1.2.2",
+    "kysely": "^0.29.9",
+    "zod": "^4.6.7"
   }
 }

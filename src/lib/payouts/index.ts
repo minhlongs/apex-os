@@ -94,3 +94,43 @@ export type {
   AffiliateInfo,
   StellarService,
 } from './stellar-service';
+
+// Phase 1 Audited Multichain Settlement, Turnkey HSM Isolation & Broadcast Recovery
+export {
+  ArbitrumBaseUsdcAdapter,
+  CANONICAL_ARBITRUM_NATIVE_USDC,
+  CANONICAL_BASE_NATIVE_USDC,
+  CIRCLE_IS_BLACKLISTED_SELECTOR,
+  EVM_USDC_DECIMALS,
+  MIN_WITHDRAWAL_UNITS_1E8,
+  assertPhase1ChainEnabled,
+  ledgerUnits1e8ToEvmUsdcUnits,
+} from './adapters/arbitrum-base-usdc-adapter';
+export type {
+  Phase1SettlementChain,
+  EvmPhase1SettlementChain,
+  LegacyDisabledSettlementChain,
+  EvmJsonRpcTransport,
+} from './adapters/arbitrum-base-usdc-adapter';
+export {
+  TurnkeySigner,
+  TurnkeyServerHsmTransport,
+  attachEd25519SignatureToStellarEnvelopeXdr,
+  HOT_WALLET_SINGLE_TX_CAP_UNITS_1E8,
+  HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8,
+  COLD_SAFE_MIN_RESERVE_BPS,
+} from './turnkey-signer';
+export { HorizonStellarBroadcastTransport } from './stellar-horizon-transport';
+export { BroadcastRecoveryMachine } from './broadcast-recovery-machine';
+export type {
+  SettlementBroadcastState,
+  SettlementBroadcastRow,
+  StellarBroadcastTransport,
+} from './broadcast-recovery-machine';
+export {
+  evaluateUsdcPegBand,
+  enforceUsdcPegCircuitBreaker,
+  assertPreSigningSafetyGuards,
+  USDC_PEG_MIN_BOUND_STR,
+  USDC_PEG_MAX_BOUND_STR,
+} from './usdc-safety-guards';

@@ -16,6 +16,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { guardLegacyAdminPayoutMutation } from '@/lib/compliance/legacy-route-guards';
 import { verifyAdminPayoutAccess } from '@/lib/payouts/admin-auth';
 import { batchSettlementService } from '@/lib/payouts/batch-settlement-service';
 import { payoutAuditService } from '@/lib/payouts/audit-service';
@@ -39,6 +40,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const { admin, db, ipAddress } = authResult;
+  const legacyBlock = await guardLegacyAdminPayoutMutation(request, db);
+  if (legacyBlock) {
+    return legacyBlock;
+  }
 
   // 2. Parse JSON body
   let body: RetryPayoutRequestBody;

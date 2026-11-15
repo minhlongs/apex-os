@@ -1,12 +1,12 @@
-# ApexOS — Global Crypto Cashback & Affiliate Platform (v1.1.0)
+# ApexOS — Auditable Proof-of-Rebate & B2B Crypto Fee Ledger (v1.5.0)
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](./package.json)
-[![Tests](https://img.shields.io/badge/tests-120%20suites%20%7C%202%2C893%20passed-brightgreen.svg)](./tests)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](./package.json)
+[![Tests](https://img.shields.io/badge/tests-169%20suites%20%7C%203%2C536%20passed-brightgreen.svg)](./src/__tests__/sandbox)
 [![TypeCheck](https://img.shields.io/badge/typescript-0%20errors-brightgreen.svg)](#testing)
 [![Bundle Size](https://img.shields.io/badge/mobile%20bundle-5.4%20MB%20(%3C50MB)-success.svg)](./apex-os-mobile)
 [![License](https://img.shields.io/badge/license-Private-red.svg)](#license)
 
-ApexOS is an enterprise-grade crypto cashback and affiliate platform enabling traders to earn cash rebates on cryptocurrency trades across major global exchanges (**Binance, Bybit, OKX, KuCoin**) and empowering affiliate networks with automated 3-level referral commissions (30% / 10% / 5%). 
+ApexOS is a non-custodial, cryptographically auditable Proof-of-Rebate platform (Hệ thống Đối soát Hoàn phí B2B Khả Kiểm toán) built on Cloudflare Workers, D1, and R2. It reconciles verified partner commissions (`CASH_COLLECTED`) from official **Bybit Affiliate v5**, **OKX Affiliate / FD Broker v5**, and **Bitget Broker v2** feeds (standard Binance Referral Pro auto-attribution is hard-blocked due to missing customer UIDs), holds postings in an atomic `10^-8` USD double-entry D1 ledger for **T+7 days**, distributes rebates via the **1-Tier + B2B Safe-Spread Waterfall** (`5%` clawback reserve, `47.5%` trader rebate, `14.25%` 1-tier L1 share, `0%` L2/L3), and settles `$10+` **Circle Native USDC** across **Stellar (Protocol 30, 7 decimals)**, **Arbitrum One (6 decimals)**, and **Base (6 decimals)** behind **Turnkey HSM** hot-wallet caps (`<=$250/tx`, `<=$1,500/24h`) and **Safe 2-of-3** cold reserves.
 
 ApexOS combines a Next.js 16 web application running on Cloudflare Pages & D1 edge infrastructure with a cross-platform React Native / Expo 52 mobile application.
 

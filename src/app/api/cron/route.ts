@@ -78,12 +78,26 @@ async function handleWeeklyPayouts(
     const autoSettle = process.env.AUTO_SETTLE_PAYOUTS?.trim().toLowerCase();
     const isProd =
       process.env.NODE_ENV === 'production' || process.env.APP_ENV === 'production';
-    if (autoSettle === 'false' || (isProd && autoSettle !== 'true')) {
+    let hasAuditedLedger = false;
+    try {
+      const sentinel = await db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'settlement_broadcasts' LIMIT 1"
+        )
+        .first();
+      hasAuditedLedger = Boolean(sentinel?.name === 'settlement_broadcasts');
+    } catch {
+      hasAuditedLedger = false;
+    }
+
+    if (hasAuditedLedger || autoSettle === 'false' || (isProd && autoSettle !== 'true')) {
       return {
         success: true,
         processed: 0,
         totalAmount: 0,
-        details: 'Manual-first rollout: set AUTO_SETTLE_PAYOUTS=true to enable automatic cron payouts',
+        details: hasAuditedLedger
+          ? 'Phase 1 Turnkey HSM + Passkey step-up active: legacy raw-key cron payouts disabled in favor of /api/admin/settlement/dispatch'
+          : 'Manual-first rollout: set AUTO_SETTLE_PAYOUTS=true to enable automatic cron payouts',
       };
     }
 

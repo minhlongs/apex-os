@@ -18,12 +18,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyTelegramInitData } from '@/lib/telegram/crypto';
 import { getAuthenticatedUser, resolveDatabase } from '@/lib/auth/session-helper';
+import {
+  buildGeoRestrictedResponse,
+  evaluateGeoFence,
+} from '@/lib/compliance/geo-fence';
+import { isAscendancyGuardActive } from '@/lib/compliance/legacy-route-guards';
 import { getDB, type D1Database } from '@/lib/db';
 import {
   validateWalletAddress,
   type SupportedChain,
   SUPPORTED_CHAINS,
-} from '@/app/api/profile/wallet/route';
+} from '@/lib/wallet/address-validation';
+import {
+  isPhase1PayoutChain,
+  proposeTimelockedWalletChange,
+} from '@/lib/wallet/timelock-wallet-service';
 import { warn as logWarn, error as logError } from '@/lib/logger';
 import type { TelegramAuthResponse } from '@/types/telegram';
 
@@ -104,6 +113,13 @@ export interface ExtendedTelegramAuthResponse extends TelegramAuthResponse {
 
 export async function POST(request: NextRequest): Promise<NextResponse<ExtendedTelegramAuthResponse>> {
   try {
+    // 0. Enforce Edge Geo-Fence & Vietnam BLOCK_VN_SIGNUPS kill-switch even on direct route invocation
+    const earlyDb = getDatabase(request);
+    const geoDecision = await evaluateGeoFence(request, { db: earlyDb });
+    if (!geoDecision.allowed) {
+      return buildGeoRestrictedResponse(geoDecision) as NextResponse<ExtendedTelegramAuthResponse>;
+    }
+
     // 1. Parse JSON body
     let body: TelegramAuthRequestBody;
     try {
@@ -153,12 +169,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<ExtendedT
     }
 
     const { user: tgUser, auth_date: authDate, start_param: startParam } = verification.data;
+    const ascendancyWalletGuard = await isAscendancyGuardActive(earlyDb, 'wallet_change_requests');
 
     // 4. Validate wallet address format if provided
     const rawAddress = (body.wallet_address ?? body.walletAddress)?.trim();
     const rawChain = (body.preferred_chain ?? body.preferredChain)?.trim().toLowerCase();
 
-    let walletToBind: { address: string; chain: SupportedChain } | null = null;
+    let walletToBind: { address: string; chain: string } | null = null;
     if (rawAddress !== undefined && rawAddress !== null && rawAddress.length > 0) {
       if (!rawChain) {
         return NextResponse.json(
@@ -166,20 +183,33 @@ export async function POST(request: NextRequest): Promise<NextResponse<ExtendedT
           { status: 400 }
         );
       }
-      if (!SUPPORTED_CHAINS.includes(rawChain as SupportedChain)) {
-        return NextResponse.json(
-          { success: false, error: `Unsupported blockchain network: '${rawChain}'` },
-          { status: 400 }
-        );
+      if (ascendancyWalletGuard) {
+        if (!isPhase1PayoutChain(rawChain)) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Unsupported blockchain network: '${rawChain}'. Phase 1 supports only: stellar, arbitrum, base`,
+            },
+            { status: 400 }
+          );
+        }
+        walletToBind = { address: rawAddress, chain: rawChain };
+      } else {
+        if (!SUPPORTED_CHAINS.includes(rawChain as SupportedChain)) {
+          return NextResponse.json(
+            { success: false, error: `Unsupported blockchain network: '${rawChain}'` },
+            { status: 400 }
+          );
+        }
+        const supportedChain = rawChain as SupportedChain;
+        if (!validateWalletAddress(rawAddress, supportedChain)) {
+          return NextResponse.json(
+            { success: false, error: `Invalid wallet address format for ${supportedChain} network` },
+            { status: 400 }
+          );
+        }
+        walletToBind = { address: rawAddress, chain: supportedChain };
       }
-      const supportedChain = rawChain as SupportedChain;
-      if (!validateWalletAddress(rawAddress, supportedChain)) {
-        return NextResponse.json(
-          { success: false, error: `Invalid wallet address format for ${supportedChain} network` },
-          { status: 400 }
-        );
-      }
-      walletToBind = { address: rawAddress, chain: supportedChain };
     }
 
     // 5. Acquire Cloudflare D1 Database
@@ -440,36 +470,57 @@ export async function POST(request: NextRequest): Promise<NextResponse<ExtendedT
       }
     }
 
-    // 7. Wallet Binding
+    // 7. Wallet Binding (48h Timelock enforced when Ascendancy schema/runtime is active)
     if (walletToBind) {
-      await db
-        .prepare(
-          `UPDATE profiles SET
-            wallet_address = ?,
-            preferred_chain = ?,
-            updated_at = datetime('now')
-          WHERE id = ?`
-        )
-        .bind(walletToBind.address, walletToBind.chain, userId)
-        .run();
-
-      profile.wallet_address = walletToBind.address;
-      profile.preferred_chain = walletToBind.chain;
-
-      try {
+      if (ascendancyWalletGuard) {
+        const proposal = await proposeTimelockedWalletChange(db, {
+          authenticatedUserId: userId,
+          proposedAddress: walletToBind.address,
+          proposedChain: walletToBind.chain,
+          requestedIp:
+            request.headers.get('cf-connecting-ip') ??
+            request.headers.get('x-forwarded-for') ??
+            null,
+        });
+        if (!proposal.success) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: proposal.error || 'Wallet change rejected by 48-hour timelock policy',
+            },
+            { status: proposal.status }
+          );
+        }
+      } else {
         await db
           .prepare(
-            `INSERT INTO wallet_connections (id, profile_id, wallet_address, preferred_chain, is_primary, connected_at, last_used_at)
-             VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))
-             ON CONFLICT (profile_id, wallet_address) DO UPDATE SET
-               preferred_chain = excluded.preferred_chain,
-               is_primary = 1,
-               last_used_at = datetime('now')`
+            `UPDATE profiles SET
+              wallet_address = ?,
+              preferred_chain = ?,
+              updated_at = datetime('now')
+            WHERE id = ?`
           )
-          .bind(crypto.randomUUID(), userId, walletToBind.address, walletToBind.chain)
+          .bind(walletToBind.address, walletToBind.chain, userId)
           .run();
-      } catch (wcErr) {
-        logWarn('[Telegram Auth] wallet_connections upsert notice:', wcErr);
+
+        profile.wallet_address = walletToBind.address;
+        profile.preferred_chain = walletToBind.chain;
+
+        try {
+          await db
+            .prepare(
+              `INSERT INTO wallet_connections (id, profile_id, wallet_address, preferred_chain, is_primary, connected_at, last_used_at)
+               VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))
+               ON CONFLICT (profile_id, wallet_address) DO UPDATE SET
+                 preferred_chain = excluded.preferred_chain,
+                 is_primary = 1,
+                 last_used_at = datetime('now')`
+            )
+            .bind(crypto.randomUUID(), userId, walletToBind.address, walletToBind.chain)
+            .run();
+        } catch (wcErr) {
+          logWarn('[Telegram Auth] wallet_connections upsert notice:', wcErr);
+        }
       }
     }
 

@@ -68,15 +68,22 @@ import {
 } from '@/lib/webhooks/error-responses';
 import { getDB } from '@/lib/db';
 import type { D1Database } from '@/lib/db';
+import { guardLegacyExchangeWebhook } from '@/lib/compliance/legacy-route-guards';
 import { commissionOf, createEarnings, toUsdc, type Commission } from '@/lib/webhooks/earnings';
 import { error as logError, info as logInfo, warn as logWarn } from '@/lib/logger';
 
-const EXCHANGE_SECRETS: Record<Exchange, string | undefined> = {
-  binance: process.env.BINANCE_WEBHOOK_SECRET,
-  bybit: process.env.BYBIT_WEBHOOK_SECRET,
-  okx: process.env.OKX_WEBHOOK_SECRET,
-  kucoin: process.env.KUCOIN_WEBHOOK_SECRET,
-};
+function getExchangeSecret(exchange: Exchange): string | undefined {
+  switch (exchange) {
+    case 'binance':
+      return process.env.BINANCE_WEBHOOK_SECRET;
+    case 'bybit':
+      return process.env.BYBIT_WEBHOOK_SECRET;
+    case 'okx':
+      return process.env.OKX_WEBHOOK_SECRET;
+    case 'kucoin':
+      return process.env.KUCOIN_WEBHOOK_SECRET;
+  }
+}
 
 function validateTimestampOrError(
   exchange: Exchange,
@@ -120,7 +127,7 @@ async function verifyWebhookSignature(
   rawBody: string,
   headers: Record<string, string>
 ): Promise<{ valid: boolean; error?: string }> {
-  const secret = EXCHANGE_SECRETS[exchange];
+  const secret = getExchangeSecret(exchange);
   if (!secret) {
     return { valid: false, error: `Webhook secret not configured for exchange: ${exchange}` };
   }
@@ -298,6 +305,26 @@ export const POST = withRateLimit(async (request: NextRequest): Promise<Response
       return NextResponse.json(WebhookErrorResponses.invalidPayload('Could not parse webhook payload', requestId), { status: getHttpStatusCode(WebhookErrorCode.INVALID_PAYLOAD) });
     }
 
+    const rawTimestamp = WebhookCrypto.extractTimestamp(exchange, headers, body);
+    const strictGuardRes = await guardLegacyExchangeWebhook({
+      db,
+      source: exchange,
+      eventId: `${trade.symbol}:${trade.orderId}`,
+      timestamp: rawTimestamp !== null ? String(rawTimestamp) : null,
+      signature: signatureHeader,
+      rawBody,
+      secret: getExchangeSecret(exchange),
+      requestPath:
+        exchange === 'okx'
+          ? '/api/webhooks/exchange/okx'
+          : exchange === 'kucoin'
+            ? '/api/webhooks/exchange/kucoin'
+            : '/api/webhooks/exchange',
+    });
+    if (strictGuardRes) {
+      return strictGuardRes;
+    }
+
     const isReplay = await isWebhookReplay(exchange, trade.orderId, trade.symbol);
     if (isReplay) {
       logWarn(`[Webhook] Replay attack detected: ${exchange} order ${trade.orderId} for ${trade.symbol}`);
@@ -412,7 +439,9 @@ if (click?.affiliate_id && commission.total !== null) {
  endpointType: 'webhook'
 });
 export async function GET(): Promise<Response> {
-  const exchanges = ['binance', 'bybit', 'okx', 'kucoin'].filter((ex) => EXCHANGE_SECRETS[ex as Exchange]).map((ex) => ({ exchange: ex, configured: true }));
+  const exchanges = ['binance', 'bybit', 'okx', 'kucoin']
+    .filter((ex) => Boolean(getExchangeSecret(ex as Exchange)))
+    .map((ex) => ({ exchange: ex, configured: true }));
   return NextResponse.json({
     status: 'ok',
     timestamp: new Date().toISOString(),

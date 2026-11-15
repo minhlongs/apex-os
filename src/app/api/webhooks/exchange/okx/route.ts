@@ -83,6 +83,7 @@ import {
 } from '@/lib/webhooks/error-responses';
 import { getDB } from '@/lib/db';
 import type { D1Database } from '@/lib/db';
+import { guardLegacyExchangeWebhook } from '@/lib/compliance/legacy-route-guards';
 import { error as logError, info as logInfo, warn as logWarn } from '@/lib/logger';
 import { commissionOf, createEarnings, toUsdc } from '@/lib/webhooks/earnings';
 
@@ -297,6 +298,20 @@ export async function POST(request: NextRequest): Promise<Response> {
         WebhookErrorResponses.invalidPayload('Could not parse OKX webhook payload', requestId),
         { status: getHttpStatusCode(WebhookErrorCode.INVALID_PAYLOAD) }
       );
+    }
+
+    const strictOkxRes = await guardLegacyExchangeWebhook({
+      db,
+      source: 'okx',
+      eventId: `${trade.symbol}:${trade.orderId}`,
+      timestamp: headers['ok-access-timestamp'] ?? null,
+      signature: headers['ok-access-sign'] ?? null,
+      rawBody,
+      secret: getOkxWebhookSecret(),
+      requestPath: '/api/webhooks/exchange/okx',
+    });
+    if (strictOkxRes) {
+      return strictOkxRes;
     }
 
     // Replay protection

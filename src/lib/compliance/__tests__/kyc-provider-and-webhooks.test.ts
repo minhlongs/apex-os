@@ -5,6 +5,27 @@
  * Milestone 2: KYC Provider Architecture, Webhook Ingestion & Auto-Release Test Suite
  */
 
+jest.mock(
+  'stellar-sdk',
+  () => ({
+    StrKey: {
+      isValidEd25519PublicKey: (addr: string) => /^G[A-Z2-7]{55}$/.test(addr),
+    },
+    Networks: {
+      PUBLIC: 'Public Global Stellar Network ; September 2015',
+      TESTNET: 'Test SDF Network ; September 2015',
+    },
+    Horizon: { Server: class {} },
+    Keypair: { fromSecret: () => ({ publicKey: () => '' }) },
+    Asset: class {},
+    TransactionBuilder: class {},
+    Operation: {},
+    Memo: { text: () => ({}) },
+    BASE_FEE: '100',
+  }),
+  { virtual: true }
+);
+
 jest.mock('@/lib/auth/auth-factory', () => ({
   createAuth: jest.fn(() => ({
     api: {
@@ -484,7 +505,8 @@ describe('KYC Provider Architecture & Edge Webhook Engine', () => {
       expect(data.error).toContain('Unauthorized');
     });
 
-    it('creates active verification session for authenticated user', async () => {
+    it('returns 410 KYC_DOCUMENT_COLLECTION_DISABLED by default under Law 91/2025/QH15 data minimization', async () => {
+      delete process.env.ALLOW_LEGACY_KYC_SESSION_FOR_TESTS;
       (sessionHelper.getAuthenticatedUser as jest.Mock).mockResolvedValue({
         id: 'user_init_1',
         email: 'user1@example.com',
@@ -493,32 +515,67 @@ describe('KYC Provider Architecture & Edge Webhook Engine', () => {
       const req = new NextRequest('http://localhost:3000/api/kyc/initiate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: 'mock' }),
+        body: JSON.stringify({ provider: 'sumsub' }),
       });
 
       const res = await initiateRoute(req);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(410);
       const data = await res.json();
+      expect(data.success).toBe(false);
+      expect(data.code).toBe('KYC_DOCUMENT_COLLECTION_DISABLED');
+      expect(data.error).toContain('91/2025/QH15');
 
-      expect(data.success).toBe(true);
-      expect(data.provider).toBe('mock');
-      expect(data.sessionToken).toContain('mock_tok_user_init_1');
-      expect(data.redirectUrl).toContain('verify.mock-kyc.com');
-      expect(data.status).toBe('pending');
-
-      // Assert profile transitioned to pending
       const profile = sqlite
         .prepare('SELECT kyc_status FROM profiles WHERE id = ?')
-        .get('user_init_1') as any;
-      expect(profile.kyc_status).toBe('pending');
+        .get('user_init_1') as { kyc_status: string };
+      expect(profile.kyc_status).toBe('unverified');
+    });
 
-      // Assert audit log was recorded
-      const log = sqlite
-        .prepare("SELECT action, severity, target_id FROM compliance_audit_logs WHERE action = 'kyc_initiated'")
-        .get() as any;
-      expect(log).toBeDefined();
-      expect(log.target_id).toBe('user_init_1');
-      expect(log.severity).toBe('low');
+    it('creates active verification session for authenticated user when legacy test override is set', async () => {
+      const previousFlag = process.env.ALLOW_LEGACY_KYC_SESSION_FOR_TESTS;
+      process.env.ALLOW_LEGACY_KYC_SESSION_FOR_TESTS = 'true';
+      try {
+        (sessionHelper.getAuthenticatedUser as jest.Mock).mockResolvedValue({
+          id: 'user_init_1',
+          email: 'user1@example.com',
+        });
+
+        const req = new NextRequest('http://localhost:3000/api/kyc/initiate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: 'mock' }),
+        });
+
+        const res = await initiateRoute(req);
+        expect(res.status).toBe(200);
+        const data = await res.json();
+
+        expect(data.success).toBe(true);
+        expect(data.provider).toBe('mock');
+        expect(data.sessionToken).toContain('mock_tok_user_init_1');
+        expect(data.redirectUrl).toContain('verify.mock-kyc.com');
+        expect(data.status).toBe('pending');
+
+        // Assert profile transitioned to pending
+        const profile = sqlite
+          .prepare('SELECT kyc_status FROM profiles WHERE id = ?')
+          .get('user_init_1') as { kyc_status: string };
+        expect(profile.kyc_status).toBe('pending');
+
+        // Assert audit log was recorded
+        const log = sqlite
+          .prepare("SELECT action, severity, target_id FROM compliance_audit_logs WHERE action = 'kyc_initiated'")
+          .get() as { action: string; severity: string; target_id: string };
+        expect(log).toBeDefined();
+        expect(log.target_id).toBe('user_init_1');
+        expect(log.severity).toBe('low');
+      } finally {
+        if (previousFlag === undefined) {
+          delete process.env.ALLOW_LEGACY_KYC_SESSION_FOR_TESTS;
+        } else {
+          process.env.ALLOW_LEGACY_KYC_SESSION_FOR_TESTS = previousFlag;
+        }
+      }
     });
   });
 

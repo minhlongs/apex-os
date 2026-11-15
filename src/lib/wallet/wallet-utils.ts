@@ -1,7 +1,16 @@
 import type { WalletType, WalletConnectionResult } from '@/types/wallet'
 
+interface InjectedEthereumProvider {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+}
+
+function getInjectedEthereum(): InjectedEthereumProvider | undefined {
+  if (typeof window === 'undefined') return undefined
+  return (window as unknown as { ethereum?: InjectedEthereumProvider }).ethereum
+}
+
 export function isMetaMaskInstalled(): boolean {
-  return typeof window !== 'undefined' && typeof window.ethereum !== 'undefined'
+  return typeof getInjectedEthereum() !== 'undefined'
 }
 
 export function isPhantomInstalled(): boolean {
@@ -27,7 +36,7 @@ export async function connectMetaMask(): Promise<WalletConnectionResult> {
       }
     }
 
-    const ethereum = window.ethereum!;
+    const ethereum = getInjectedEthereum()!;
     const accounts = await ethereum.request({
       method: 'eth_requestAccounts',
     }) as string[]
@@ -161,11 +170,6 @@ export function getAvailableWallets(): { type: WalletType; name: string; install
 // Declare window extensions for TypeScript
 declare global {
   interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
-      on: (event: string, callback: (...args: unknown[]) => void) => void
-      removeListener: (event: string, callback: (...args: unknown[]) => void) => void
-    }
     solana?: {
       isPhantom: boolean
       connect: () => Promise<{ publicKey: { toString: () => string } }>

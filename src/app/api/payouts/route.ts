@@ -5,6 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createAuth } from '@/lib/auth/auth-factory';
+import { guardLegacyAdminPayoutMutation } from '@/lib/compliance/legacy-route-guards';
+import type { D1Database } from '@/lib/db';
 import { BatchSettlementService } from '@/lib/payouts';
 import { invalidateAffiliateCache } from '@/lib/cache/cache-invalidation';
 import { RateLimiter, extractIpAddress, type RateLimitResult } from '@/lib/ratelimit/rate-limiter';
@@ -45,6 +47,12 @@ export async function POST(request: NextRequest): Promise<Response> {
     { status: 429 }
    );
   }
+    const rawGlobalDb = (globalThis as unknown as { DB?: D1Database }).DB ?? null;
+    const legacyBlock = await guardLegacyAdminPayoutMutation(request, rawGlobalDb);
+    if (legacyBlock) {
+      return legacyBlock;
+    }
+
     // Authenticate
     const auth = createAuth({
       DB: (globalThis as unknown as { DB?: Parameters<typeof createAuth>[0]['DB'] }).DB!,
