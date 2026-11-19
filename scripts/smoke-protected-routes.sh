@@ -59,6 +59,9 @@ check_route "GET"  "/api/version"                 "public_200"
 check_route "GET"  "/api/health"                  "public_non500"
 check_route "GET"  "/api/auth/session"            "public_200"
 check_route "GET"  "/api/terminal/snapshot"       "public_200"
+check_route "GET"  "/en/legal/terms"              "public_200"
+check_route "GET"  "/en/legal/non-custodial-disclosure" "public_200"
+check_route "GET"  "/en/legal/geo-restriction"    "public_200"
 
 # Protected webhook & operational routes (must reject unauthenticated requests, never 200 or 5xx)
 check_route "POST" "/api/webhooks/ipn"            "protected" "{}"
@@ -68,7 +71,12 @@ check_route "POST" "/api/webhooks/exchange/kucoin" "protected" "{}"
 check_route "POST" "/api/webhooks/exchange/okx"   "protected" "{}"
 check_route "POST" "/api/terminal/actions"        "protected" "{}"
 check_route "GET"  "/api/payouts"                 "protected"
+check_route "GET"  "/api/affiliate/uids"          "protected"
+check_route "GET"  "/api/affiliate/short-links"   "protected"
+check_route "GET"  "/api/affiliate/ledger-summary" "protected"
 check_route "GET"  "/api/admin/payouts/treasury"  "protected"
+check_route "GET"  "/api/admin/runtime-flags"     "protected"
+check_route "GET"  "/api/admin/reconciliation/poller" "protected"
 check_route "POST" "/api/cron"                    "protected" "{}"
 
 if [[ "${FAILURES}" -gt 0 ]]; then

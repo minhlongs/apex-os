@@ -14,6 +14,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { isAscendancyGuardActive } from '@/lib/compliance/legacy-route-guards';
 import { verifyAdminPayoutAccess } from '@/lib/payouts/admin-auth';
 import { treasuryHealthService } from '@/lib/payouts/treasury-health-service';
 import type { SupportedPayoutChain } from '@/lib/payouts/types';
@@ -29,6 +30,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   const { db } = authResult;
+
+  // 1b. Gate G8 boundary: never invoke legacy raw-key PayoutRouter / TreasuryHealthService
+  // when Ascendancy settlement_broadcasts is active or Turnkey HSM Stellar hot wallet is configured.
+  const turnkeyStellarConfigured = Boolean(
+    process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS?.trim()
+  );
+  const ascendancyActive = await isAscendancyGuardActive(db, 'settlement_broadcasts');
+  if (ascendancyActive || turnkeyStellarConfigured) {
+    return NextResponse.json(
+      {
+        success: false,
+        code: 'LEGACY_TREASURY_ROUTE_DISABLED',
+        error:
+          'Legacy raw-key treasury probe is disabled while Turnkey HSM / Ascendancy settlement is active; use GET /api/admin/settings/stellar/health for read-only Turnkey HSM hot-wallet health.',
+        redirectTo: '/api/admin/settings/stellar/health',
+      },
+      { status: 410 }
+    );
+  }
 
   // 2. Parse and validate optional chain filter
   const { searchParams } = new URL(request.url);

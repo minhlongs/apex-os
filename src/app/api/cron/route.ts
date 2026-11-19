@@ -21,7 +21,16 @@ import { evaluateBusinessAlerts } from '@/lib/notifications/business-alert-engin
 import { refreshAnalyticsViews } from '@/lib/analytics/refresh';
 import { processEmailQueue, retryFailedEmails } from '@/lib/emails/email-scheduler';
 import { runLifecycleCampaigns } from '@/lib/emails/email-campaigns';
-import { BatchSettlementService } from '@/lib/payouts';
+import {
+  BatchSettlementService,
+  reconcilePendingSettlementBroadcasts,
+} from '@/lib/payouts';
+import {
+  DoubleEntryLedgerService,
+  LedgerFrozenError,
+  type R2BucketLike,
+} from '@/lib/ledger';
+import { runPartnerPollerCycle } from '@/lib/partners';
 import { error as logError } from '@/lib/logger';
 
 // ============================================================================
@@ -220,6 +229,212 @@ async function handleAnalyticsRefresh(db: any): Promise<{ success: boolean; view
   }
 }
 
+async function handlePartnerReconciliation(
+  db: any
+): Promise<{ success: boolean; minted_batches: number; fetched_rows: number; details: string }> {
+  try {
+    const bindings = globalThis as unknown as {
+      STORAGE?: R2BucketLike;
+      env?: Record<string, string | undefined>;
+    };
+    const cycle = await runPartnerPollerCycle({
+      db,
+      r2: bindings.STORAGE ?? null,
+      env: bindings.env,
+      triggerSource: 'cron',
+    });
+
+    const mintedBatches = cycle.runs.reduce((acc, r) => acc + r.mintedBatches, 0);
+    const fetchedRows = cycle.runs.reduce((acc, r) => acc + r.fetchedRows, 0);
+    const failedRuns = cycle.runs.filter(
+      (r) => r.status === 'ERROR' || r.status === 'DISCREPANCY_HALTED'
+    );
+      const perExchangeSummary = cycle.runs
+      .map((r) => `${r.exchange}:${r.mode}/${r.status}(rows=${r.fetchedRows},minted=${r.mintedBatches})`)
+      .join(', ');
+
+    const t7Release = await handleT7HoldRelease(db);
+
+    return {
+      success: failedRuns.length === 0 && t7Release.success,
+      minted_batches: mintedBatches,
+      fetched_rows: fetchedRows,
+      details: `Partner HTTP poller completed (${perExchangeSummary}); T+7 release: ${t7Release.details}`,
+    };
+  } catch (error) {
+    logError('Partner reconciliation cron error', error);
+    return {
+      success: false,
+      minted_batches: 0,
+      fetched_rows: 0,
+      details: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+/**
+ * Releases `COMMISSION_INFLIGHT` batches whose T+7 `hold_until` has elapsed.
+ *
+ * `hold_until <= now` is a property of the row, not of the caller, so the query
+ * is the authority on maturity. A freeze halts the whole ledger, so the first
+ * `LedgerFrozenError` ends the run: continuing would keep throwing for every
+ * remaining batch and bury the real cause in a wall of identical failures.
+ */
+async function handleT7HoldRelease(
+  db: any
+): Promise<{ success: boolean; released: number; failed: number; details: string }> {
+  try {
+    if (!db) {
+      return {
+        success: false,
+        released: 0,
+        failed: 0,
+        details: 'Database not available',
+      };
+    }
+
+    let hasAuditedLedger = false;
+    try {
+      const sentinel = await db
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'ledger_journal_batches' LIMIT 1"
+        )
+        .first();
+      hasAuditedLedger = Boolean(sentinel?.name === 'ledger_journal_batches');
+    } catch {
+      hasAuditedLedger = false;
+    }
+
+    if (!hasAuditedLedger) {
+      return {
+        success: true,
+        released: 0,
+        failed: 0,
+        details: 'Audited ledger table not initialized',
+      };
+    }
+
+    const nowIso = new Date().toISOString();
+    const matured = (await db
+      .prepare(
+        `SELECT id FROM ledger_journal_batches
+         WHERE journal_type = 'COMMISSION_INFLIGHT'
+           AND status = 'INFLIGHT'
+           AND hold_until IS NOT NULL
+           AND hold_until <= ?
+         ORDER BY hold_until ASC
+         LIMIT 200`
+      )
+      .bind(nowIso)
+      .all()) as { results?: Array<{ id: string }> };
+
+    const maturedIds = matured.results ?? [];
+    const ledger = new DoubleEntryLedgerService(db);
+    let released = 0;
+    let failed = 0;
+
+    for (const row of maturedIds) {
+      try {
+        await ledger.releaseMaturedInflightBatch(row.id, nowIso);
+        released += 1;
+      } catch (err) {
+        if (err instanceof LedgerFrozenError) {
+          return {
+            success: true,
+            released,
+            failed,
+            details: 'Skipped T+7 hold release: EMERGENCY_LEDGER_FREEZE active',
+          };
+        }
+        failed += 1;
+        logError(`[T7HoldRelease] Failed to release batch ${row.id}`, err);
+      }
+    }
+
+    let reconcileNote = '';
+    try {
+      const reconciled = await reconcilePendingSettlementBroadcasts(db);
+      if (reconciled.scanned > 0) {
+        reconcileNote = `; settlement broadcasts scanned=${reconciled.scanned}, confirmed=${reconciled.confirmed}, reverted=${reconciled.reverted}, pending=${reconciled.stillPending}`;
+      }
+    } catch (reconcileErr) {
+      logError('[T7HoldRelease] Passive settlement broadcast reconciliation error', reconcileErr);
+    }
+
+    return {
+      success: failed === 0,
+      released,
+      failed,
+      details:
+        (maturedIds.length === 0
+          ? 'No matured T+7 hold batches found'
+          : `Released ${released} matured T+7 hold batch(es)${failed > 0 ? `, ${failed} failed` : ''}`) +
+        reconcileNote,
+    };
+  } catch (error) {
+    logError('T+7 hold release cron error', error);
+    return {
+      success: false,
+      released: 0,
+      failed: 0,
+      details: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+async function handleSettlementReconciliation(db: any): Promise<{
+  success: boolean;
+  released: number;
+  failed: number;
+  details: string;
+}> {
+  try {
+    const summary = await reconcilePendingSettlementBroadcasts(db);
+    if (summary.scanned === 0) {
+      return {
+        success: true,
+        released: 0,
+        failed: 0,
+        details: 'No pending settlement broadcasts to reconcile',
+      };
+    }
+    if (summary.skippedNoMachine) {
+      return {
+        success: true,
+        released: 0,
+        failed: 0,
+        details: `Skipped ${summary.scanned} pending settlement broadcast(s): settlement signer/RPC not configured`,
+      };
+    }
+    return {
+      success: summary.errors.length === 0,
+      released: summary.confirmed + summary.reverted,
+      failed: summary.errors.length,
+      details: `Reconciled ${summary.scanned} pending settlement broadcast(s): confirmed=${summary.confirmed}, reverted=${summary.reverted}, still_pending=${summary.stillPending}${summary.errors.length > 0 ? `, errors=${summary.errors.length}` : ''}`,
+    };
+  } catch (error) {
+    logError('Settlement broadcast reconciliation cron error', error);
+    return {
+      success: false,
+      released: 0,
+      failed: 1,
+      details: error instanceof Error ? error.message : 'Unknown error',
+    };
+  }
+}
+
+function constantTimeEqual(a: string, b: string): boolean {
+  const encoder = new TextEncoder();
+  const aBytes = encoder.encode(a);
+  const bBytes = encoder.encode(b);
+  const maxLength = Math.max(aBytes.length, bBytes.length);
+  let diff = aBytes.length ^ bBytes.length;
+  for (let i = 0; i < maxLength; i += 1) {
+    diff |= (aBytes[i] ?? 0) ^ (bBytes[i] ?? 0);
+  }
+  return diff === 0;
+}
+
 // ============================================================================
 // Main Handler
 // ============================================================================
@@ -241,14 +456,25 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const cronSecret = process.env.CRON_SECRET;
     const authHeader = request.headers.get('Authorization');
-    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    if (!cronSecret || !authHeader || !constantTimeEqual(authHeader, `Bearer ${cronSecret}`)) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const results: Array<{ job: string; success: boolean; alerts?: number; sent?: number; failed?: number; views_refreshed?: number; details: string }> = [];
+    const results: Array<{
+      job: string;
+      success: boolean;
+      alerts?: number;
+      sent?: number;
+      failed?: number;
+      released?: number;
+      views_refreshed?: number;
+      minted_batches?: number;
+      fetched_rows?: number;
+      details: string;
+    }> = [];
 
     if (job) {
       switch (job) {
@@ -257,9 +483,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
           results.push({ job: 'alerts', ...r });
           break;
         }
+        case 'monitoring':
         case 'd1-metrics': {
           const r = await handleD1MetricsCollection(db);
-          results.push({ job: 'd1-metrics', ...r });
+          results.push({ job, ...r });
           break;
         }
         case 'payouts': {
@@ -285,6 +512,24 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         case 'campaigns': {
           const r = await handleLifecycleCampaigns();
           results.push({ job: 'campaigns', ...r });
+          break;
+        }
+        case 'partner_reconciliation':
+        case 'partner-reconciliation': {
+          const r = await handlePartnerReconciliation(db);
+          results.push({ job: 'partner_reconciliation', ...r });
+          break;
+        }
+        case 't7_release':
+        case 't7-release': {
+          const r = await handleT7HoldRelease(db);
+          results.push({ job: 't7_release', ...r });
+          break;
+        }
+        case 'settlement_reconcile':
+        case 'settlement-reconcile': {
+          const r = await handleSettlementReconciliation(db);
+          results.push({ job: 'settlement_reconcile', ...r });
           break;
         }
         default:

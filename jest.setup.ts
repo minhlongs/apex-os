@@ -94,6 +94,12 @@ global.Headers = class Headers {
     this._map.set(name.toLowerCase(), String(value));
   }
 
+  append(name: string, value: string): void {
+    const key = name.toLowerCase();
+    const existing = this._map.get(key);
+    this._map.set(key, existing ? `${existing}, ${value}` : String(value));
+  }
+
   has(name: string): boolean {
     return this._map.has(name.toLowerCase());
   }

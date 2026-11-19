@@ -116,7 +116,13 @@ export interface TurnkeyServerSdkCredentials {
 export interface TurnkeySignerConfig {
   transport?: TurnkeySigningTransport;
   turnkeyCredentials?: TurnkeyServerSdkCredentials;
-  evmHotWalletAddress: string;
+  /**
+   * Optional so Stellar-only V1 deployments (where `V1_STELLAR_ONLY_PAYOUTS === 'true'`
+   * and `TURNKEY_EVM_HOT_WALLET_ADDRESS` has not been provisioned) can still construct
+   * the signer and settle on Stellar. Any EVM call path fails closed with a descriptive
+   * error instead of blocking Stellar payouts on an unconfigured address.
+   */
+  evmHotWalletAddress?: string;
   stellarHotWalletAddress: string;
   safeColdMultisigAddresses?: Partial<Record<Phase1SettlementChain, string>>;
 }
@@ -155,6 +161,12 @@ export interface ColdSafeQueueProposal {
   chainDecimals: 6 | 7;
   lockBatchId?: string | null;
   reason: string;
+  /**
+   * Set to `true` only when transitioning a row that THIS caller currently owns in `SIGNING`
+   * (e.g., Turnkey HSM policy rejection mid-sign). Defaults to `false` so a cross-isolate
+   * cold-queue fallback can never clobber another isolate's active `SIGNING` claim.
+   */
+  allowFromSigningState?: boolean;
 }
 
 export interface ColdSafeQueueResult {
@@ -163,6 +175,79 @@ export interface ColdSafeQueueResult {
   safeMultisigTxHash: string;
   multisigThreshold: '2-of-3';
   reason: string;
+}
+
+export interface ClaimHotWalletSigningSlotParams {
+  payoutId: string;
+  idempotencyKey: string;
+  affiliateId: string;
+  chain: Phase1SettlementChain;
+  recipientAddress: string;
+  amountUnits1e8: bigint;
+  chainTokenUnits: string;
+  chainDecimals: 6 | 7;
+  lockBatchId?: string | null;
+}
+
+export type ClaimHotWalletSigningSlotResult =
+  | {
+      claimed: true;
+      signerAddress: string;
+    }
+  | {
+      claimed: false;
+      violationCode:
+        | 'SINGLE_TX_CAP_EXCEEDED'
+        | 'ROLLING_24H_CAP_EXCEEDED'
+        | 'CONCURRENT_PAYOUT_ACTIVE'
+        | 'WITHDRAWAL_LOCK_NOT_INFLIGHT';
+      reason: string;
+    };
+
+async function inspectResolvedWithdrawalLock(
+  db: D1Database,
+  payoutId: string,
+  lockBatchId?: string | null
+): Promise<{ resolved: boolean; status?: string }> {
+  try {
+    if (lockBatchId) {
+      const boundRow = await db
+        .prepare(
+          `SELECT status
+           FROM ledger_journal_batches
+           WHERE id = ? AND journal_type = 'WITHDRAWAL_LOCK'
+           LIMIT 1`
+        )
+        .bind(lockBatchId)
+        .first<{ status: string }>();
+      if (boundRow) {
+        return boundRow.status === 'INFLIGHT'
+          ? { resolved: false }
+          : { resolved: true, status: boundRow.status };
+      }
+    }
+
+    const byPayout = await db
+      .prepare(
+        `SELECT status
+         FROM ledger_journal_batches
+         WHERE journal_type = 'WITHDRAWAL_LOCK' AND payout_id = ?
+         ORDER BY CASE WHEN status = 'INFLIGHT' THEN 0 ELSE 1 END, created_at DESC
+         LIMIT 1`
+      )
+      .bind(payoutId)
+      .first<{ status: string }>();
+    if (!byPayout || byPayout.status === 'INFLIGHT') {
+      return { resolved: false };
+    }
+    return { resolved: true, status: byPayout.status };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/no such table/i.test(message)) {
+      return { resolved: false };
+    }
+    throw err;
+  }
 }
 
 // ============================================================================
@@ -422,16 +507,43 @@ export function verifyTreasuryReserveDistribution(params: {
 // Turnkey Isolated Signer & Safe Cold Queue Service
 // ============================================================================
 
+const TEST_ONLY_SAFE_COLD_DEFAULTS: Record<Phase1SettlementChain, string> = {
+  arbitrum: '0x2222222222222222222222222222222222222222',
+  base: '0x3333333333333333333333333333333333333333',
+  stellar: 'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+};
+
+const SAFE_COLD_ENV_VAR_NAMES: Record<Phase1SettlementChain, string> = {
+  arbitrum: 'SAFE_COLD_ARBITRUM_ADDRESS',
+  base: 'SAFE_COLD_BASE_ADDRESS',
+  stellar: 'SAFE_COLD_STELLAR_ADDRESS',
+};
+
+function isStrictColdSafeRuntime(): boolean {
+  const nodeEnv = process.env.NODE_ENV?.trim().toLowerCase();
+  const appEnv = process.env.APP_ENV?.trim().toLowerCase();
+  const envTier = process.env.ENVIRONMENT?.trim().toLowerCase();
+  return (
+    nodeEnv === 'production' ||
+    appEnv === 'production' ||
+    appEnv === 'staging' ||
+    envTier === 'production' ||
+    envTier === 'staging'
+  );
+}
+
 export class TurnkeySigner {
   private readonly transport: TurnkeySigningTransport;
   private readonly evmHotWalletAddress: string;
   private readonly stellarHotWalletAddress: string;
+  private readonly evmHotWalletConfigured: boolean;
   private readonly safeColdMultisigAddresses: Record<Phase1SettlementChain, string>;
+  private readonly safeColdMultisigConfigured: Record<Phase1SettlementChain, boolean>;
 
   constructor(config: TurnkeySignerConfig) {
     // Reject accidental injection of raw blockchain secrets
     if (
-      config.evmHotWalletAddress.startsWith('0x') &&
+      config.evmHotWalletAddress?.startsWith('0x') &&
       config.evmHotWalletAddress.length === 66
     ) {
       throw new Error(
@@ -457,18 +569,39 @@ export class TurnkeySigner {
       );
     }
 
-    this.evmHotWalletAddress = config.evmHotWalletAddress;
+    this.evmHotWalletAddress = config.evmHotWalletAddress ?? '';
+    this.evmHotWalletConfigured = Boolean(config.evmHotWalletAddress);
     this.stellarHotWalletAddress = config.stellarHotWalletAddress;
+
+    const strictRuntime = isStrictColdSafeRuntime();
+    const resolveColdSafe = (
+      chain: Phase1SettlementChain
+    ): { address: string; configured: boolean } => {
+      const explicit = config.safeColdMultisigAddresses?.[chain]?.trim();
+      const fromEnv = process.env[SAFE_COLD_ENV_VAR_NAMES[chain]]?.trim();
+      const resolved = explicit || fromEnv || '';
+      if (resolved) {
+        return { address: resolved, configured: true };
+      }
+      if (strictRuntime) {
+        return { address: '', configured: false };
+      }
+      return { address: TEST_ONLY_SAFE_COLD_DEFAULTS[chain], configured: false };
+    };
+
+    const arbCold = resolveColdSafe('arbitrum');
+    const baseCold = resolveColdSafe('base');
+    const stellarCold = resolveColdSafe('stellar');
+
     this.safeColdMultisigAddresses = {
-      arbitrum:
-        config.safeColdMultisigAddresses?.arbitrum ??
-        '0x2222222222222222222222222222222222222222',
-      base:
-        config.safeColdMultisigAddresses?.base ??
-        '0x3333333333333333333333333333333333333333',
-      stellar:
-        config.safeColdMultisigAddresses?.stellar ??
-        'GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5',
+      arbitrum: arbCold.address,
+      base: baseCold.address,
+      stellar: stellarCold.address,
+    };
+    this.safeColdMultisigConfigured = {
+      arbitrum: arbCold.configured,
+      base: baseCold.configured,
+      stellar: stellarCold.configured,
     };
   }
 
@@ -510,13 +643,25 @@ export class TurnkeySigner {
   }
 
   getHotWalletAddress(chain: Phase1SettlementChain): string {
-    return chain === 'stellar'
-      ? this.stellarHotWalletAddress
-      : this.evmHotWalletAddress;
+    if (chain === 'stellar') {
+      return this.stellarHotWalletAddress;
+    }
+    if (!this.evmHotWalletConfigured) {
+      throw new Error(
+        `EVM hot wallet is not configured (TURNKEY_EVM_HOT_WALLET_ADDRESS is unset); refusing ${chain} settlement`
+      );
+    }
+    return this.evmHotWalletAddress;
   }
 
   getSafeColdMultisigAddress(chain: Phase1SettlementChain): string {
-    return this.safeColdMultisigAddresses[chain];
+    const addr = this.safeColdMultisigAddresses[chain]?.trim();
+    if (!addr || (isStrictColdSafeRuntime() && !this.safeColdMultisigConfigured[chain])) {
+      throw new Error(
+        `Safe{Wallet} 2-of-3 cold multisig address is not configured for ${chain} (${SAFE_COLD_ENV_VAR_NAMES[chain]} is unset); refusing to use a placeholder address in production/staging`
+      );
+    }
+    return addr;
   }
 
   /**
@@ -608,6 +753,222 @@ export class TurnkeySigner {
   }
 
   /**
+   * Atomically claim a hot-wallet `SIGNING` slot in `settlement_broadcasts` BEFORE
+   * reserving any EVM nonce / Stellar sequence or calling Turnkey HSM.
+   *
+   * Eliminates cross-isolate TOCTOU races on the `$1,500.00/24h` (`150_000_000_000` units)
+   * rolling hot-wallet cap by folding the `SUM(amount_units_1e8)` guard directly into the
+   * conditional `INSERT ... SELECT ... WHERE` / `UPDATE ... WHERE` SQLite/D1 write statement.
+   */
+  async claimHotWalletSigningSlot(
+    db: D1Database,
+    params: ClaimHotWalletSigningSlotParams
+  ): Promise<ClaimHotWalletSigningSlotResult> {
+    if (params.amountUnits1e8 <= BigInt(0)) {
+      throw new Error(`Invalid settlement amount units: ${params.amountUnits1e8.toString()}`);
+    }
+
+    // Double-spend fence: a payout whose paired `WITHDRAWAL_LOCK` was already finalized
+    // (`SETTLED`) or refunded (`VOIDED`) must never be signed again, even when the broadcast
+    // row still reads `EXPIRED_RECOVERED` / `FAILED_ABORTED` because a passive reconciler
+    // resolved the ledger lock before an interactive re-execution arrived.
+    const withdrawalLock = await inspectResolvedWithdrawalLock(
+      db,
+      params.payoutId,
+      params.lockBatchId
+    );
+    if (withdrawalLock.resolved) {
+      return {
+        claimed: false,
+        violationCode: 'WITHDRAWAL_LOCK_NOT_INFLIGHT',
+        reason: `Payout ${params.payoutId} withdrawal lock is already ${withdrawalLock.status}; refusing to sign or re-queue a settlement whose ledger funds were resolved`,
+      };
+    }
+
+    if (params.amountUnits1e8 > HOT_WALLET_SINGLE_TX_CAP_UNITS_1E8) {
+      const amountUsd = new Decimal(params.amountUnits1e8.toString())
+        .div(LEDGER_SCALE_DECIMAL)
+        .toFixed(2, Decimal.ROUND_DOWN);
+      return {
+        claimed: false,
+        violationCode: 'SINGLE_TX_CAP_EXCEEDED',
+        reason: `Single payout $${amountUsd} USDC exceeds Turnkey hot-wallet cap ($${HOT_WALLET_SINGLE_TX_CAP_USD} USDC); routed to Safe{Wallet} 2-of-3 cold multisig`,
+      };
+    }
+
+    const signerAddress = this.getHotWalletAddress(params.chain);
+    const amountUnitsNum = Number(params.amountUnits1e8);
+    const capUnitsNum = Number(HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8);
+
+    const tryConditionalUpdate = async (): Promise<boolean> => {
+      const updRes = await db
+        .prepare(
+          `UPDATE settlement_broadcasts
+           SET state = 'SIGNING',
+               signer_address = ?,
+               amount_units_1e8 = ?,
+               chain_token_units = ?,
+               chain_decimals = ?,
+               assigned_nonce = NULL,
+               stellar_sequence = NULL,
+               timebounds_max_unix = NULL,
+               tx_hash = NULL,
+               signed_raw_tx = NULL,
+               rbf_candidate_tx_hash = NULL,
+               candidate_tx_hashes = '[]',
+               lock_batch_id = COALESCE(settlement_broadcasts.lock_batch_id, ?),
+               turnkey_activity_id = NULL,
+               error_reason = NULL,
+               created_at = datetime('now'),
+               updated_at = datetime('now')
+           WHERE payout_id = ?
+             AND state IN ('EXPIRED_RECOVERED', 'FAILED_ABORTED')
+             AND (
+               SELECT COALESCE(SUM(amount_units_1e8), 0)
+               FROM settlement_broadcasts
+               WHERE state IN ('SIGNING', 'BROADCAST_PENDING', 'CONFIRMED')
+                 AND created_at >= datetime('now', '-24 hours')
+                 AND payout_id != ?
+             ) + ? <= ?`
+        )
+        .bind(
+          signerAddress,
+          amountUnitsNum,
+          params.chainTokenUnits,
+          params.chainDecimals,
+          params.lockBatchId ?? null,
+          params.payoutId,
+          params.payoutId,
+          amountUnitsNum,
+          capUnitsNum
+        )
+        .run();
+
+      if (typeof updRes.meta?.changes === 'number') {
+        return updRes.meta.changes > 0;
+      }
+      const verifyRow = await db
+        .prepare('SELECT state FROM settlement_broadcasts WHERE payout_id = ?')
+        .bind(params.payoutId)
+        .first<{ state: string }>();
+      return verifyRow?.state === 'SIGNING';
+    };
+
+    const existingRow = await db
+      .prepare('SELECT state FROM settlement_broadcasts WHERE payout_id = ?')
+      .bind(params.payoutId)
+      .first<{ state: string }>();
+
+    let slotClaimed = false;
+    if (existingRow) {
+      slotClaimed = await tryConditionalUpdate();
+    } else {
+      try {
+        const insRes = await db
+          .prepare(
+            `INSERT INTO settlement_broadcasts (
+               payout_id, idempotency_key, affiliate_id, chain, recipient_address,
+               amount_units_1e8, chain_token_units, chain_decimals, state,
+               signer_address, assigned_nonce, stellar_sequence, timebounds_max_unix,
+               tx_hash, signed_raw_tx, rbf_candidate_tx_hash, candidate_tx_hashes, lock_batch_id,
+               turnkey_activity_id, error_reason, created_at, updated_at
+             )
+             SELECT
+               ?, ?, ?, ?, ?,
+               ?, ?, ?, 'SIGNING',
+               ?, NULL, NULL, NULL,
+               NULL, NULL, NULL, '[]', ?,
+               NULL, NULL, datetime('now'), datetime('now')
+             WHERE (
+               SELECT COALESCE(SUM(amount_units_1e8), 0)
+               FROM settlement_broadcasts
+               WHERE state IN ('SIGNING', 'BROADCAST_PENDING', 'CONFIRMED')
+                 AND created_at >= datetime('now', '-24 hours')
+                 AND payout_id != ?
+             ) + ? <= ?`
+          )
+          .bind(
+            params.payoutId,
+            params.idempotencyKey,
+            params.affiliateId,
+            params.chain,
+            params.recipientAddress,
+            amountUnitsNum,
+            params.chainTokenUnits,
+            params.chainDecimals,
+            signerAddress,
+            params.lockBatchId ?? null,
+            params.payoutId,
+            amountUnitsNum,
+            capUnitsNum
+          )
+          .run();
+
+        if (typeof insRes.meta?.changes === 'number') {
+          slotClaimed = insRes.meta.changes > 0;
+        } else {
+          const verifyRow = await db
+            .prepare('SELECT state FROM settlement_broadcasts WHERE payout_id = ?')
+            .bind(params.payoutId)
+            .first<{ state: string }>();
+          slotClaimed = verifyRow?.state === 'SIGNING';
+        }
+      } catch (insErr: unknown) {
+        const msg = insErr instanceof Error ? insErr.message : String(insErr);
+        if (/unique|constraint/i.test(msg)) {
+          slotClaimed = await tryConditionalUpdate();
+        } else {
+          throw insErr;
+        }
+      }
+    }
+
+    if (slotClaimed) {
+      return {
+        claimed: true,
+        signerAddress,
+      };
+    }
+
+    const latestRow = await db
+      .prepare('SELECT state FROM settlement_broadcasts WHERE payout_id = ?')
+      .bind(params.payoutId)
+      .first<{ state: string }>();
+    if (
+      latestRow &&
+      latestRow.state !== 'EXPIRED_RECOVERED' &&
+      latestRow.state !== 'FAILED_ABORTED'
+    ) {
+      return {
+        claimed: false,
+        violationCode: 'CONCURRENT_PAYOUT_ACTIVE',
+        reason: `Payout ${params.payoutId} is already active or finalized in state ${latestRow.state}`,
+      };
+    }
+
+    const policy = await this.evaluateHotWalletPolicy(
+      db,
+      params.amountUnits1e8,
+      params.payoutId
+    );
+    const projectedForReason =
+      policy.rolling24hProjectedUnits1e8 > HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8
+        ? policy.rolling24hProjectedUnits1e8
+        : HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8 + params.amountUnits1e8;
+    const projectedUsd = new Decimal(projectedForReason.toString())
+      .div(LEDGER_SCALE_DECIMAL)
+      .toFixed(2, Decimal.ROUND_DOWN);
+
+    return {
+      claimed: false,
+      violationCode: 'ROLLING_24H_CAP_EXCEEDED',
+      reason:
+        policy.reason ??
+        `Projected 24h hot-wallet volume $${projectedUsd} USDC exceeds rolling 24h cap ($${HOT_WALLET_ROLLING_24H_CAP_USD} USDC); routed to Safe{Wallet} 2-of-3 cold multisig`,
+    };
+  }
+
+  /**
    * Compute deterministic Safe{Wallet} 2-of-3 multisig transaction proposal hash
    * and persist `state = 'QUEUED_COLD_SAFE'` in `settlement_broadcasts` without touching hot keys.
    */
@@ -615,6 +976,17 @@ export class TurnkeySigner {
     db: D1Database,
     proposal: ColdSafeQueueProposal
   ): Promise<ColdSafeQueueResult> {
+    const withdrawalLock = await inspectResolvedWithdrawalLock(
+      db,
+      proposal.payoutId,
+      proposal.lockBatchId
+    );
+    if (withdrawalLock.resolved) {
+      throw new Error(
+        `Payout ${proposal.payoutId} withdrawal lock is already ${withdrawalLock.status}; refusing to enqueue Safe{Wallet} cold multisig proposal`
+      );
+    }
+
     const safeAddress = this.getSafeColdMultisigAddress(proposal.chain);
     const canonicalPayload = [
       'SAFE_2OF3_PROPOSAL_V1',
@@ -630,6 +1002,10 @@ export class TurnkeySigner {
       `0x${Buffer.from(canonicalPayload, 'utf8').toString('hex')}`
     );
     const safeMultisigTxHash = `safe_2of3_${digestHex.slice(2, 50)}`;
+
+    const updatableStatesClause = proposal.allowFromSigningState
+      ? `('SIGNING', 'EXPIRED_RECOVERED', 'FAILED_ABORTED', 'QUEUED_COLD_SAFE')`
+      : `('EXPIRED_RECOVERED', 'FAILED_ABORTED', 'QUEUED_COLD_SAFE')`;
 
     await db
       .prepare(
@@ -659,7 +1035,8 @@ export class TurnkeySigner {
            lock_batch_id = COALESCE(settlement_broadcasts.lock_batch_id, excluded.lock_batch_id),
            safe_multisig_tx_hash = excluded.safe_multisig_tx_hash,
            error_reason = excluded.error_reason,
-           updated_at = datetime('now')`
+           updated_at = datetime('now')
+         WHERE settlement_broadcasts.state IN ${updatableStatesClause}`
       )
       .bind(
         proposal.payoutId,

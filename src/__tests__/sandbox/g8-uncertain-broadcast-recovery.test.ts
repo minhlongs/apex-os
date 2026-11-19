@@ -43,6 +43,7 @@ import {
 } from '@/lib/payouts/turnkey-signer';
 import {
   BroadcastRecoveryMachine,
+  SIGNING_STALE_ABORT_AFTER_SECONDS,
   type StellarBroadcastTransport,
   type StellarHorizonTxLookupResult,
 } from '@/lib/payouts/broadcast-recovery-machine';
@@ -137,6 +138,7 @@ function createAscendancyDb(): { sqlite: Database.Database; db: D1Database } {
 class AuditingTurnkeyEnclave implements TurnkeySigningTransport {
   public readonly evmSignedPayoutIds: string[] = [];
   public readonly stellarSignedPayoutIds: string[] = [];
+  public failStellarSignTimes = 0;
   private readonly enclaveKeyHex = '13'.repeat(32);
 
   async signEvmDigest(params: {
@@ -161,6 +163,10 @@ class AuditingTurnkeyEnclave implements TurnkeySigningTransport {
     txHashHex: string;
     payoutId: string;
   }): Promise<StellarEnvelopeSignature> {
+    if (this.failStellarSignTimes > 0) {
+      this.failStellarSignTimes -= 1;
+      throw new Error('Turnkey HSM transient timeout during Stellar envelope signing');
+    }
     this.stellarSignedPayoutIds.push(params.payoutId);
     return {
       signedEnvelopeXdr: `SIGNED:${params.unsignedEnvelopeXdr}`,
@@ -736,5 +742,491 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
         expect(transfersToRecipient[0].amountUnits6).toBe(BigInt(30000000));
       }
     }
+  });
+
+  it('guarantees cross-isolate atomic 24h cap enforcement, cross-isolate nonce serialization, and pre-broadcast nonce reclamation without burning nonces', async () => {
+    // 1. Cross-isolate 24h cap race: launch 8 concurrent $240 payouts ($1,920 total > $1,500 24h cap)
+    //    across two separate BroadcastRecoveryMachine instances sharing D1 (simulating 2 Worker isolates
+    //    where process-local mutexes do NOT coordinate).
+    const isolateMachineA = new BroadcastRecoveryMachine({
+      db,
+      turnkeySigner,
+      evmAdapters: { arbitrum: arbAdapter, base: baseAdapter },
+      stellarTransport: stellarTestnetSim,
+    });
+    const isolateMachineB = new BroadcastRecoveryMachine({
+      db,
+      turnkeySigner,
+      evmAdapters: { arbitrum: arbAdapter, base: baseAdapter },
+      stellarTransport: stellarTestnetSim,
+    });
+
+    const raceOutcomes = await Promise.all(
+      Array.from({ length: 8 }, (_, idx) => {
+        const runner = idx % 2 === 0 ? isolateMachineA : isolateMachineB;
+        return runner.executeSettlement({
+          payoutId: `po_iso_race_${idx}`,
+          idempotencyKey: `idem_iso_race_${idx}`,
+          affiliateId: `aff_iso_${idx}`,
+          chain: 'arbitrum',
+          recipientAddress: makeEvmRecipient(200 + idx),
+          amountUnits1e8: toLedgerUnits1e8('240.00'),
+          usdcReferencePriceUsd: '1.0000',
+        });
+      })
+    );
+
+    const raceConfirmed = raceOutcomes.filter((o) => o.state === 'CONFIRMED');
+    const raceCold = raceOutcomes.filter((o) => o.state === 'QUEUED_COLD_SAFE');
+    // 6 * $240 = $1,440 <= $1,500; 7th ($1,680) and 8th ($1,920) MUST route to QUEUED_COLD_SAFE
+    expect(raceConfirmed).toHaveLength(6);
+    expect(raceCold).toHaveLength(2);
+
+    const rollingAfterRace = await turnkeySigner.getRolling24hHotVolumeUnits1e8(db);
+    expect(rollingAfterRace).toBe(toLedgerUnits1e8('1440.00'));
+    expect(rollingAfterRace <= HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8).toBe(true);
+
+    // Verify contiguous EVM nonces 0..5 with zero collisions across the two isolates
+    const assignedNonces = raceConfirmed
+      .map((o) => o.assignedNonce)
+      .filter((n): n is number => typeof n === 'number')
+      .sort((a, b) => a - b);
+    expect(assignedNonces).toEqual([0, 1, 2, 3, 4, 5]);
+
+    // 2. Pre-broadcast nonce reclamation: force Turnkey HSM transient outage on a $40 payout ($1,480 <= $1,500)
+    //    after nonce 6 is reserved, then verify the next $40 payout reclaims nonce 6 cleanly!
+    const origSignEvm = enclave.signEvmDigest.bind(enclave);
+    let failHsmOnce = true;
+    enclave.signEvmDigest = async (p) => {
+      if (failHsmOnce) {
+        failHsmOnce = false;
+        throw new Error('Turnkey HSM transient network socket reset before signing');
+      }
+      return origSignEvm(p);
+    };
+
+    await expect(
+      isolateMachineA.executeSettlement({
+        payoutId: 'po_reclaim_nonce_fail',
+        idempotencyKey: 'idem_reclaim_nonce_fail',
+        affiliateId: 'aff_reclaim_1',
+        chain: 'arbitrum',
+        recipientAddress: makeEvmRecipient(301),
+        amountUnits1e8: toLedgerUnits1e8('40.00'),
+        usdcReferencePriceUsd: '1.0000',
+      })
+    ).rejects.toThrow(/Turnkey HSM transient network socket reset/);
+
+    const abortedRow = sqlite
+      .prepare('SELECT state, assigned_nonce FROM settlement_broadcasts WHERE payout_id = ?')
+      .get('po_reclaim_nonce_fail') as { state: string; assigned_nonce: number | null };
+    expect(abortedRow.state).toBe('FAILED_ABORTED');
+    expect(abortedRow.assigned_nonce).toBeNull();
+
+    const reclaimedSuccess = await isolateMachineB.executeSettlement({
+      payoutId: 'po_reclaim_nonce_ok',
+      idempotencyKey: 'idem_reclaim_nonce_ok',
+      affiliateId: 'aff_reclaim_2',
+      chain: 'arbitrum',
+      recipientAddress: makeEvmRecipient(302),
+      amountUnits1e8: toLedgerUnits1e8('40.00'),
+      usdcReferencePriceUsd: '1.0000',
+    });
+    expect(reclaimedSuccess.state).toBe('CONFIRMED');
+    // Nonce 6 was reclaimed cleanly rather than stranding hot wallet with a nonce gap at 6!
+    expect(reclaimedSuccess.assignedNonce).toBe(6);
+  });
+
+  it('aborts EVM settlement when pre-submission nonce read or unsigned tx construction fails, reclaiming the nonce without burning it', async () => {
+    // Case 1: nonce reservation read fails before any nonce is allocated.
+    const origCall = arbSepoliaSim.call.bind(arbSepoliaSim);
+    let failNonceReadOnce = true;
+    arbSepoliaSim.call = async <T,>(method: string, params: unknown[] = []): Promise<T> => {
+      if (failNonceReadOnce && method === 'eth_getTransactionCount') {
+        failNonceReadOnce = false;
+        throw new Error('RPC 503: eth_getTransactionCount unavailable before nonce allocation');
+      }
+      return origCall<T>(method, params);
+    };
+
+    await expect(
+      machine.executeSettlement({
+        payoutId: 'po_prep_nonce_read_fail',
+        idempotencyKey: 'idem_prep_nonce_read_fail',
+        affiliateId: 'aff_prep_1',
+        chain: 'arbitrum',
+        recipientAddress: makeEvmRecipient(401),
+        amountUnits1e8: toLedgerUnits1e8('20.00'),
+        usdcReferencePriceUsd: '1.0000',
+      })
+    ).rejects.toThrow(/eth_getTransactionCount unavailable/);
+
+    const nonceReadAborted = sqlite
+      .prepare('SELECT state, assigned_nonce, tx_hash, signed_raw_tx FROM settlement_broadcasts WHERE payout_id = ?')
+      .get('po_prep_nonce_read_fail') as {
+      state: string;
+      assigned_nonce: number | null;
+      tx_hash: string | null;
+      signed_raw_tx: string | null;
+    };
+    expect(nonceReadAborted.state).toBe('FAILED_ABORTED');
+    expect(nonceReadAborted.assigned_nonce).toBeNull();
+    expect(nonceReadAborted.tx_hash).toBeNull();
+    expect(nonceReadAborted.signed_raw_tx).toBeNull();
+    expect(enclave.evmSignedPayoutIds).not.toContain('po_prep_nonce_read_fail');
+    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBeNull();
+
+    // Case 2: unsigned tx construction fails after the nonce was reserved and persisted.
+    const origBuild = arbAdapter.buildUnsignedTransfer.bind(arbAdapter);
+    let failBuildOnce = true;
+    arbAdapter.buildUnsignedTransfer = async (params) => {
+      if (failBuildOnce) {
+        failBuildOnce = false;
+        throw new Error('EVM unsigned tx construction failure (gas estimation envelope rejected)');
+      }
+      return origBuild(params);
+    };
+
+    await expect(
+      machine.executeSettlement({
+        payoutId: 'po_prep_build_fail',
+        idempotencyKey: 'idem_prep_build_fail',
+        affiliateId: 'aff_prep_2',
+        chain: 'arbitrum',
+        recipientAddress: makeEvmRecipient(402),
+        amountUnits1e8: toLedgerUnits1e8('20.00'),
+        usdcReferencePriceUsd: '1.0000',
+      })
+    ).rejects.toThrow(/unsigned tx construction failure/);
+
+    const buildAborted = sqlite
+      .prepare('SELECT state, assigned_nonce FROM settlement_broadcasts WHERE payout_id = ?')
+      .get('po_prep_build_fail') as { state: string; assigned_nonce: number | null };
+    expect(buildAborted.state).toBe('FAILED_ABORTED');
+    expect(buildAborted.assigned_nonce).toBeNull();
+    expect(enclave.evmSignedPayoutIds).not.toContain('po_prep_build_fail');
+    // Nonce 0 was reserved then reclaimed by the top-of-counter CAS (never burned).
+    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(0);
+
+    const afterPrepFailures = await machine.executeSettlement({
+      payoutId: 'po_prep_build_recovered',
+      idempotencyKey: 'idem_prep_build_recovered',
+      affiliateId: 'aff_prep_3',
+      chain: 'arbitrum',
+      recipientAddress: makeEvmRecipient(403),
+      amountUnits1e8: toLedgerUnits1e8('20.00'),
+      usdcReferencePriceUsd: '1.0000',
+    });
+    expect(afterPrepFailures.state).toBe('CONFIRMED');
+    expect(afterPrepFailures.assignedNonce).toBe(0);
+  });
+
+  it('aborts Stellar settlement when sequence read, unsigned tx build, or HSM signing fails, reclaiming the 64-bit sequence without burning it', async () => {
+    const stellarRequest = (payoutId: string, recipient: string, idempotencyKey: string) => ({
+      payoutId,
+      idempotencyKey,
+      affiliateId: `aff_${payoutId}`,
+      chain: 'stellar' as const,
+      recipientAddress: recipient,
+      amountUnits1e8: toLedgerUnits1e8('20.00'),
+      usdcReferencePriceUsd: '1.0000',
+    });
+
+    // Case 1: Horizon sequence read fails before any sequence is allocated.
+    const origGetSequence = stellarTestnetSim.getAccountSequence.bind(stellarTestnetSim);
+    let failSequenceReadOnce = true;
+    stellarTestnetSim.getAccountSequence = async (accountId: string) => {
+      if (failSequenceReadOnce) {
+        failSequenceReadOnce = false;
+        throw new Error('Horizon 503: account sequence read failed before allocation');
+      }
+      return origGetSequence(accountId);
+    };
+
+    await expect(
+      machine.executeSettlement(
+        stellarRequest('po_xlm_seq_read_fail', VALID_STELLAR_RECIPIENTS[0], 'idem_xlm_seq_read_fail')
+      )
+    ).rejects.toThrow(/account sequence read failed/);
+
+    const seqReadAborted = sqlite
+      .prepare('SELECT state, stellar_sequence, tx_hash FROM settlement_broadcasts WHERE payout_id = ?')
+      .get('po_xlm_seq_read_fail') as {
+      state: string;
+      stellar_sequence: string | null;
+      tx_hash: string | null;
+    };
+    expect(seqReadAborted.state).toBe('FAILED_ABORTED');
+    expect(seqReadAborted.stellar_sequence).toBeNull();
+    expect(seqReadAborted.tx_hash).toBeNull();
+    expect(enclave.stellarSignedPayoutIds).not.toContain('po_xlm_seq_read_fail');
+    expect(await machine.getNextStellarSequence(STELLAR_HOT_WALLET)).toBeNull();
+
+    // Case 2: unsigned envelope construction fails after the sequence was reserved and persisted.
+    const origBuildUnsigned = stellarTestnetSim.buildUnsignedUsdcPayment.bind(stellarTestnetSim);
+    let failStellarBuildOnce = true;
+    stellarTestnetSim.buildUnsignedUsdcPayment = async (params) => {
+      if (failStellarBuildOnce) {
+        failStellarBuildOnce = false;
+        throw new Error('Stellar unsigned envelope construction failed before signing');
+      }
+      return origBuildUnsigned(params);
+    };
+
+    await expect(
+      machine.executeSettlement(
+        stellarRequest('po_xlm_build_fail', VALID_STELLAR_RECIPIENTS[1], 'idem_xlm_build_fail')
+      )
+    ).rejects.toThrow(/unsigned envelope construction failed/);
+
+    const buildAborted = sqlite
+      .prepare('SELECT state, stellar_sequence, timebounds_max_unix FROM settlement_broadcasts WHERE payout_id = ?')
+      .get('po_xlm_build_fail') as {
+      state: string;
+      stellar_sequence: string | null;
+      timebounds_max_unix: number | null;
+    };
+    expect(buildAborted.state).toBe('FAILED_ABORTED');
+    expect(buildAborted.stellar_sequence).toBeNull();
+    expect(buildAborted.timebounds_max_unix).toBeNull();
+    expect(enclave.stellarSignedPayoutIds).not.toContain('po_xlm_build_fail');
+    expect((await machine.getNextStellarSequence(STELLAR_HOT_WALLET))?.toString()).toBe('10001');
+
+    // Case 3: Turnkey HSM fails while signing a fully built envelope.
+    enclave.failStellarSignTimes = 1;
+    await expect(
+      machine.executeSettlement(
+        stellarRequest('po_xlm_hsm_fail', VALID_STELLAR_RECIPIENTS[2], 'idem_xlm_hsm_fail')
+      )
+    ).rejects.toThrow(/HSM transient timeout during Stellar envelope signing/);
+
+    const hsmAborted = sqlite
+      .prepare('SELECT state, stellar_sequence FROM settlement_broadcasts WHERE payout_id = ?')
+      .get('po_xlm_hsm_fail') as { state: string; stellar_sequence: string | null };
+    expect(hsmAborted.state).toBe('FAILED_ABORTED');
+    expect(hsmAborted.stellar_sequence).toBeNull();
+    expect(enclave.stellarSignedPayoutIds).not.toContain('po_xlm_hsm_fail');
+    expect((await machine.getNextStellarSequence(STELLAR_HOT_WALLET))?.toString()).toBe('10001');
+    expect(stellarTestnetSim.minedSequences.size).toBe(0);
+
+    // The reclaimed sequence 10001 is handed to the next payout instead of being skipped.
+    const recovered = await machine.executeSettlement(
+      stellarRequest('po_xlm_prep_recovered', VALID_STELLAR_RECIPIENTS[0], 'idem_xlm_prep_recovered')
+    );
+    expect(recovered.state).toBe('CONFIRMED');
+    expect(recovered.stellarSequence).toBe('10001');
+  });
+
+  it('refuses to abort an active or payload-bearing SIGNING claim and never signs or broadcasts during passive recovery', async () => {
+    const realNowUnix = Math.floor(Date.now() / 1000);
+
+    sqlite
+      .prepare(
+        `INSERT INTO signer_nonces (chain, signer_address, next_nonce, updated_at)
+         VALUES ('arbitrum', ?, 7, datetime('now'))`
+      )
+      .run(EVM_HOT_WALLET);
+    sqlite
+      .prepare(
+        `INSERT INTO settlement_broadcasts (
+           payout_id, idempotency_key, affiliate_id, chain, recipient_address,
+           amount_units_1e8, chain_token_units, chain_decimals, state, signer_address,
+           assigned_nonce, created_at, updated_at
+         ) VALUES (?, ?, ?, 'arbitrum', ?, ?, ?, 6, 'SIGNING', ?, ?, datetime('now'), datetime('now'))`
+      )
+      .run(
+        'po_signing_active',
+        'idem_signing_active',
+        'aff_signing_active',
+        makeEvmRecipient(501),
+        Number(toLedgerUnits1e8('25.00')),
+        '25000000',
+        EVM_HOT_WALLET,
+        6
+      );
+
+    // Fresh claim: interactive recovery must not abort a younger-than-staleness SIGNING row.
+    expect(SIGNING_STALE_ABORT_AFTER_SECONDS).toBe(300);
+    const youngOutcome = await machine.recoverUncertainBroadcast('po_signing_active', {
+      nowUnix: realNowUnix + 60,
+    });
+    expect(youngOutcome.state).toBe('SIGNING');
+    expect(youngOutcome.action).toBe('NO_RECOVERY_NEEDED');
+    expect(youngOutcome.reason).toMatch(/younger than the 300s staleness window/);
+
+    // Passive recovery never aborts an active SIGNING claim, even when it is stale.
+    const passiveOutcome = await machine.recoverUncertainBroadcast('po_signing_active', {
+      nowUnix: realNowUnix + 10_000,
+      passiveOnly: true,
+    });
+    expect(passiveOutcome.state).toBe('SIGNING');
+    expect(passiveOutcome.action).toBe('NO_RECOVERY_NEEDED');
+    expect(passiveOutcome.reason).toMatch(/never aborts an active SIGNING claim/);
+
+    // A stale SIGNING row holding a Turnkey activity id must never be released either.
+    sqlite
+      .prepare(
+        `UPDATE settlement_broadcasts
+         SET turnkey_activity_id = 'tk_evm_po_signing_active_1',
+             updated_at = datetime('now', '-1 hour')
+         WHERE payout_id = 'po_signing_active'`
+      )
+      .run();
+    const payloadOutcome = await machine.recoverUncertainBroadcast('po_signing_active', {
+      nowUnix: realNowUnix + 60,
+    });
+    expect(payloadOutcome.state).toBe('SIGNING');
+    expect(payloadOutcome.action).toBe('NO_RECOVERY_NEEDED');
+    expect(payloadOutcome.reason).toMatch(/refusing to release an uncertain signature/);
+
+    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(7);
+    expect(enclave.evmSignedPayoutIds).toHaveLength(0);
+    expect(arbSepoliaSim.getConfirmedTransferCount()).toBe(0);
+  });
+
+  it('aborts a stale zero-payload SIGNING claim with top-of-counter reclamation and fences a resumed isolate out of broadcasting', async () => {
+    const realNowUnix = Math.floor(Date.now() / 1000);
+
+    sqlite
+      .prepare(
+        `INSERT INTO signer_nonces (chain, signer_address, next_nonce, updated_at)
+         VALUES ('arbitrum', ?, 43, datetime('now'))`
+      )
+      .run(EVM_HOT_WALLET);
+    sqlite
+      .prepare(
+        `INSERT INTO settlement_broadcasts (
+           payout_id, idempotency_key, affiliate_id, chain, recipient_address,
+           amount_units_1e8, chain_token_units, chain_decimals, state, signer_address,
+           assigned_nonce, created_at, updated_at
+         ) VALUES (?, ?, ?, 'arbitrum', ?, ?, ?, 6, 'SIGNING', ?, ?, datetime('now', '-1 hour'), datetime('now', '-1 hour'))`
+      )
+      .run(
+        'po_signing_stale',
+        'idem_signing_stale',
+        'aff_signing_stale',
+        makeEvmRecipient(502),
+        Number(toLedgerUnits1e8('30.00')),
+        '30000000',
+        EVM_HOT_WALLET,
+        42
+      );
+
+    const staleOutcome = await machine.recoverUncertainBroadcast('po_signing_stale', {
+      nowUnix: realNowUnix,
+    });
+    expect(staleOutcome.state).toBe('FAILED_ABORTED');
+    expect(staleOutcome.action).toBe('FAILED_PRE_BROADCAST_ABORTED');
+    expect(staleOutcome.reason).toMatch(/Stale SIGNING record/);
+
+    const staleRow = sqlite
+      .prepare('SELECT state, assigned_nonce, tx_hash, signed_raw_tx FROM settlement_broadcasts WHERE payout_id = ?')
+      .get('po_signing_stale') as {
+      state: string;
+      assigned_nonce: number | null;
+      tx_hash: string | null;
+      signed_raw_tx: string | null;
+    };
+    expect(staleRow.state).toBe('FAILED_ABORTED');
+    expect(staleRow.assigned_nonce).toBeNull();
+    expect(staleRow.tx_hash).toBeNull();
+    expect(staleRow.signed_raw_tx).toBeNull();
+
+    // Top-of-counter CAS rolled 43 back to 42 so the nonce is not skipped.
+    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(42);
+
+    // A resumed isolate that still believes it owns the SIGNING claim cannot persist
+    // BROADCAST_PENDING: the conditional state transition matches zero rows.
+    const resumedUpdate = await db
+      .prepare(
+        `UPDATE settlement_broadcasts
+         SET state = 'BROADCAST_PENDING',
+             tx_hash = '0xdeadbeef',
+             signed_raw_tx = '0xdeadbeef',
+             updated_at = datetime('now')
+         WHERE payout_id = ? AND state = 'SIGNING'`
+      )
+      .bind('po_signing_stale')
+      .run();
+    expect(resumedUpdate.meta?.changes).toBe(0);
+
+    // Re-dispatch sees the terminal FAILED_ABORTED record and refuses to allocate a new nonce.
+    const reDispatch = await machine.executeSettlement({
+      payoutId: 'po_signing_stale',
+      idempotencyKey: 'idem_signing_stale',
+      affiliateId: 'aff_signing_stale',
+      chain: 'arbitrum',
+      recipientAddress: makeEvmRecipient(502),
+      amountUnits1e8: toLedgerUnits1e8('30.00'),
+      usdcReferencePriceUsd: '1.0000',
+    });
+    expect(reDispatch.state).toBe('FAILED_ABORTED');
+    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(42);
+    expect(enclave.evmSignedPayoutIds).toHaveLength(0);
+    expect(arbSepoliaSim.getConfirmedTransferCount()).toBe(0);
+  });
+
+  it('aborts a stale zero-payload Stellar SIGNING claim, reclaims the 64-bit sequence, and fences the resumed isolate', async () => {
+    const realNowUnix = Math.floor(Date.now() / 1000);
+
+    sqlite
+      .prepare(
+        `INSERT INTO signer_nonces (chain, signer_address, next_nonce, next_sequence_text, updated_at)
+         VALUES ('stellar', ?, 0, '10002', datetime('now'))`
+      )
+      .run(STELLAR_HOT_WALLET);
+    sqlite
+      .prepare(
+        `INSERT INTO settlement_broadcasts (
+           payout_id, idempotency_key, affiliate_id, chain, recipient_address,
+           amount_units_1e8, chain_token_units, chain_decimals, state, signer_address,
+           stellar_sequence, timebounds_max_unix, created_at, updated_at
+         ) VALUES (?, ?, ?, 'stellar', ?, ?, ?, 7, 'SIGNING', ?, '10001', ?, datetime('now', '-1 hour'), datetime('now', '-1 hour'))`
+      )
+      .run(
+        'po_xlm_signing_stale',
+        'idem_xlm_signing_stale',
+        'aff_xlm_signing_stale',
+        VALID_STELLAR_RECIPIENTS[0],
+        Number(toLedgerUnits1e8('30.00')),
+        '300000000',
+        STELLAR_HOT_WALLET,
+        realNowUnix + 10_000
+      );
+
+    const staleOutcome = await machine.recoverUncertainBroadcast('po_xlm_signing_stale', {
+      nowUnix: realNowUnix,
+    });
+    expect(staleOutcome.state).toBe('FAILED_ABORTED');
+    expect(staleOutcome.action).toBe('FAILED_PRE_BROADCAST_ABORTED');
+
+    const staleRow = sqlite
+      .prepare('SELECT state, stellar_sequence, timebounds_max_unix FROM settlement_broadcasts WHERE payout_id = ?')
+      .get('po_xlm_signing_stale') as {
+      state: string;
+      stellar_sequence: string | null;
+      timebounds_max_unix: number | null;
+    };
+    expect(staleRow.state).toBe('FAILED_ABORTED');
+    expect(staleRow.stellar_sequence).toBeNull();
+    expect(staleRow.timebounds_max_unix).toBeNull();
+
+    expect((await machine.getNextStellarSequence(STELLAR_HOT_WALLET))?.toString()).toBe('10001');
+
+    const resumedUpdate = await db
+      .prepare(
+        `UPDATE settlement_broadcasts
+         SET state = 'BROADCAST_PENDING',
+             tx_hash = 'deadbeef',
+             signed_raw_tx = 'SIGNED:UNSIGNED_XLM|10001',
+             updated_at = datetime('now')
+         WHERE payout_id = ? AND state = 'SIGNING'`
+      )
+      .bind('po_xlm_signing_stale')
+      .run();
+    expect(resumedUpdate.meta?.changes).toBe(0);
+
+    expect(enclave.stellarSignedPayoutIds).toHaveLength(0);
+    expect(stellarTestnetSim.minedSequences.size).toBe(0);
   });
 });

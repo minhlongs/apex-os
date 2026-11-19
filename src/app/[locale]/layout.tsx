@@ -1,3 +1,4 @@
+import { headers } from 'next/headers';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { NextIntlClientProvider } from 'next-intl';
 import { ToastProvider } from '@/components/toast/ToastProvider';
@@ -18,20 +19,24 @@ export async function generateMetadata({
   params: Promise<{ locale: string }>;
 }) {
   const { locale } = await params;
-  const baseUrl = 'https://apex-os.com';
+  const { CANONICAL_PRODUCTION_ORIGIN, resolveCanonicalAppOrigin } = await import(
+    '@/config/canonical-origin'
+  );
+  const baseUrl =
+    resolveCanonicalAppOrigin({ appEnv: 'production' }) || CANONICAL_PRODUCTION_ORIGIN;
   const siteName = 'ApexOS';
   const description =
     locale === 'vi'
-      ? 'ApexOS — Hạ tầng thu hồi phí điểm cơ bản (bps) và đối soát thanh khoản định lượng 3 tầng (30/10/5%). Xác thực Zero-Secret API Key ID trên Binance, Bybit, OKX, KuCoin.'
-      : 'ApexOS — Institutional crypto basis-point (bps) fee recovery hub and 3-tier liquidity attribution engine (30/10/5%). Zero-Secret API Key ID verification across Binance, Bybit, OKX, KuCoin.';
+      ? 'ApexOS — Hạ tầng hoàn phí giao dịch không lưu ký chỉ bằng UID và bằng chứng hoàn phí B2B (Proof-of-Rebate). Phân bổ Safe-Spread 2 tầng (50/20/5%), sổ cái kép 10^-8 USD và thanh toán USDC trên Stellar, Arbitrum, Base.'
+      : 'ApexOS — Non-custodial UID-only crypto trading fee rebate and B2B Proof-of-Rebate infrastructure. Safe-Spread 2-tier waterfall (50/20/5%), 10^-8 USD double-entry ledger, and self-custody USDC settlement across Stellar, Arbitrum, and Base.';
   const keywords =
     locale === 'vi'
-      ? 'crypto fee rebate, basis points, bps fee drag, quant execution, zero-secret API key ID, Binance, Bybit, OKX, KuCoin, Stellar USDC, 3-tier liquidity desk'
-      : 'crypto fee rebate, basis points, bps fee drag, quant execution, zero-secret API key ID, Binance, Bybit, OKX, KuCoin, Stellar USDC, 3-tier liquidity desk';
+      ? 'crypto fee rebate, non-custodial cashback, UID-only attribution, Proof-of-Rebate, Safe-Spread Waterfall, Bybit, OKX, Bitget, KuCoin, Gate.io, Stellar USDC, Arbitrum USDC, Base USDC'
+      : 'crypto fee rebate, non-custodial cashback, UID-only attribution, Proof-of-Rebate, Safe-Spread Waterfall, Bybit, OKX, Bitget, KuCoin, Gate.io, Stellar USDC, Arbitrum USDC, Base USDC';
 
   return {
     title: {
-      default: 'ApexOS — Institutional Quant Fee Recovery & Attribution Hub',
+      default: 'ApexOS — Non-Custodial Crypto Fee Rebate & B2B Proof-of-Rebate Infrastructure',
       template: '%s | ApexOS',
     },
     description,
@@ -83,7 +88,7 @@ export async function generateMetadata({
       type: 'website',
       locale: locale === 'vi' ? 'vi_VN' : 'en_US',
       url: `${baseUrl}/${locale}`,
-      title: 'ApexOS — Institutional Quant Fee Recovery & Attribution Hub',
+      title: 'ApexOS — Non-Custodial Crypto Fee Rebate & B2B Proof-of-Rebate Infrastructure',
       description,
       siteName,
       images: [
@@ -105,7 +110,7 @@ export async function generateMetadata({
     },
     twitter: {
       card: 'summary_large_image',
-      title: 'ApexOS — Institutional Quant Fee Recovery & Attribution Hub',
+      title: 'ApexOS — Non-Custodial Crypto Fee Rebate & B2B Proof-of-Rebate Infrastructure',
       description,
       images: [`${baseUrl}/assets/og-image.png`],
       creator: '@apexos_app',
@@ -133,6 +138,12 @@ export default async function RootLayout({
     const notFound = (await import('next/navigation')).notFound;
     notFound();
   }
+  let nonce: string | undefined;
+  try {
+    nonce = (await headers()).get('x-nonce') ?? undefined;
+  } catch {
+    nonce = undefined;
+  }
   const messages = (await import(`../../i18n/messages/${locale}.json`)).default;
   const orgJsonLd = generateOrganizationJsonLd();
   const appJsonLd = generateSoftwareApplicationJsonLd();
@@ -143,6 +154,7 @@ export default async function RootLayout({
         <html lang={locale}>
           <head>
             <script
+              nonce={nonce}
               type="application/ld+json"
               dangerouslySetInnerHTML={{
                 __html: JSON.stringify([orgJsonLd, appJsonLd]),

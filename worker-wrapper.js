@@ -8,7 +8,9 @@ import openNextWorker from './.open-next/worker.js';
 import {
   CRON_ALERT_ENGINE,
   CRON_D1_METRICS,
+  CRON_PARTNER_RECONCILIATION,
   CRON_WEEKLY_PAYOUTS,
+  CRON_T7_HOLD_RELEASE,
 } from './worker-cron-schedules.js';
 import {
   FORWARDED_HOST_HEADER,
@@ -113,8 +115,9 @@ export default {
    */
   bindEnv(env) {
     globalThis.env = env;
-    if (env.DB) {
-      globalThis.DB = env.DB;
+    const db = env.DB || env.apex_os_staging_db;
+    if (db) {
+      globalThis.DB = db;
     }
     if (env.apex_os_staging_db) {
       globalThis.apex_os_staging_db = env.apex_os_staging_db;
@@ -124,6 +127,9 @@ export default {
     }
     if (env.STORAGE) {
       globalThis.STORAGE = env.STORAGE;
+    }
+    if (env.ANALYTICS_ENGINE) {
+      globalThis.ANALYTICS_ENGINE = env.ANALYTICS_ENGINE;
     }
     if (env.PAPER_TRADING_DO) {
       globalThis.PAPER_TRADING_DO = env.PAPER_TRADING_DO;
@@ -144,9 +150,19 @@ export default {
       return this.handleMonitoringCron(request, env, ctx);
     }
 
+    // Execute 5-exchange partner HTTP reconciliation (daily at 02:00 UTC)
+    if (cronSchedule === CRON_PARTNER_RECONCILIATION) {
+      return this.handlePartnerReconciliationCron(request, env, ctx);
+    }
+
     // Execute weekly payouts (Sunday at 00:00 UTC)
     if (cronSchedule === CRON_WEEKLY_PAYOUTS) {
       return this.handlePayoutCron(request, env, ctx);
+    }
+
+    // Execute hourly T+7 hold release (at minute 15)
+    if (cronSchedule === CRON_T7_HOLD_RELEASE) {
+      return this.handleT7ReleaseCron(request, env, ctx);
     }
 
     // Unknown schedule
@@ -160,10 +176,70 @@ export default {
     });
   },
 
+  async handlePartnerReconciliationCron(request, env, ctx) {
+    try {
+      const db = env.DB || env.apex_os_staging_db;
+      if (!db) {
+        return new Response('Database not available', { status: 503 });
+      }
+
+      const cronUrl = new URL('/api/cron?job=partner_reconciliation', request.url);
+      const delegatedRequest = new Request(cronUrl.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${env.CRON_SECRET || ''}`,
+        },
+      });
+
+      return await openNextWorker.fetch(delegatedRequest, env, ctx);
+    } catch (error) {
+      console.error('Cron partner reconciliation error:', error);
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Partner reconciliation execution failed',
+        details: String(error),
+        timestamp: new Date().toISOString(),
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  },
+
+  async handleT7ReleaseCron(request, env, ctx) {
+    try {
+      const db = env.DB || env.apex_os_staging_db;
+      if (!db) {
+        return new Response('Database not available', { status: 503 });
+      }
+
+      const cronUrl = new URL('/api/cron?job=t7_release', request.url);
+      const delegatedRequest = new Request(cronUrl.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${env.CRON_SECRET || ''}`,
+        },
+      });
+
+      return await openNextWorker.fetch(delegatedRequest, env, ctx);
+    } catch (error) {
+      console.error('Cron T+7 hold release error:', error);
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'T+7 hold release execution failed',
+        details: String(error),
+        timestamp: new Date().toISOString(),
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  },
+
   async handlePayoutCron(request, env, ctx) {
     // Delegate weekly payouts to the single BatchSettlementService authority via /api/cron?job=payouts
     try {
-      const db = env.DB;
+      const db = env.DB || env.apex_os_staging_db;
       if (!db) {
         return new Response('Database not available', { status: 503 });
       }
@@ -209,7 +285,7 @@ export default {
       // Import monitoring module
       const { runMonitoringCycle, collectStorageMetrics } = await import('./src/lib/monitoring/d1-monitor.js');
 
-      const db = env.DB;
+      const db = env.DB || env.apex_os_staging_db;
       if (!db) {
         return new Response(JSON.stringify({
           success: false,
@@ -289,7 +365,7 @@ export default {
       // Import alert engine module
       const { runAlertEngine, getAlertEngine } = await import('./src/lib/monitoring/alert-engine.js');
 
-      const db = env.DB;
+      const db = env.DB || env.apex_os_staging_db;
       if (!db) {
         return new Response(JSON.stringify({
           success: false,
@@ -331,6 +407,30 @@ export default {
           value: a.currentValue,
           threshold: a.thresholdValue,
         })));
+      }
+
+      // Passively reconcile any uncertain `BROADCAST_PENDING` settlement rows every 5 minutes
+      // without consuming an extra Cloudflare Cron Trigger slot.
+      if (env.CRON_SECRET) {
+        const reconcilePromise = Promise.resolve().then(async () => {
+          try {
+            const reconcileUrl = new URL('/api/cron?job=settlement_reconcile', request.url);
+            const delegatedRequest = new Request(reconcileUrl.toString(), {
+              method: 'GET',
+              headers: {
+                Authorization: `Bearer ${env.CRON_SECRET}`,
+              },
+            });
+            await openNextWorker.fetch(delegatedRequest, env, ctx);
+          } catch (reconcileErr) {
+            console.error('[SettlementReconcile] Passive 5-min reconciliation error:', reconcileErr);
+          }
+        });
+        if (ctx && typeof ctx.waitUntil === 'function') {
+          ctx.waitUntil(reconcilePromise);
+        } else {
+          await reconcilePromise;
+        }
       }
 
       return new Response(JSON.stringify(response, null, 2), {

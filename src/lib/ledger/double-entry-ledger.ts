@@ -75,6 +75,7 @@ export class LedgerFrozenError extends Error {
 }
 
 export class IdempotencyConflictError extends Error {
+  public readonly code = 'IDEMPOTENCY_CONFLICT' as const;
   public readonly statusCode = 422;
   public readonly idempotencyKey: string;
   constructor(idempotencyKey: string) {
@@ -580,6 +581,53 @@ export async function computePayloadFingerprint(payload: Record<string, unknown>
   return computeSha256Hex(canonicalJson);
 }
 
+/**
+ * Translate a transaction rollback raised by the `CASE ... ELSE NULL END` status
+ * guard inside `applyClawback` into the ledger's domain errors.
+ *
+ * The guard writes `NULL` into `ledger_journal_batches.status` (declared
+ * `NOT NULL`) whenever the batch moved, its cumulative clawback metadata
+ * changed, or the cumulative clawback cap would be exceeded. SQLite aborts the
+ * whole `db.batch(...)` transaction on that constraint violation, so mapping
+ * the message back to `CONCURRENT` vs `CAP` preserves the caller's 409/400
+ * semantics without ever leaving a partially applied clawback behind.
+ */
+function translateClawbackConstraintError(
+  err: unknown,
+  originalBatchId: string,
+  clawbackUnits: bigint
+): Error {
+  const message = err instanceof Error ? err.message : String(err);
+  const isNotNullConstraint =
+    message.includes('NOT NULL constraint failed') &&
+    message.includes('ledger_journal_batches.status');
+  if (!isNotNullConstraint) {
+    return err instanceof Error ? err : new Error(message);
+  }
+  return new LedgerConcurrentClawbackError(originalBatchId, clawbackUnits, message);
+}
+
+/**
+ * Raised when a clawback cannot be applied because the original batch was
+ * concurrently mutated or the cumulative clawback cap was reached at commit time.
+ * Status `409` keeps retry semantics for the optimistic-lock race; the message
+ * names the batch so operators can reconcile the statement out-of-band.
+ */
+export class LedgerConcurrentClawbackError extends LedgerStateTransitionError {
+  public readonly originalBatchId: string;
+  public readonly clawbackUnits: bigint;
+  constructor(originalBatchId: string, clawbackUnits: bigint, detail?: string) {
+    super(
+      `Clawback of ${clawbackUnits.toString()} units on batch "${originalBatchId}" was rejected by the atomic cumulative guard${
+        detail ? ` (${detail})` : ''
+      }`
+    );
+    this.name = 'LedgerConcurrentClawbackError';
+    this.originalBatchId = originalBatchId;
+    this.clawbackUnits = clawbackUnits;
+  }
+}
+
 interface AccountSpec {
   id: string;
   ownerType: LedgerAccountOwnerType;
@@ -1024,6 +1072,13 @@ export class DoubleEntryLedgerService {
       hasB2bAgencyPartner: b2bAgencyId !== null,
     });
 
+    // `reconciliationId` and `evidenceId` identify the statement batch that
+    // reported the trade, not the trade itself. A poller lookback window can
+    // legitimately re-ingest the same trade under a new batch id, and that
+    // replay must resolve to the same idempotency fingerprint instead of
+    // minting a duplicate inflight batch. Every economically meaningful field
+    // stays in the fingerprint so a mutated amount or attribution still raises
+    // `IdempotencyConflictError`.
     const fingerprint = await computePayloadFingerprint({
       op: 'COMMISSION_INFLIGHT',
       exchange: input.exchange,
@@ -1031,8 +1086,6 @@ export class DoubleEntryLedgerService {
       traderId: input.traderId.trim(),
       l1AffiliateId,
       b2bAgencyId,
-      reconciliationId: input.reconciliationId,
-      evidenceId: input.evidenceId,
       grossCommissionUnits: input.grossCommissionUnits,
       waterfallConfig: waterfall.config,
     });
@@ -1410,14 +1463,41 @@ export class DoubleEntryLedgerService {
     }
 
     const origMeta = original.metadata as unknown as CommissionBatchMetadata;
-    const remGross = BigInt(origMeta.remainingLegs.grossUnits);
+    const metaRemGross = BigInt(origMeta.remainingLegs.grossUnits);
+    const metaClawedBack = BigInt(origMeta.clawedBackUnits);
+
+    const priorClawbackRow = await this.db
+      .prepare(
+        `SELECT COALESCE(SUM(gross_commission_units), 0) AS total_clawed_units
+         FROM ledger_journal_batches
+         WHERE journal_type IN ('COMMISSION_VOID_CLAWBACK', 'POST_SETTLEMENT_CLAWBACK')
+           AND status = 'SETTLED'
+           AND json_extract(metadata, '$.originalBatchId') = ?`
+      )
+      .bind(original.id)
+      .first<{ total_clawed_units: number }>();
+
+    const ledgerSumClawedUnits = fromSqlInteger(
+      priorClawbackRow?.total_clawed_units ?? 0,
+      'total_clawed_units'
+    );
+    const alreadyClawedUnits =
+      ledgerSumClawedUnits >= metaClawedBack ? ledgerSumClawedUnits : metaClawedBack;
+    const capRemGross =
+      original.grossCommissionUnits > alreadyClawedUnits
+        ? original.grossCommissionUnits - alreadyClawedUnits
+        : BI_ZERO;
+    const remGross = metaRemGross <= capRemGross ? metaRemGross : capRemGross;
 
     if (original.status === 'VOIDED' || remGross === BI_ZERO) {
       throw new LedgerStateTransitionError(
         `Batch "${original.id}" has already been 100% clawed back`
       );
     }
-    if (input.clawbackUnits > remGross) {
+    if (
+      input.clawbackUnits > remGross ||
+      alreadyClawedUnits + input.clawbackUnits > original.grossCommissionUnits
+    ) {
       throw new LedgerUnitValidationError(
         `Clawback amount ${input.clawbackUnits.toString()} exceeds remaining clawbackable gross ${remGross.toString()} on batch "${original.id}"`
       );
@@ -1425,6 +1505,7 @@ export class DoubleEntryLedgerService {
 
     const nowIso = input.nowIso ?? new Date().toISOString();
     const clawbackBatchId = `lbatch_${globalThis.crypto.randomUUID()}`;
+    const clawbackUnitsInt = toSafeSqlInteger(input.clawbackUnits, 'clawback_units');
     const receivableSpec = partnerReceivableAccount(original.exchange);
 
     if (original.status === 'INFLIGHT') {
@@ -1514,7 +1595,7 @@ export class DoubleEntryLedgerService {
           platformNetUnits: (remPlatform - dPlatform).toString(),
         },
         clawedBackUnits: (
-          BigInt(origMeta.clawedBackUnits) + input.clawbackUnits
+          alreadyClawedUnits + input.clawbackUnits
         ).toString(),
       };
 
@@ -1554,13 +1635,38 @@ export class DoubleEntryLedgerService {
 
       const updateOriginalStmt = this.db
         .prepare(
-          `UPDATE ledger_journal_batches
-           SET status = CASE WHEN status = 'INFLIGHT' AND updated_at = ? THEN ? ELSE NULL END,
+          `UPDATE ledger_journal_batches AS orig
+           SET status = CASE
+                 WHEN orig.status = 'INFLIGHT'
+                  AND orig.updated_at = ?
+                  AND json_extract(orig.metadata, '$.clawedBackUnits') = ?
+                  AND json_extract(orig.metadata, '$.remainingLegs.grossUnits') = ?
+                  AND CAST(json_extract(orig.metadata, '$.clawedBackUnits') AS INTEGER) + ? <= orig.gross_commission_units
+                  AND (
+                        SELECT COALESCE(SUM(cb.gross_commission_units), 0)
+                        FROM ledger_journal_batches cb
+                        WHERE cb.journal_type IN ('COMMISSION_VOID_CLAWBACK', 'POST_SETTLEMENT_CLAWBACK')
+                          AND cb.status = 'SETTLED'
+                          AND json_extract(cb.metadata, '$.originalBatchId') = ?
+                      ) <= orig.gross_commission_units
+                 THEN ?
+                 ELSE NULL
+               END,
                metadata = ?,
                updated_at = ?
-           WHERE id = ?`
+           WHERE orig.id = ?`
         )
-        .bind(original.updatedAt, newOrigStatus, JSON.stringify(updatedOrigMeta), nowIso, original.id);
+        .bind(
+          original.updatedAt,
+          origMeta.clawedBackUnits,
+          origMeta.remainingLegs.grossUnits,
+          clawbackUnitsInt,
+          original.id,
+          newOrigStatus,
+          JSON.stringify(updatedOrigMeta),
+          nowIso,
+          original.id
+        );
 
       const postingStmts = this.buildPostingAndBalanceStatements(
         clawbackBatchId,
@@ -1568,7 +1674,25 @@ export class DoubleEntryLedgerService {
         nowIso
       );
 
-      await this.db.batch([insertClawbackBatchStmt, updateOriginalStmt, ...postingStmts]);
+      let inflightBatchResults: D1Result[];
+      try {
+        // Order `updateOriginalStmt` AFTER `insertClawbackBatchStmt` so the cumulative
+        // `SUM(cb.gross_commission_units)` subquery includes the newly inserted clawback row.
+        inflightBatchResults = await this.db.batch([
+          insertClawbackBatchStmt,
+          updateOriginalStmt,
+          ...postingStmts,
+        ]);
+      } catch (err) {
+        throw translateClawbackConstraintError(err, original.id, input.clawbackUnits);
+      }
+
+      const inflightOriginalResult = inflightBatchResults[1];
+      if (!inflightOriginalResult || inflightOriginalResult.meta.changes !== 1) {
+        throw new LedgerStateTransitionError(
+          `Concurrent state change prevented applying clawback to batch "${original.id}"`
+        );
+      }
 
       const committed = await this.getBatchById(clawbackBatchId);
       const committedPostings = await this.getPostingsForBatch(clawbackBatchId);
@@ -1754,16 +1878,19 @@ export class DoubleEntryLedgerService {
       });
     }
 
+    const settledNewRemGross = remGross - input.clawbackUnits;
     const updatedSettledOrigMeta: CommissionBatchMetadata = {
       ...origMeta,
       remainingLegs: {
         ...origMeta.remainingLegs,
-        grossUnits: (remGross - input.clawbackUnits).toString(),
+        grossUnits: settledNewRemGross.toString(),
       },
       clawedBackUnits: (
-        BigInt(origMeta.clawedBackUnits) + input.clawbackUnits
+        alreadyClawedUnits + input.clawbackUnits
       ).toString(),
     };
+    const newSettledOrigStatus: LedgerBatchStatus =
+      settledNewRemGross === BI_ZERO ? 'VOIDED' : 'SETTLED';
 
     const postMetadata = {
       originalBatchId: original.id,
@@ -1800,13 +1927,38 @@ export class DoubleEntryLedgerService {
 
     const updateSettledOrigStmt = this.db
       .prepare(
-        `UPDATE ledger_journal_batches
-         SET status = CASE WHEN status = 'SETTLED' AND updated_at = ? THEN 'SETTLED' ELSE NULL END,
+        `UPDATE ledger_journal_batches AS orig
+         SET status = CASE
+               WHEN orig.status = 'SETTLED'
+                AND orig.updated_at = ?
+                AND json_extract(orig.metadata, '$.clawedBackUnits') = ?
+                AND json_extract(orig.metadata, '$.remainingLegs.grossUnits') = ?
+                AND CAST(json_extract(orig.metadata, '$.clawedBackUnits') AS INTEGER) + ? <= orig.gross_commission_units
+                AND (
+                      SELECT COALESCE(SUM(cb.gross_commission_units), 0)
+                      FROM ledger_journal_batches cb
+                      WHERE cb.journal_type IN ('COMMISSION_VOID_CLAWBACK', 'POST_SETTLEMENT_CLAWBACK')
+                        AND cb.status = 'SETTLED'
+                        AND json_extract(cb.metadata, '$.originalBatchId') = ?
+                    ) <= orig.gross_commission_units
+               THEN ?
+               ELSE NULL
+             END,
              metadata = ?,
              updated_at = ?
-         WHERE id = ?`
+         WHERE orig.id = ?`
       )
-      .bind(original.updatedAt, JSON.stringify(updatedSettledOrigMeta), nowIso, original.id);
+      .bind(
+        original.updatedAt,
+        origMeta.clawedBackUnits,
+        origMeta.remainingLegs.grossUnits,
+        clawbackUnitsInt,
+        original.id,
+        newSettledOrigStatus,
+        JSON.stringify(updatedSettledOrigMeta),
+        nowIso,
+        original.id
+      );
 
     const postingStmts = this.buildPostingAndBalanceStatements(
       clawbackBatchId,
@@ -1814,12 +1966,26 @@ export class DoubleEntryLedgerService {
       nowIso
     );
 
-    await this.db.batch([
-      insertPostClawbackStmt,
-      updateSettledOrigStmt,
-      ...extraBatchUpdateStmts,
-      ...postingStmts,
-    ]);
+    let settledBatchResults: D1Result[];
+    try {
+      // Order `updateSettledOrigStmt` AFTER `insertPostClawbackStmt` so the cumulative
+      // `SUM(cb.gross_commission_units)` subquery includes the newly inserted clawback row.
+      settledBatchResults = await this.db.batch([
+        insertPostClawbackStmt,
+        updateSettledOrigStmt,
+        ...extraBatchUpdateStmts,
+        ...postingStmts,
+      ]);
+    } catch (err) {
+      throw translateClawbackConstraintError(err, original.id, input.clawbackUnits);
+    }
+
+    const settledOriginalResult = settledBatchResults[1];
+    if (!settledOriginalResult || settledOriginalResult.meta.changes !== 1) {
+      throw new LedgerStateTransitionError(
+        `Concurrent state change prevented applying clawback to batch "${original.id}"`
+      );
+    }
 
     const committed = await this.getBatchById(clawbackBatchId);
     const committedPostings = await this.getPostingsForBatch(clawbackBatchId);

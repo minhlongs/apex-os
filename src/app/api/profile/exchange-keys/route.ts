@@ -16,14 +16,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDB, type D1Database } from '@/lib/db';
 import { getAuthenticatedUser, resolveDatabase } from '@/lib/auth/session-helper';
 import { error as logError } from '@/lib/logger';
-import type { LinkedExchange, ProfileExternalIds } from '@/types/profile';
-
-export const SUPPORTED_LINKED_EXCHANGES: readonly LinkedExchange[] = [
-  'okx',
-  'kucoin',
-  'binance',
-  'bybit',
-] as const;
+import type { ProfileExternalIds } from '@/types/profile';
+import {
+  SUPPORTED_LINKED_EXCHANGES,
+  isSupportedLinkedExchange,
+  parseExternalIds,
+} from './helpers';
 
 const API_KEY_ID_REGEX = /^[A-Za-z0-9_-]{6,128}$/;
 
@@ -40,23 +38,6 @@ function getDatabase(): D1Database | null {
     const globalDb = (globalThis as unknown as { DB?: D1Database }).DB;
     return globalDb || null;
   }
-}
-
-export function parseExternalIds(raw: string | null | undefined): ProfileExternalIds {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as ProfileExternalIds;
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
-
-export function isSupportedLinkedExchange(value: string): value is LinkedExchange {
-  return (SUPPORTED_LINKED_EXCHANGES as readonly string[]).includes(value);
 }
 
 /**

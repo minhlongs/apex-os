@@ -39,7 +39,7 @@
     "json-rules-engine": "^7.3.1",
     "lucide-react": "^0.441.0",
     "mixpanel-browser": "^2.80.0",
-    "next": "16.4.3",
+    "next": "16.4.6",
     "next-intl": "^4.12.0",
     "react": "18.3.1",
     "react-dom": "18.3.1",

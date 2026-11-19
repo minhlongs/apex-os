@@ -30,6 +30,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 
   const isVi = locale === 'vi';
+  const { CANONICAL_PRODUCTION_ORIGIN, resolveCanonicalAppOrigin } = await import(
+    '@/config/canonical-origin'
+  );
+  const baseUrl =
+    resolveCanonicalAppOrigin({ appEnv: 'production' }) || CANONICAL_PRODUCTION_ORIGIN;
   const title = isVi ? article.title.vi : article.title.en;
   const description = isVi ? article.summary.vi : article.summary.en;
 
@@ -38,7 +43,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     description,
     keywords: article.tags.join(', '),
     alternates: {
-      canonical: `https://apex-os.com/${locale}/insights/${slug}`,
+      canonical: `${baseUrl}/${locale}/insights/${slug}`,
       languages: {
         'vi-VN': `/vi/insights/${slug}`,
         'en-US': `/en/insights/${slug}`,

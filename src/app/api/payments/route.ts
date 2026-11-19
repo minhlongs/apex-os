@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { isQuarantinedThirdPartyHost } from '@/config/canonical-origin';
 import { error as logError, warn as logWarn } from '@/lib/logger';
 import { getDB, type D1Database } from '@/lib/db';
 import { getAuthenticatedUser, resolveDatabase } from '@/lib/auth/session-helper';
@@ -27,10 +28,58 @@ function generateOrderId(userId: string | null, plan: string): string {
   return `apex-${uid.slice(0, 8)}-${plan.toLowerCase()}-${Date.now()}`;
 }
 
-function buildCallbackUrl(request: NextRequest): string {
-  const proto = request.headers.get('x-forwarded-proto') ?? 'https';
-  const host = request.headers.get('host') ?? 'apex-os.com';
-  return `${proto}://${host}/api/webhooks/ipn`;
+function parseTrustedOrigin(
+  rawUrl: string | null | undefined,
+  options?: { allowTestQuarantinedRequestUrl?: boolean }
+): string | null {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    return null;
+  }
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return null;
+    }
+    if (
+      isQuarantinedThirdPartyHost(parsed.hostname) &&
+      !(options?.allowTestQuarantinedRequestUrl && process.env.NODE_ENV === 'test')
+    ) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+function buildCallbackUrl(request: NextRequest): string | null {
+  const configuredOrigin = parseTrustedOrigin(process.env.NEXT_PUBLIC_APP_URL);
+  if (configuredOrigin) {
+    return `${configuredOrigin}/api/webhooks/ipn`;
+  }
+
+  const hostHeader = request.headers.get('host')?.trim();
+  if (hostHeader && /^[a-zA-Z0-9.:-]+$/.test(hostHeader)) {
+    const rawProto = request.headers.get('x-forwarded-proto')?.trim().toLowerCase();
+    const proto = rawProto === 'http' ? 'http' : 'https';
+    const hostOrigin = parseTrustedOrigin(`${proto}://${hostHeader}`);
+    if (hostOrigin) {
+      return `${hostOrigin}/api/webhooks/ipn`;
+    }
+  }
+
+  const requestOrigin = parseTrustedOrigin(request.url, {
+    allowTestQuarantinedRequestUrl: true,
+  });
+  if (requestOrigin) {
+    return `${requestOrigin}/api/webhooks/ipn`;
+  }
+
+  return null;
 }
 
 function getDatabase(): D1Database | null {
@@ -92,6 +141,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const amount = PLAN_AMOUNTS[plan];
     const callbackUrl = buildCallbackUrl(request);
+    if (!callbackUrl) {
+      logError('[Payments] Unable to resolve trusted IPN callback origin');
+      return NextResponse.json(
+        { success: false, error: 'Payment callback origin not configured' },
+        { status: 503 }
+      );
+    }
     const orderId = generateOrderId(user.id, plan);
 
     // 4. Contact NOWPayments upstream API

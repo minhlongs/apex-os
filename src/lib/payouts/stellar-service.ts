@@ -199,8 +199,10 @@ export interface PayoutJobStatus {
 export interface StellarServiceConfig {
   /** Network: testnet or mainnet */
   network: StellarNetwork;
-  /** Secret key for the sending account (required for direct local signing) */
+  /** Secret key for the sending account (legacy local signing only; Turnkey HSM uses senderPublicKey) */
   secretKey?: string;
+  /** Read-only Stellar sender public key (e.g. TURNKEY_STELLAR_HOT_WALLET_ADDRESS) for Horizon balance/health checks without private keys */
+  senderPublicKey?: string;
   /** USDC issuer address (optional, uses default if not provided) */
   usdcIssuer?: string;
   /** Horizon server URL (optional, uses default for network) */
@@ -409,6 +411,7 @@ export class StellarService {
   private server: StellarSdkTypes.Horizon.Server;
   private usdcAsset: StellarSdkTypes.Asset;
   private senderKeypair?: StellarSdkTypes.Keypair;
+  private senderPublicKey?: string;
 
   constructor(config: Partial<StellarServiceConfig>) {
     this.config = { ...DEFAULT_CONFIG, ...config } as Required<StellarServiceConfig>;
@@ -433,13 +436,25 @@ export class StellarService {
       usdcConfig.issuer
     );
 
-    // Load sender keypair if secret key provided
+    // Load sender keypair if secret key provided; otherwise accept read-only Turnkey public key
     if (this.config.secretKey) {
       try {
         this.senderKeypair = StellarSdk.Keypair.fromSecret(this.config.secretKey);
       } catch (error) {
-        logError('Failed to parse Stellar secret key:', error);
+        logError(
+          'Failed to parse Stellar secret key:',
+          error instanceof Error ? error.name : 'InvalidSecretKey'
+        );
         this.senderKeypair = undefined;
+      }
+    } else if (this.config.senderPublicKey?.trim()) {
+      const candidate = this.config.senderPublicKey.trim();
+      if (isValidStellarAccountId(candidate)) {
+        this.senderPublicKey = candidate;
+      } else {
+        logError(
+          'Invalid Stellar senderPublicKey configured (expected G... Ed25519 StrKey; value redacted)'
+        );
       }
     }
   }
@@ -469,10 +484,10 @@ export class StellarService {
   }
 
   /**
-   * Get the sender account ID (from secret key)
+   * Get the sender account ID (from local secret key or read-only Turnkey public key)
    */
   getSenderAccountId(): string | null {
-    return this.senderKeypair?.publicKey() || null;
+    return this.senderKeypair?.publicKey() || this.senderPublicKey || null;
   }
 
   /**
@@ -1098,7 +1113,7 @@ export class StellarService {
       );
     }
 
-    const senderAccountId = this.senderKeypair?.publicKey() || null;
+    const senderAccountId = this.getSenderAccountId();
     if (senderAccountId && horizonConnected) {
       try {
         const account = await this.getAccount(senderAccountId);
@@ -1114,7 +1129,9 @@ export class StellarService {
         );
       }
     } else if (!senderAccountId) {
-      errors.push('No sender account configured (missing STELLAR_SECRET_KEY)');
+      errors.push(
+        'No sender account configured (set TURNKEY_STELLAR_HOT_WALLET_ADDRESS for read-only Horizon telemetry & Turnkey HSM signing)'
+      );
     }
 
     return {
@@ -1179,18 +1196,22 @@ export function resolveStellarNetwork(
  * Factory function to create a Stellar service from environment variables
  */
 export function createStellarService(): StellarService {
-  const secretKey = process.env.STELLAR_SECRET_KEY;
+  const senderPublicKey = process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS?.trim();
+  const secretKey = senderPublicKey ? undefined : process.env.STELLAR_SECRET_KEY;
   const network = resolveStellarNetwork();
   const usdcIssuer = process.env.STELLAR_USDC_ISSUER;
   const horizonUrl = process.env.STELLAR_HORIZON_URL;
 
-  if (!secretKey) {
-    logWarn('STELLAR_SECRET_KEY not set. Payout operations requiring signing will fail.');
+  if (!senderPublicKey && !secretKey) {
+    logWarn(
+      'Neither TURNKEY_STELLAR_HOT_WALLET_ADDRESS nor STELLAR_SECRET_KEY is set. Sender health checks and local signing will be unavailable.'
+    );
   }
 
   return new StellarService({
     network,
     secretKey,
+    senderPublicKey,
     usdcIssuer,
     horizonUrl,
   });
@@ -1217,4 +1238,14 @@ export function isValidStellarAccountId(accountId: string): boolean {
 export function parseStellarAmount(amount: string | number): number {
   const stroops = toStellarStroops(amount);
   return new Decimal(stroops.toString()).div(STROOPS_SCALE_DECIMAL).toNumber();
+}
+
+/**
+ * Redact any Stellar Ed25519 secret seed (`S` followed by uppercase alphanumeric chars)
+ * or secret-bearing token from diagnostic strings before returning or logging.
+ */
+export function sanitizeStellarDiagnosticError(message: string): string {
+  return message
+    .replace(/\bS[A-Z0-9]{48,64}\b/g, '[REDACTED_STELLAR_SECRET]')
+    .replace(/(STELLAR_SECRET_KEY\s*[:=]\s*)\S+/gi, '$1[REDACTED]');
 }

@@ -19,6 +19,14 @@ import {
   listWalletChangeRequestsForOwner,
 } from '@/lib/wallet/timelock-wallet-service';
 import { sanitizeApiErrorResponse } from '@/lib/auth/passkey-step-up';
+import {
+  buildD1RateLimitResponse,
+  enforcePersistentD1RateLimit,
+} from '@/lib/security/d1-rate-limiter';
+import {
+  buildCsrfForbiddenResponse,
+  verifyTrustedMutationOrigin,
+} from '@/lib/security/http-hardening';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
@@ -79,6 +87,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const csrfDecision = verifyTrustedMutationOrigin(request);
+    if (!csrfDecision.allowed) {
+      return buildCsrfForbiddenResponse(csrfDecision);
+    }
+
     const db = resolveDatabase();
     if (!db) {
       return NextResponse.json(
@@ -93,6 +106,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
+    }
+
+    const rateCheck = await enforcePersistentD1RateLimit(db, {
+      endpointType: 'wallet_timelock_post_user',
+      identifier: user.id,
+      maxRequests: 20,
+      windowSeconds: 60,
+    });
+    if (!rateCheck.allowed) {
+      return buildD1RateLimitResponse(rateCheck);
     }
 
     let body: Record<string, unknown>;
@@ -168,6 +191,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
   try {
+    const csrfDecision = verifyTrustedMutationOrigin(request);
+    if (!csrfDecision.allowed) {
+      return buildCsrfForbiddenResponse(csrfDecision);
+    }
+
     const db = resolveDatabase();
     if (!db) {
       return NextResponse.json(
@@ -182,6 +210,16 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
+    }
+
+    const rateCheck = await enforcePersistentD1RateLimit(db, {
+      endpointType: 'wallet_timelock_patch_user',
+      identifier: user.id,
+      maxRequests: 20,
+      windowSeconds: 60,
+    });
+    if (!rateCheck.allowed) {
+      return buildD1RateLimitResponse(rateCheck);
     }
 
     let body: Record<string, unknown>;
@@ -259,6 +297,11 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
   try {
+    const csrfDecision = verifyTrustedMutationOrigin(request);
+    if (!csrfDecision.allowed) {
+      return buildCsrfForbiddenResponse(csrfDecision);
+    }
+
     const db = resolveDatabase();
     if (!db) {
       return NextResponse.json(
@@ -273,6 +316,16 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
+    }
+
+    const rateCheck = await enforcePersistentD1RateLimit(db, {
+      endpointType: 'wallet_timelock_delete_user',
+      identifier: user.id,
+      maxRequests: 20,
+      windowSeconds: 60,
+    });
+    if (!rateCheck.allowed) {
+      return buildD1RateLimitResponse(rateCheck);
     }
 
     const url = new URL(request.url);

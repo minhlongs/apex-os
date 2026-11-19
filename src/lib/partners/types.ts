@@ -1,10 +1,10 @@
 import Decimal from 'decimal.js';
 
-export type ActivePartnerExchangeId = 'bybit' | 'okx' | 'bitget';
+export type ActivePartnerExchangeId = 'bybit' | 'okx' | 'bitget' | 'kucoin' | 'gateio';
 
 export type PartnerExchangeId = ActivePartnerExchangeId | 'binance_referral_pro';
 
-export type PartnerAdapterStatus = 'ACTIVE' | 'BLOCKED';
+export type PartnerAdapterStatus = 'ACTIVE' | 'SHADOW_ONLY' | 'BLOCKED';
 
 export interface PartnerAdapterCapabilities {
   readonly supportsRestPolling: boolean;
@@ -38,12 +38,15 @@ export interface PartnerIngestionBatchResult {
   rows: NormalizedPartnerCommissionRow[];
   nextCursor: string | null;
   evidence: RawEvidenceMetadata;
+  rawPayload?: string;
 }
 
 export interface PartnerApiCredentials {
   apiKey: string;
   apiSecret: string;
   passphrase?: string;
+  partnerId?: string;
+  keyVersion?: string;
   baseUrl?: string;
   recvWindowMs?: number;
 }
@@ -163,6 +166,8 @@ export const ALLOWED_PARTNER_API_HOSTS: Record<ActivePartnerExchangeId, readonly
   bybit: ['api.bybit.com', 'api.bytick.com', 'api-testnet.bybit.com'],
   okx: ['www.okx.com', 'aws.okx.com'],
   bitget: ['api.bitget.com'],
+  kucoin: ['api.kucoin.com', 'api-broker.kucoin.com', 'openapi-v2.kucoin.com'],
+  gateio: ['api.gateio.ws'],
 };
 
 export function validatePartnerApiBaseUrl(
@@ -375,3 +380,38 @@ export async function signHmacSha256(
   }
   return btoa(binary);
 }
+
+export async function sha512Hex(rawPayload: string): Promise<string> {
+  const encoded = new TextEncoder().encode(rawPayload);
+  const digest = await getSubtleCrypto().digest('SHA-512', toExactArrayBuffer(encoded));
+  const hashBytes = new Uint8Array(digest);
+  let hex = '';
+  for (let i = 0; i < hashBytes.length; i += 1) {
+    hex += hashBytes[i].toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+export async function signHmacSha512Hex(secret: string, message: string): Promise<string> {
+  const subtle = getSubtleCrypto();
+  const encoder = new TextEncoder();
+  const keyBytes = encoder.encode(secret);
+  const msgBytes = encoder.encode(message);
+
+  const cryptoKey = await subtle.importKey(
+    'raw',
+    toExactArrayBuffer(keyBytes),
+    { name: 'HMAC', hash: 'SHA-512' },
+    false,
+    ['sign']
+  );
+
+  const sigBuffer = await subtle.sign('HMAC', cryptoKey, toExactArrayBuffer(msgBytes));
+  const sigBytes = new Uint8Array(sigBuffer);
+  let hex = '';
+  for (let i = 0; i < sigBytes.length; i += 1) {
+    hex += sigBytes[i].toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { DollarSign, Users, TrendingUp, ShoppingCart, Copy, Check, ChevronRight, User } from 'lucide-react';
+import { DollarSign, Users, TrendingUp, ShoppingCart, Copy, Check, ChevronRight, User, Percent, Building2, Lock } from 'lucide-react';
 
 interface AffiliateProfile {
   id: string;
@@ -105,9 +105,34 @@ function CommissionTiers() {
   const t = useTranslations('affiliates.tiers');
 
   const tiers = [
-    { name: t('tier1.name'), desc: t('tier1.description'), rate: t('tier1.rate'), icon: '👥', color: 'from-emerald-400 to-emerald-600' },
-    { name: t('tier2.name'), desc: t('tier2.description'), rate: t('tier2.rate'), icon: '👤', color: 'from-indigo-400 to-indigo-600' },
-    { name: t('tier3.name'), desc: t('tier3.description'), rate: t('tier3.rate'), icon: '⭐', color: 'from-violet-400 to-violet-600' },
+    {
+      name: t('traderRebate.name'),
+      desc: t('traderRebate.description'),
+      rate: t('traderRebate.rate'),
+      icon: <Percent className="w-6 h-6 text-stitch-emerald" />,
+      color: 'from-emerald-400 to-emerald-600',
+    },
+    {
+      name: t('tier1.name'),
+      desc: t('tier1.description'),
+      rate: t('tier1.rate'),
+      icon: <Users className="w-6 h-6 text-stitch-cyan" />,
+      color: 'from-cyan-400 to-indigo-500',
+    },
+    {
+      name: t('tier2.name'),
+      desc: t('tier2.description'),
+      rate: t('tier2.rate'),
+      icon: <Building2 className="w-6 h-6 text-stitch-indigo" />,
+      color: 'from-indigo-400 to-violet-500',
+    },
+    {
+      name: t('tier3.name'),
+      desc: t('tier3.description'),
+      rate: t('tier3.rate'),
+      icon: <Lock className="w-6 h-6 text-stitch-muted" />,
+      color: 'from-slate-400 to-slate-500',
+    },
   ];
 
   return (
@@ -117,12 +142,12 @@ function CommissionTiers() {
       <div className="space-y-3">
         {tiers.map((tier, idx) => (
           <div key={idx} className="flex items-center gap-4 p-4 rounded-xl bg-stitch-canvas border border-stitch-border">
-            <div className="text-3xl">{tier.icon}</div>
-            <div className="flex-1">
+            <div className="p-2.5 bg-stitch-well rounded-xl shrink-0">{tier.icon}</div>
+            <div className="flex-1 min-w-0">
               <h4 className="font-semibold text-stitch-primary">{tier.name}</h4>
               <p className="text-sm text-stitch-muted">{tier.desc}</p>
             </div>
-            <div className={`text-2xl font-bold font-mono bg-gradient-to-r ${tier.color} bg-clip-text text-transparent`}>
+            <div className={`text-xl font-bold font-mono bg-gradient-to-r ${tier.color} bg-clip-text text-transparent shrink-0`}>
               {tier.rate}
             </div>
           </div>

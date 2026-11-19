@@ -29,6 +29,10 @@ import {
 import type { D1Database } from '@/lib/db';
 import { getAuthenticatedUser } from '@/lib/auth/session-helper';
 import { redactPiiForReadOnlyAi } from '@/lib/compliance/pii-redactor';
+import {
+  verifyTrustedMutationOrigin,
+  type CsrfRejectionCode,
+} from '@/lib/security/http-hardening';
 
 type PasskeyTransport = NonNullable<
   RegistrationResponseJSON['response']['transports']
@@ -68,6 +72,7 @@ export interface PasskeyStepUpClaims {
   sub: string;
   purpose: WebAuthnChallengePurpose;
   cid: string;
+  credentialId?: string;
   iat: number;
   exp: number;
 }
@@ -80,7 +85,8 @@ export interface AdminPasskeyAuthResult {
     | 'UNAUTHENTICATED'
     | 'ADMIN_ROLE_REQUIRED'
     | 'PASSKEY_STEP_UP_REQUIRED'
-    | 'PASSKEY_STEP_UP_INVALID';
+    | 'PASSKEY_STEP_UP_INVALID'
+    | CsrfRejectionCode;
   adminId?: string;
   email?: string;
   error?: string;
@@ -115,26 +121,65 @@ function resolveStepUpSigningSecret(overrideSecret?: string): string {
     return overrideSecret;
   }
   const envSecret =
-    process.env.PASSKEY_STEPUP_SECRET ?? process.env.BETTER_AUTH_SECRET;
+    process.env.PASSKEY_STEP_UP_SECRET ??
+    process.env.PASSKEY_STEPUP_SECRET ??
+    process.env.BETTER_AUTH_SECRET;
   if (envSecret && envSecret.length >= 16) {
     return envSecret;
   }
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('PASSKEY_STEPUP_SECRET is not configured');
+  const appEnv = (process.env.APP_ENV ?? '').trim().toLowerCase();
+  const nodeEnv = (process.env.NODE_ENV ?? '').trim().toLowerCase();
+  const isStrictRuntime =
+    nodeEnv === 'production' ||
+    (nodeEnv !== 'test' && (appEnv === 'production' || appEnv === 'staging'));
+  if (isStrictRuntime) {
+    throw new Error('PASSKEY_STEP_UP_SECRET or BETTER_AUTH_SECRET is not configured');
   }
   return 'dev_only_passkey_stepup_hmac_key_32chars';
 }
+
+import { isQuarantinedThirdPartyHost } from '@/config/canonical-origin';
 
 function resolveRpConfig(options?: { rpID?: string; rpName?: string; origin?: string }): {
   rpID: string;
   rpName: string;
   origin: string;
 } {
-  const rpID = options?.rpID ?? process.env.WEBAUTHN_RP_ID ?? 'localhost';
+  const appEnv = (process.env.APP_ENV ?? '').trim().toLowerCase();
+  const isManagedDeployment =
+    appEnv === 'production' || appEnv === 'staging' || process.env.NODE_ENV === 'production';
+
+  const explicitRpId = (options?.rpID ?? process.env.WEBAUTHN_RP_ID ?? '').trim();
+  const explicitOrigin = (options?.origin ?? process.env.WEBAUTHN_ORIGIN ?? '').trim();
+
+  if (isManagedDeployment && (!explicitRpId || !explicitOrigin)) {
+    throw new Error(
+      'WEBAUTHN_RP_ID and WEBAUTHN_ORIGIN must be explicitly configured in staging/production'
+    );
+  }
+
+  const rpID = explicitRpId || 'localhost';
   const rpName = options?.rpName ?? process.env.WEBAUTHN_RP_NAME ?? 'ApexOS';
-  const origin =
-    options?.origin ?? process.env.WEBAUTHN_ORIGIN ?? 'http://localhost:3000';
-  return { rpID, rpName, origin };
+  const origin = explicitOrigin || 'http://localhost:3000';
+
+  if (isQuarantinedThirdPartyHost(rpID)) {
+    throw new Error(`WEBAUTHN_RP_ID '${rpID}' references an unowned third-party domain`);
+  }
+
+  let parsedOrigin: URL;
+  try {
+    parsedOrigin = new URL(origin);
+  } catch {
+    throw new Error(`WEBAUTHN_ORIGIN '${origin}' is not a valid origin URL`);
+  }
+
+  if (isQuarantinedThirdPartyHost(parsedOrigin.hostname)) {
+    throw new Error(
+      `WEBAUTHN_ORIGIN '${origin}' references an unowned third-party domain`
+    );
+  }
+
+  return { rpID, rpName, origin: parsedOrigin.origin };
 }
 
 function parseTransportsJson(raw: string | null | undefined): PasskeyTransport[] {
@@ -193,6 +238,7 @@ export async function beginPasskeyRegistration(
     userID: userIdBytes,
     userName: params.userEmail,
     attestationType: 'none',
+    supportedAlgorithmIDs: [-7],
     authenticatorSelection: {
       residentKey: 'preferred',
       userVerification: 'required',
@@ -443,6 +489,7 @@ export function issuePasskeyStepUpToken(
     userId: string;
     purpose: WebAuthnChallengePurpose;
     challengeId: string;
+    credentialId?: string;
     nowMs?: number;
     ttlMs?: number;
   },
@@ -456,6 +503,7 @@ export function issuePasskeyStepUpToken(
     sub: claims.userId,
     purpose: claims.purpose,
     cid: claims.challengeId,
+    ...(claims.credentialId ? { credentialId: claims.credentialId } : {}),
     iat,
     exp,
   };
@@ -683,6 +731,7 @@ export async function finishPasskeyStepUp(
         userId: params.userId,
         purpose: params.purpose,
         challengeId: params.challengeId,
+        credentialId: credRow.credential_id,
         nowMs,
       },
       params.stepUpSecret
@@ -714,6 +763,18 @@ export async function requireAdminWithPasskeyStepUp(
   db: D1Database,
   options?: RequireAdminStepUpOptions
 ): Promise<AdminPasskeyAuthResult> {
+  const csrfDecision = verifyTrustedMutationOrigin(request);
+  if (!csrfDecision.allowed) {
+    return {
+      authorized: false,
+      status: 403,
+      code: csrfDecision.code ?? 'CSRF_ORIGIN_MISMATCH',
+      error:
+        csrfDecision.error ??
+        'Forbidden: Cross-site state-changing request rejected.',
+    };
+  }
+
   const user = await getAuthenticatedUser(request, db);
   if (!user?.id) {
     return {
@@ -789,6 +850,28 @@ export async function requireAdminWithPasskeyStepUp(
       code: 'PASSKEY_STEP_UP_INVALID',
       error: 'Step-up token does not correspond to a verified WebAuthn challenge',
     };
+  }
+
+  // Confirm the passkey credential bound to the step-up token is still active (not revoked)
+  if (tokenCheck.claims.credentialId) {
+    const activeCredential = await db
+      .prepare(
+        `SELECT credential_id
+         FROM webauthn_credentials
+         WHERE credential_id = ? AND user_id = ?
+         LIMIT 1`
+      )
+      .bind(tokenCheck.claims.credentialId, profile.id)
+      .first<{ credential_id: string }>();
+
+    if (!activeCredential) {
+      return {
+        authorized: false,
+        status: 403,
+        code: 'PASSKEY_STEP_UP_INVALID',
+        error: 'Passkey credential used for step-up has been revoked',
+      };
+    }
   }
 
   return {
@@ -880,14 +963,42 @@ export function sanitizeApiErrorResponse(
   );
 }
 
-const slidingWindowBuckets = new Map<string, number[]>();
+interface SlidingWindowBucketEntry {
+  timestamps: number[];
+  windowMs: number;
+}
+
+const slidingWindowBuckets = new Map<string, SlidingWindowBucketEntry>();
+const MAX_SLIDING_WINDOW_BUCKETS = 10_000;
+const PERIODIC_SWEEP_INTERVAL = 64;
+let rateLimitCallCounter = 0;
+
+function sweepExpiredSlidingWindowBuckets(nowMs: number): void {
+  for (const [key, entry] of slidingWindowBuckets) {
+    const entryCutoff = nowMs - entry.windowMs;
+    const unexpired = entry.timestamps.filter((ts) => ts > entryCutoff);
+    if (unexpired.length === 0) {
+      slidingWindowBuckets.delete(key);
+    } else if (unexpired.length !== entry.timestamps.length) {
+      slidingWindowBuckets.set(key, {
+        timestamps: unexpired,
+        windowMs: entry.windowMs,
+      });
+    }
+  }
+}
 
 export function resetEndpointRateLimits(): void {
   slidingWindowBuckets.clear();
+  rateLimitCallCounter = 0;
 }
 
 /**
  * Deterministic sliding-window rate limiter returning HTTP 429 metadata when exceeded.
+ *
+ * The current consumers require synchronous decisions, so this limiter remains
+ * instance-local. Expired buckets are removed opportunistically; active buckets
+ * are never evicted because doing so would silently reset a caller's quota.
  */
 export function checkSlidingWindowRateLimit(
   bucketKey: string,
@@ -896,13 +1007,25 @@ export function checkSlidingWindowRateLimit(
   const maxRequests = options?.maxRequests ?? 10;
   const windowMs = options?.windowMs ?? 60_000;
   const nowMs = options?.nowMs ?? Date.now();
-  const cutoff = nowMs - windowMs;
+  const existingEntry = slidingWindowBuckets.get(bucketKey);
+  const effectiveWindowMs = existingEntry
+    ? Math.max(windowMs, existingEntry.windowMs)
+    : windowMs;
+  const retentionCutoff = nowMs - effectiveWindowMs;
+  const checkCutoff = nowMs - windowMs;
 
-  const existing = slidingWindowBuckets.get(bucketKey) ?? [];
-  const active = existing.filter((ts) => ts > cutoff);
+  if ((++rateLimitCallCounter % PERIODIC_SWEEP_INTERVAL) === 0) {
+    sweepExpiredSlidingWindowBuckets(nowMs);
+  }
+
+  const retained = (existingEntry?.timestamps ?? []).filter((ts) => ts > retentionCutoff);
+  const active = retained.filter((ts) => ts > checkCutoff);
 
   if (active.length >= maxRequests) {
-    slidingWindowBuckets.set(bucketKey, active);
+    slidingWindowBuckets.set(bucketKey, {
+      timestamps: retained,
+      windowMs: effectiveWindowMs,
+    });
     const oldest = active[0] ?? nowMs;
     const retryAfterSeconds = Math.max(1, Math.ceil((oldest + windowMs - nowMs) / 1000));
     return {
@@ -912,11 +1035,27 @@ export function checkSlidingWindowRateLimit(
     };
   }
 
-  active.push(nowMs);
-  slidingWindowBuckets.set(bucketKey, active);
+  if (retained.length === 0) {
+    slidingWindowBuckets.delete(bucketKey);
+  }
+  if (!slidingWindowBuckets.has(bucketKey) && slidingWindowBuckets.size >= MAX_SLIDING_WINDOW_BUCKETS) {
+    sweepExpiredSlidingWindowBuckets(nowMs);
+
+    // Under a flood of distinct active keys, fail closed for new keys rather
+    // than evicting an active bucket and resetting that key's request count.
+    if (slidingWindowBuckets.size >= MAX_SLIDING_WINDOW_BUCKETS) {
+      return { allowed: false, remaining: 0, retryAfterSeconds: Math.max(1, Math.ceil(windowMs / 1000)) };
+    }
+  }
+
+  retained.push(nowMs);
+  slidingWindowBuckets.set(bucketKey, {
+    timestamps: retained,
+    windowMs: effectiveWindowMs,
+  });
   return {
     allowed: true,
-    remaining: Math.max(0, maxRequests - active.length),
+    remaining: Math.max(0, maxRequests - (active.length + 1)),
     retryAfterSeconds: 0,
   };
 }
