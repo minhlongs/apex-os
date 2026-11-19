@@ -233,7 +233,7 @@ export class BybitAffiliateAdapter implements PartnerIngestionAdapter {
 
       const commissionAsset = validateUsdStablecoinCommissionAsset(
         'bybit',
-        item.coin ?? item.currency ?? 'USDT',
+        item.coin ?? item.currency,
         `Bybit result.list[${idx}]`
       );
 
@@ -279,6 +279,7 @@ export class BybitAffiliateAdapter implements PartnerIngestionAdapter {
       rows,
       nextCursor,
       evidence,
+      rawPayload,
     };
   }
 }

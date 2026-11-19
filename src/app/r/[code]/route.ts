@@ -11,6 +11,10 @@ import {
 } from '@/lib/fraud/fraud-engine';
 import { error as logError } from '@/lib/logger';
 import {
+  buildD1RateLimitResponse,
+  enforcePersistentD1RateLimit,
+} from '@/lib/security/d1-rate-limiter';
+import {
   AnalyticsEngineDataset,
   resolveAndTrackShortLink,
   ShortLinkKVNamespace,
@@ -49,6 +53,18 @@ export async function GET(
     }
 
     const normalizedClientIp = normalizeIpAddress(extractClientIp(request.headers));
+
+    // Persistent D1 redirect rate limit across Worker isolates (60 req / 60s per IP)
+    const d1RedirectLimit = await enforcePersistentD1RateLimit(db, {
+      endpointType: 'short_link_redirect_ip',
+      identifier: normalizedClientIp,
+      maxRequests: 60,
+      windowSeconds: 60,
+    });
+    if (!d1RedirectLimit.allowed) {
+      return buildD1RateLimitResponse(d1RedirectLimit);
+    }
+
     const fraudDb = db as unknown as FraudD1Database;
     try {
       if (await isIpBlocked(fraudDb, normalizedClientIp)) {

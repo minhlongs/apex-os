@@ -33,6 +33,15 @@ import {
   isPhase1PayoutChain,
   proposeTimelockedWalletChange,
 } from '@/lib/wallet/timelock-wallet-service';
+import {
+  buildD1RateLimitResponse,
+  enforcePersistentD1RateLimit,
+  extractTrustedClientIp,
+} from '@/lib/security/d1-rate-limiter';
+import {
+  buildCsrfForbiddenResponse,
+  verifyTrustedMutationOrigin,
+} from '@/lib/security/http-hardening';
 import { warn as logWarn, error as logError } from '@/lib/logger';
 import type { TelegramAuthResponse } from '@/types/telegram';
 
@@ -120,6 +129,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<ExtendedT
       return buildGeoRestrictedResponse(geoDecision) as NextResponse<ExtendedTelegramAuthResponse>;
     }
 
+    // 0b. Cross-site mutation defense (reject untrusted Origin/Referer or cross-site Sec-Fetch-Site)
+    const csrfDecision = verifyTrustedMutationOrigin(request);
+    if (!csrfDecision.allowed) {
+      return buildCsrfForbiddenResponse(
+        csrfDecision
+      ) as NextResponse<ExtendedTelegramAuthResponse>;
+    }
+
     // 1. Parse JSON body
     let body: TelegramAuthRequestBody;
     try {
@@ -154,6 +171,22 @@ export async function POST(request: NextRequest): Promise<NextResponse<ExtendedT
         { success: false, error: 'Server configuration error: missing bot token' },
         { status: 500 }
       );
+    }
+
+    // 2b. Persistent D1 IP rate limit across Worker isolates (15 req / 60s per IP)
+    if (earlyDb) {
+      const clientIp = extractTrustedClientIp(request);
+      const tgIpRate = await enforcePersistentD1RateLimit(earlyDb, {
+        endpointType: 'telegram_auth_ip',
+        identifier: clientIp,
+        maxRequests: 15,
+        windowSeconds: 60,
+      });
+      if (!tgIpRate.allowed) {
+        return buildD1RateLimitResponse(
+          tgIpRate
+        ) as NextResponse<ExtendedTelegramAuthResponse>;
+      }
     }
 
     // 3. Cryptographically verify initData (with 24h replay attack prevention & future clock skew)

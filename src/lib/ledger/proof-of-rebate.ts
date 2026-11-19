@@ -41,6 +41,7 @@ export interface ProofOfRebateClawbackState {
 
 export interface ProofOfRebateEvidenceAnchor {
   evidenceId: string;
+  r2ObjectKey: string;
   sourceKind: string;
   payloadSha256: string;
   byteLength: number;
@@ -231,6 +232,7 @@ export async function getProofOfRebateByBatchId(
 
   const evidenceAnchor: ProofOfRebateEvidenceAnchor = {
     evidenceId: evidenceRecord.id,
+    r2ObjectKey: evidenceRecord.r2ObjectKey,
     sourceKind: evidenceRecord.sourceKind,
     payloadSha256: evidenceRecord.payloadSha256,
     byteLength: evidenceRecord.byteLength,

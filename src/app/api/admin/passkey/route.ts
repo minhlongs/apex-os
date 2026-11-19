@@ -17,7 +17,6 @@ import type {
   AuthenticationResponseJSON,
 } from '@simplewebauthn/server';
 import { getAuthenticatedUser, resolveDatabase } from '@/lib/auth/session-helper';
-import { extractIpAddress } from '@/lib/ratelimit/rate-limiter';
 import {
   beginPasskeyRegistration,
   finishPasskeyRegistration,
@@ -25,13 +24,27 @@ import {
   finishPasskeyStepUp,
   requireAdminWithPasskeyStepUp,
   sanitizeApiErrorResponse,
-  checkSlidingWindowRateLimit,
 } from '@/lib/auth/passkey-step-up';
+import {
+  buildD1RateLimitResponse,
+  enforcePersistentD1RateLimit,
+  extractTrustedClientIp,
+} from '@/lib/security/d1-rate-limiter';
+import {
+  buildCsrfForbiddenResponse,
+  verifyTrustedMutationOrigin,
+} from '@/lib/security/http-hardening';
+import {
+  resolveShadowPromotionExchange,
+  validateShadowPromotionGate,
+} from '@/lib/partners/shadow-promotion-gate';
 
 const ALLOWED_RUNTIME_FLAGS = new Set<string>([
   'EMERGENCY_LEDGER_FREEZE',
   'EMERGENCY_PAUSE',
   'BLOCK_VN_SIGNUPS',
+  'PARTNER_KUCOIN_LIVE',
+  'PARTNER_GATEIO_LIVE',
 ]);
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -94,6 +107,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const csrfDecision = verifyTrustedMutationOrigin(request);
+    if (!csrfDecision.allowed) {
+      return buildCsrfForbiddenResponse(csrfDecision);
+    }
+
     const db = resolveDatabase();
     if (!db) {
       return NextResponse.json(
@@ -102,13 +120,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Rate-limit admin passkey & mutation endpoints (10 req / 60s per IP)
-    const ip = extractIpAddress(request.headers);
-    const rateCheck = checkSlidingWindowRateLimit(`admin-passkey:${ip}`, {
+    // Persistent D1 rate limit for admin passkey & mutation endpoints (10 req / 60s per IP)
+    const ip = extractTrustedClientIp(request);
+    const rateCheck = await enforcePersistentD1RateLimit(db, {
+      endpointType: 'admin_passkey_ip',
+      identifier: ip,
       maxRequests: 10,
-      windowMs: 60_000,
+      windowSeconds: 60,
     });
     if (!rateCheck.allowed) {
+      if (rateCheck.status === 503) {
+        return buildD1RateLimitResponse(rateCheck);
+      }
       return NextResponse.json(
         {
           success: false,
@@ -116,7 +139,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           error: 'Too Many Requests',
           retryAfter: rateCheck.retryAfterSeconds,
         },
-        { status: 429 }
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateCheck.retryAfterSeconds),
+          },
+        }
       );
     }
 
@@ -150,8 +178,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
       const flagKey = typeof body.flagKey === 'string' ? body.flagKey.trim() : '';
       const flagValue = typeof body.flagValue === 'string' ? body.flagValue.trim() : '';
-      const reason =
-        typeof body.reason === 'string' ? body.reason.trim() : 'Admin Passkey mutation';
+      const reason = typeof body.reason === 'string' ? body.reason.trim() : '';
 
       if (!ALLOWED_RUNTIME_FLAGS.has(flagKey) || (flagValue !== 'true' && flagValue !== 'false')) {
         return NextResponse.json(
@@ -164,6 +191,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
 
+      if (reason.length < 5) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'REASON_REQUIRED',
+            error: 'A mandatory audit reason (minimum 5 characters) is required',
+          },
+          { status: 400 }
+        );
+      }
+
+      if (flagValue === 'true' && resolveShadowPromotionExchange(flagKey)) {
+        const gate = await validateShadowPromotionGate(db, flagKey);
+        if (!gate.allowed) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: gate.code,
+              error: gate.error,
+            },
+            { status: gate.status }
+          );
+        }
+      }
+
+      const updatedBy = stepUpGuard.adminId ?? 'admin';
       await db
         .prepare(
           `INSERT INTO system_runtime_flags (flag_key, flag_value, reason, updated_by, updated_at)
@@ -174,8 +227,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
              updated_by = excluded.updated_by,
              updated_at = datetime('now')`
         )
-        .bind(flagKey, flagValue, reason, stepUpGuard.adminId ?? 'admin')
+        .bind(flagKey, flagValue, reason, updatedBy)
         .run();
+
+      try {
+        await db
+          .prepare(
+            `INSERT INTO compliance_audit_logs (
+               id, action, severity, actor_id, target_id, details, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+          )
+          .bind(
+            crypto.randomUUID(),
+            'runtime_flag_updated',
+            'high',
+            updatedBy,
+            flagKey,
+            JSON.stringify({
+              flagKey,
+              flagValue,
+              reason,
+              source: '/api/admin/passkey',
+            })
+          )
+          .run();
+      } catch {
+        // compliance_audit_logs may be absent in minimal unit test fixtures
+      }
 
       return NextResponse.json(
         {
@@ -184,6 +262,108 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           flagKey,
           flagValue,
           updatedBy: stepUpGuard.adminId,
+        },
+        { status: 200 }
+      );
+    }
+
+    if (action === 'revoke_passkey') {
+      const stepUpGuard = await requireAdminWithPasskeyStepUp(request, db, {
+        purpose: 'admin_step_up',
+      });
+      if (!stepUpGuard.authorized || !stepUpGuard.adminId) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: stepUpGuard.code,
+            error: stepUpGuard.error,
+          },
+          { status: stepUpGuard.status }
+        );
+      }
+
+      const credentialId =
+        typeof body.credentialId === 'string' ? body.credentialId.trim() : '';
+      if (!credentialId) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'INVALID_PAYLOAD',
+            error: 'credentialId is required',
+          },
+          { status: 400 }
+        );
+      }
+
+      const existing = await db
+        .prepare(
+          `SELECT credential_id
+           FROM webauthn_credentials
+           WHERE credential_id = ? AND user_id = ?
+           LIMIT 1`
+        )
+        .bind(credentialId, stepUpGuard.adminId)
+        .first<{ credential_id: string }>();
+
+      if (!existing) {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'CREDENTIAL_NOT_FOUND',
+            error: 'Passkey credential not found for this administrator',
+          },
+          { status: 404 }
+        );
+      }
+
+      await db
+        .prepare(
+          `DELETE FROM webauthn_credentials
+           WHERE credential_id = ? AND user_id = ?`
+        )
+        .bind(credentialId, stepUpGuard.adminId)
+        .run();
+
+      const remainingRow = await db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM webauthn_credentials
+           WHERE user_id = ?`
+        )
+        .bind(stepUpGuard.adminId)
+        .first<{ count: number }>();
+
+      try {
+        await db
+          .prepare(
+            `INSERT INTO compliance_audit_logs (
+               id, action, severity, actor_id, target_id, details, created_at
+             ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+          )
+          .bind(
+            crypto.randomUUID(),
+            'passkey_revoked',
+            'high',
+            stepUpGuard.adminId,
+            credentialId,
+            JSON.stringify({
+              credentialId,
+              remainingCredentials: Number(remainingRow?.count ?? 0),
+              source: '/api/admin/passkey',
+            })
+          )
+          .run();
+      } catch {
+        // compliance_audit_logs may be absent in minimal unit test fixtures
+      }
+
+      return NextResponse.json(
+        {
+          success: true,
+          code: 'PASSKEY_REVOKED',
+          credentialId,
+          revokedBy: stepUpGuard.adminId,
+          remainingCredentials: Number(remainingRow?.count ?? 0),
         },
         { status: 200 }
       );
@@ -213,7 +393,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (action === 'register_options') {
       const reg = await beginPasskeyRegistration(db, {
         userId: profile.id,
-        userEmail: profile.email ?? user.email ?? 'admin@apexos.app',
+        userEmail: profile.email ?? user.email ?? 'admin@apex-os.local',
       });
       return NextResponse.json(
         {

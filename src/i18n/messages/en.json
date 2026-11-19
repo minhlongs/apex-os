@@ -3,7 +3,6 @@
     "home": "Home",
     "dashboard": "Dashboard",
     "affiliates": "Affiliates",
-    "signals": "Signals",
     "copyTrading": "Quant Attribution",
     "pricing": "Pricing",
     "login": "Log In",
@@ -15,46 +14,50 @@
     "settings": "Settings"
   },
   "landing": {
-    "heroBadge": "Non-Custodial Fee Arbitrage & Liquidity Attribution",
-    "heroTitle": "Recover Every Basis Point (bps). Non-Custodial Quant Execution.",
-    "heroSubtitle": "The first institutional crypto basis-point fee recovery hub and 3-tier liquidity attribution engine for SEA. Zero-secret API Key ID verification across Binance, Bybit, OKX, and KuCoin.",
-    "ctaPrimary": "Launch Terminal",
+    "heroBadge": "100% Non-Custodial Crypto Fee Rebate & B2B Proof-of-Rebate Infrastructure",
+    "heroTitle": "Recover Execution Fees With UID-Only Attribution & Verifiable USDC Rebates.",
+    "heroSubtitle": "Institutional crypto trading fee cashback and cryptographic B2B Proof-of-Rebate infrastructure across Bybit, OKX, Bitget, KuCoin, and Gate.io. Zero exchange API keys, 10^-8 USD double-entry accounting, and direct self-custody USDC settlement on Stellar, Arbitrum, and Base.",
+    "ctaPrimary": "Open Rebate Terminal",
     "ctaSecondary": "Explore Research Insights",
-    "ctaDeals": "Explore Fee Matrix",
+    "ctaDeals": "View Exchange Rebate Schedule",
     "features": {
-      "title": "Institutional Infrastructure Built for Quantitative Edge",
-      "aiSignals": {
-        "title": "Sub-Second Attribution",
-        "desc": "Real-time trade matching engine powered by signed HMAC-SHA256 exchange webhooks under 1 second."
+      "title": "Six Ascendancy Pillars for Non-Custodial Rebate Integrity",
+      "uidOnlyAttribution": {
+        "title": "Zero API Keys (UID-Only Attribution)",
+        "desc": "Never share exchange trade or withdrawal keys. Attribution uses your exchange UID under institutional partner telemetry with zero account access."
       },
-      "copyTrading": {
-        "title": "Basis-Point (bps) Recovery",
-        "desc": "Recover 2.7 to 12.0 bps in Taker/Maker friction, lifting portfolio mathematical expectancy without directional risk."
+      "atomicLedger": {
+        "title": "Atomic Double-Entry Ledger (10^-8 USD)",
+        "desc": "Signed integer accounting with zero floating-point drift. Partner statements are reconciled to CASH_COLLECTED before the T+7 clawback hold unlocks."
       },
-      "riskManage": {
-        "title": "Zero-Secret Architecture",
-        "desc": "Pure read-only API Key ID verification. Zero API secrets stored, zero trade permissions, zero withdrawal risk."
+      "proofOfRebate": {
+        "title": "Cryptographic Proof-of-Rebate (SHA-256)",
+        "desc": "Every exchange commission statement and broker receipt is SHA-256 hashed and anchored in immutable 5-year Cloudflare R2 evidence storage."
       },
-      "paperTrade": {
-        "title": "D1 Double-Entry Ledger",
-        "desc": "Cryptographic double-entry accounting on Cloudflare D1 with verifiable audit trails and zero leakage."
+      "multiChainUsdc": {
+        "title": "Self-Custody Multi-Chain USDC",
+        "desc": "Direct non-custodial payouts on Stellar, Arbitrum, and Base ($10.00 USDC minimum) protected by a mandatory 48-hour wallet-change timelock."
       },
-      "referral": {
-        "title": "3-Tier Desk Economics",
-        "desc": "Earn 30% direct Tier 1, 10% Tier 2 sub-desks, and 5% Tier 3 network volume with automated weekly settlements."
+      "twoTierPartner": {
+        "title": "2-Tier Partner Network (L1 + B2B L2 Hard Cap)",
+        "desc": "Transparent 30% of Platform Spread (14.25% gross) L1 direct partner and 0%–10% Spread (≤4.75% gross) B2B L2 override under Safe-Spread I4, strictly capped at two levels with zero MLM exposure."
       },
-      "multiExchange": {
-        "title": "Stellar USDC Settlement",
-        "desc": "Sub-cent weekly automated treasury settlements directly to non-custodial wallets via the Stellar blockchain."
+      "hsmTreasury": {
+        "title": "Hardware Passkey & Turnkey HSM Treasury",
+        "desc": "Operational disbursements are policy-gated inside Turnkey HSM enclaves with WebAuthn ES256 passkey step-up and Safe 2-of-3 cold multisig reserves."
       }
     },
     "stats": {
-      "users": "Active Desks",
-      "volume": "30-Day Attribution Volume",
-      "masters": "Supported Exchanges"
+      "waterfall": "Safe-Spread Split (Trader / L1 / L2 Cap)",
+      "ledger": "Atomic Ledger & Settlement Hold",
+      "rails": "Self-Custody USDC Rails ($10 Min)"
     },
     "footer": {
-      "rights": "© 2026 ApexOS Quantitative Engineering. All rights reserved."
+      "rights": "© 2026 ApexOS Quantitative Engineering. All rights reserved.",
+      "disclaimer": "ApexOS is a commercial affiliate fee-rebate and Proof-of-Rebate analytics platform — never an exchange, broker-dealer, investment advisor, or custodian.",
+      "terms": "Terms of Service",
+      "nonCustodialDisclosure": "Non-Custodial Disclosure",
+      "geoRestriction": "Geo-Restriction & Compliance Notice"
     }
   },
   "insights": {
@@ -67,7 +70,7 @@
     "keyMetrics": "Key Quantitative Metrics",
     "publishedOn": "Published {date}",
     "ctaTitle": "Ready to eliminate execution fee drag?",
-    "ctaDesc": "Connect your read-only API Key ID in seconds and recover basis-point liquidity friction across Binance, Bybit, OKX, and KuCoin.",
+    "ctaDesc": "Link your exchange UID in seconds — zero API keys required — and recover basis-point execution fees across Bybit, OKX, and Bitget.",
     "ctaButton": "Launch Terminal"
   },
   "auth": {
@@ -416,7 +419,7 @@
       "copied": "Copied!",
       "note": {
         "title": "About Desk Attribution",
-        "description": "All volume generated through this link is attributed under your Tier-1 desk (30%) in D1."
+        "description": "All volume generated through this link is attributed under your L1 Direct Partner desk — 30% of Platform Spread (14.25% gross) — in D1."
       }
     },
     "footer": {
@@ -446,22 +449,27 @@
       "generateNew": "Generate New ID"
     },
     "tiers": {
-      "title": "3-Tier Desk Structure",
-      "subtitle": "Automated attribution across 3 hierarchical execution levels",
+      "title": "Safe-Spread Waterfall (I4)",
+      "subtitle": "Post-5% clawback reserve distribution with L3+ hard-locked at 0% (Decree 40/2018/ND-CP)",
+      "traderRebate": {
+        "name": "Trader Fee Rebate",
+        "description": "50% of post-5%-reserve distributable commission returned directly to the trader",
+        "rate": "47.5%"
+      },
       "tier1": {
-        "name": "Tier 1 Desk",
-        "description": "Directly linked trading desks & traders",
-        "rate": "30%"
+        "name": "L1 Direct Partner",
+        "description": "30% of Platform Spread from directly attributed trading desks & traders",
+        "rate": "14.25%"
       },
       "tier2": {
-        "name": "Tier 2 Sub-Desk",
-        "description": "Sub-affiliates and secondary partner desks",
-        "rate": "10%"
+        "name": "L2 B2B Agency Override",
+        "description": "Up to 10% of Platform Spread under executed B2B agency contract only (0% retail)",
+        "rate": "≤4.75%"
       },
       "tier3": {
-        "name": "Tier 3 Network",
-        "description": "Broader network & community flow",
-        "rate": "5%"
+        "name": "L3+ Network (Hard-Locked)",
+        "description": "Permanently locked at 0% for Vietnam Decree 40/2018/ND-CP anti-MLM compliance",
+        "rate": "0%"
       }
     },
     "referralTree": {
@@ -671,9 +679,9 @@
         "total": "Total",
         "avgRate": "Avg Rate",
         "byLevel": "By Referral Level",
-        "tier1": "Level 1 (30%)",
-        "tier2": "Level 2 (10%)",
-        "tier3": "Level 3 (5%)"
+        "tier1": "L1 Direct (14.25% gross / 30% spread)",
+        "tier2": "L2 B2B (≤4.75% gross / ≤10% spread)",
+        "tier3": "L3+ (0% Hard-Locked)"
       },
       "payouts": {
         "total": "Total",

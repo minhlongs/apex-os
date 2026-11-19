@@ -267,6 +267,7 @@ export async function parseOkxStatementCsv(
     rows,
     nextCursor: null,
     evidence,
+    rawPayload: rawCsv,
   };
 }
 
@@ -292,7 +293,7 @@ function normalizeOkxRecord(
 
   const commissionAsset = validateUsdStablecoinCommissionAsset(
     'okx',
-    item.ccy ?? item.rebateCcy ?? item.feeCcy ?? 'USDT',
+    item.ccy ?? item.rebateCcy ?? item.feeCcy,
     `OKX data[${index}]`
   );
 
@@ -449,6 +450,7 @@ export class OkxAffiliateAdapter implements PartnerIngestionAdapter {
       rows,
       nextCursor,
       evidence,
+      rawPayload,
     };
   }
 }

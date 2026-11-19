@@ -1,7 +1,8 @@
 import { MetadataRoute } from 'next';
+import { CANONICAL_PRODUCTION_ORIGIN, resolveCanonicalAppOrigin } from '@/config/canonical-origin';
 
 export default function robots(): MetadataRoute.Robots {
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://apex-os.com';
+  const baseUrl = resolveCanonicalAppOrigin({ appEnv: 'production' }) || CANONICAL_PRODUCTION_ORIGIN;
 
   return {
     rules: [
@@ -21,6 +22,10 @@ export default function robots(): MetadataRoute.Robots {
           '/en/insights',
           '/vi/insights/*',
           '/en/insights/*',
+          '/vi/b2b/proof-of-rebate',
+          '/en/b2b/proof-of-rebate',
+          '/vi/legal/*',
+          '/en/legal/*',
         ],
         disallow: [
           '/api/',

@@ -1,0 +1,10 @@
+export const ALLOWED_ASCENDANCY_RUNTIME_FLAGS = [
+  'EMERGENCY_LEDGER_FREEZE',
+  'EMERGENCY_PAUSE',
+  'BLOCK_VN_SIGNUPS',
+  'PARTNER_KUCOIN_LIVE',
+  'PARTNER_GATEIO_LIVE',
+] as const;
+
+export type AllowedAscendancyRuntimeFlag =
+  (typeof ALLOWED_ASCENDANCY_RUNTIME_FLAGS)[number];

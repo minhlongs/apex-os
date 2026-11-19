@@ -23,9 +23,9 @@ import Decimal from 'decimal.js';
 import type { Hex } from 'viem';
 import type { D1Database } from '../db';
 import type { SanctionsScreeningService } from '../compliance/sanctions-service';
+import { ledgerUnitsToChainUnits } from '../ledger/units';
 import {
   EVM_USDC_DECIMALS,
-  ledgerUnits1e8ToEvmUsdcUnits,
   type ArbitrumBaseUsdcAdapter,
   type EvmPhase1SettlementChain,
   type Phase1SettlementChain,
@@ -34,7 +34,7 @@ import {
   STELLAR_TIMEBOUNDS_SECONDS,
   STELLAR_USDC_DECIMALS,
   fromStellarStroops,
-  ledgerUnits1e8ToStellarStroops,
+  sanitizeStellarDiagnosticError,
 } from './stellar-service';
 import { TurnkeySigner } from './turnkey-signer';
 import {
@@ -92,6 +92,20 @@ export interface StellarHorizonTxLookupResult {
   found: boolean;
   successful: boolean;
   ledger?: number;
+  recipient?: string;
+  asset?: string;
+  assetCode?: string;
+  assetIssuer?: string;
+  amountUnits?: string | bigint;
+  amountStroops?: string | bigint;
+  transfers?: Array<{
+    recipient: string;
+    asset?: string;
+    assetCode?: string;
+    assetIssuer?: string;
+    amountUnits?: string | bigint;
+    amountStroops?: string | bigint;
+  }>;
 }
 
 /**
@@ -151,6 +165,7 @@ export interface ExecuteSettlementOutcome {
   safeMultisigTxHash?: string | null;
   turnkeyActivityId?: string | null;
   uncertainBroadcast?: boolean;
+  residualDustUnits1e8?: string;
   reason?: string;
 }
 
@@ -171,6 +186,20 @@ export interface RecoverBroadcastOptions {
   nowUnix?: number;
   bumpGasRbf?: boolean;
   reexecuteExpired?: boolean;
+  /**
+   * Strictly passive observation mode for unattended cron reconciliation:
+   * inspects on-chain receipts and Stellar TimeBounds only, NEVER calling
+   * `broadcastSignedTransaction`, `submitSignedTransaction`, or Turnkey HSM signing,
+   * and NEVER aborting active `SIGNING` claims.
+   */
+  passiveOnly?: boolean;
+  /**
+   * Minimum age in seconds required before an interactive recovery call may abort a
+   * zero-payload `SIGNING` record (`!tx_hash && !signed_raw_tx && !turnkey_activity_id`).
+   * Defaults to `SIGNING_STALE_ABORT_AFTER_SECONDS` (300s) so an active cross-isolate
+   * signing attempt can never be clobbered mid-preparation.
+   */
+  signingStaleTimeoutSeconds?: number;
   usdcReferencePriceUsd?: string | number | Decimal;
 }
 
@@ -209,9 +238,29 @@ class AsyncSerialQueue {
   }
 }
 
+export const SIGNING_STALE_ABORT_AFTER_SECONDS = 300;
+
 function isTurnkeyHotPolicyBlockError(err: unknown): boolean {
   const msg = (err instanceof Error ? err.message : String(err)).toLowerCase();
   return msg.includes('turnkey policy hard-block');
+}
+
+function parseD1TimestampUnixSeconds(raw: string | null | undefined): number | null {
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(trimmed)
+    ? `${trimmed.replace(' ', 'T')}Z`
+    : trimmed;
+  const parsedMs = Date.parse(normalized);
+  if (Number.isNaN(parsedMs)) {
+    return null;
+  }
+  return Math.floor(parsedMs / 1000);
 }
 
 function collectCandidateHashes(
@@ -250,6 +299,222 @@ function collectCandidateHashes(
     pushHash(h);
   }
   return ordered;
+}
+
+const MAX_SANITIZED_ERROR_LEN = 400;
+
+/**
+ * Redacts Stellar secret seeds, EVM private keys, Turnkey/API keys, Bearer tokens,
+ * and URL credentials/API-key query parameters before persisting error diagnostics
+ * into `settlement_broadcasts.error_reason` or returning them to API callers.
+ */
+export function sanitizeSettlementErrorMessage(
+  err: unknown,
+  fallback = 'Settlement operation failed'
+): string {
+  const raw = err instanceof Error ? err.message : typeof err === 'string' ? err : String(err ?? '');
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return fallback;
+  }
+
+  let sanitized = sanitizeStellarDiagnosticError(trimmed)
+    // Redact Bearer / Basic auth headers
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [REDACTED]')
+    // Redact labeled secrets / private keys / API keys / tokens
+    .replace(
+      /\b((?:TURNKEY|STELLAR|EVM|RPC|ALCHEMY|INFURA|API|PRIVATE|SECRET|AUTH|SIGNER)[A-Z0-9_]*\s*[=:]\s*)([^\s,;'"`]+)/gi,
+      '$1[REDACTED]'
+    )
+    // Redact URL embedded credentials (https://user:pass@host)
+    .replace(/(https?:\/\/)([^/\s:@]+):([^/\s@]+)@/gi, '$1[REDACTED]:[REDACTED]@')
+    // Redact sensitive URL query params (?apiKey=..., ?key=..., ?token=...)
+    .replace(/([?&](?:api[_-]?key|key|token|secret|auth)=)([^&\s]+)/gi, '$1[REDACTED]')
+    // Redact 64-hex raw private keys when paired with private/secret/key context
+    .replace(/(private[_ -]?key\s*[:=]?\s*)(0x)?[a-f0-9]{64}\b/gi, '$1[REDACTED]');
+
+  if (sanitized.length > MAX_SANITIZED_ERROR_LEN) {
+    sanitized = `${sanitized.slice(0, MAX_SANITIZED_ERROR_LEN)}...`;
+  }
+  return sanitized;
+}
+
+interface ColdSafeTransferCandidate {
+  recipient?: string;
+  to?: string;
+  tokenContract?: string;
+  asset?: string;
+  assetCode?: string;
+  assetIssuer?: string;
+  amountUnits?: string | bigint | number;
+  amountStroops?: string | bigint | number;
+  amount?: string | bigint | number;
+}
+
+interface ColdSafeTransferVerificationPayload extends ColdSafeTransferCandidate {
+  transfers?: ColdSafeTransferCandidate[];
+}
+
+function normalizeUnitsBigInt(raw: string | bigint | number | undefined): bigint | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === 'bigint') return raw;
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || !Number.isInteger(raw)) return null;
+    return BigInt(raw);
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    return BigInt(trimmed);
+  }
+  if (/^0x[0-9a-f]+$/i.test(trimmed)) {
+    return BigInt(trimmed);
+  }
+  return null;
+}
+
+function matchesExpectedAsset(
+  candidate: ColdSafeTransferCandidate,
+  chain: Phase1SettlementChain,
+  expectedEvmUsdcContract?: string
+): boolean | null {
+  if (chain === 'stellar') {
+    const code = candidate.assetCode?.trim();
+    const asset = candidate.asset?.trim();
+    const issuer = candidate.assetIssuer?.trim();
+    const expectedIssuer = process.env.STELLAR_USDC_ISSUER?.trim();
+
+    if (!code && !asset && !issuer) {
+      return null;
+    }
+    if (code && code.toUpperCase() !== 'USDC') {
+      return false;
+    }
+    if (asset) {
+      const normalized = asset.toUpperCase();
+      if (normalized !== 'USDC' && !normalized.startsWith('USDC:')) {
+        return false;
+      }
+      if (normalized.startsWith('USDC:') && expectedIssuer) {
+        const assetIssuerPart = asset.slice(5).trim();
+        if (assetIssuerPart && assetIssuerPart !== expectedIssuer) {
+          return false;
+        }
+      }
+    }
+    if (issuer && expectedIssuer && issuer !== expectedIssuer) {
+      return false;
+    }
+    return true;
+  }
+
+  const token = (candidate.tokenContract ?? candidate.asset)?.trim();
+  if (!token) {
+    return null;
+  }
+  if (!expectedEvmUsdcContract) {
+    return true;
+  }
+  return token.toLowerCase() === expectedEvmUsdcContract.toLowerCase();
+}
+
+function verifyColdSafeTransferDetails(params: {
+  payoutId: string;
+  chain: Phase1SettlementChain;
+  txHash: string;
+  expectedRecipient: string;
+  expectedChainTokenUnits: string;
+  expectedEvmUsdcContract?: string;
+  payload: ColdSafeTransferVerificationPayload;
+  strictColdSafeVerification?: boolean;
+}): void {
+  const {
+    payoutId,
+    chain,
+    txHash,
+    expectedRecipient,
+    expectedChainTokenUnits,
+    expectedEvmUsdcContract,
+    payload,
+    strictColdSafeVerification,
+  } = params;
+
+  const expectedUnitsBig = BigInt(expectedChainTokenUnits);
+  const normalizeRecipient = (addr: string): string =>
+    chain === 'stellar' ? addr.trim() : addr.trim().toLowerCase();
+  const expectedRecipientNorm = normalizeRecipient(expectedRecipient);
+
+  // Case 1: Receipt/lookup exposes an array of decoded transfer events/operations.
+  if (Array.isArray(payload.transfers)) {
+    if (payload.transfers.length === 0) {
+      throw new Error(
+        `Cannot confirm cold Safe ${chain} payout ${payoutId}: transaction '${txHash}' contains no matching USDC transfer events`
+      );
+    }
+
+    const matched = payload.transfers.some((entry) => {
+      const entryRecipient = (entry.recipient ?? entry.to)?.trim();
+      if (!entryRecipient || normalizeRecipient(entryRecipient) !== expectedRecipientNorm) {
+        return false;
+      }
+      const assetMatch = matchesExpectedAsset(entry, chain, expectedEvmUsdcContract);
+      if (assetMatch === false) {
+        return false;
+      }
+      const rawAmount = entry.amountUnits ?? entry.amountStroops ?? entry.amount;
+      const entryAmount = normalizeUnitsBigInt(rawAmount);
+      if (entryAmount === null || entryAmount !== expectedUnitsBig) {
+        return false;
+      }
+      return true;
+    });
+
+    if (!matched) {
+      throw new Error(
+        `Cannot confirm cold Safe ${chain} payout ${payoutId}: on-chain transfers in '${txHash}' do not match expected recipient (${expectedRecipient}), asset, and amount (${expectedChainTokenUnits})`
+      );
+    }
+    return;
+  }
+
+  // Case 2: Receipt/lookup exposes top-level transfer fields (`recipient`/`to`, `tokenContract`/`asset`, `amountUnits`/`amountStroops`/`amount`).
+  const observedRecipient = (payload.recipient ?? payload.to)?.trim();
+  const assetCheck = matchesExpectedAsset(payload, chain, expectedEvmUsdcContract);
+  const rawAmount = payload.amountUnits ?? payload.amountStroops ?? payload.amount;
+  const hasAnyTransferMetadata =
+    Boolean(observedRecipient) || assetCheck !== null || rawAmount !== undefined;
+
+  if (!hasAnyTransferMetadata) {
+    if (strictColdSafeVerification) {
+      throw new Error(
+        `Cannot confirm cold Safe ${chain} payout ${payoutId}: transaction '${txHash}' receipt did not provide verifiable recipient/asset/amount transfer metadata`
+      );
+    }
+    return;
+  }
+
+  if (observedRecipient && normalizeRecipient(observedRecipient) !== expectedRecipientNorm) {
+    throw new Error(
+      `Cannot confirm cold Safe ${chain} payout ${payoutId}: on-chain recipient '${observedRecipient}' does not match expected recipient '${expectedRecipient}'`
+    );
+  }
+
+  if (assetCheck === false) {
+    const observedAsset =
+      payload.tokenContract ?? payload.asset ?? payload.assetCode ?? 'unknown';
+    throw new Error(
+      `Cannot confirm cold Safe ${chain} payout ${payoutId}: on-chain asset '${observedAsset}' does not match expected USDC asset`
+    );
+  }
+
+  if (rawAmount !== undefined) {
+    const observedAmount = normalizeUnitsBigInt(rawAmount);
+    if (observedAmount === null || observedAmount !== expectedUnitsBig) {
+      throw new Error(
+        `Cannot confirm cold Safe ${chain} payout ${payoutId}: on-chain amount '${String(rawAmount)}' does not match expected chain token units '${expectedChainTokenUnits}'`
+      );
+    }
+  }
 }
 
 // ============================================================================
@@ -339,7 +604,7 @@ export class BroadcastRecoveryMachine {
             )
             .bind(chain, signerAddress, assignedNonce + 1)
             .run();
-          if (ins.meta?.changes === 1) {
+          if (!ins.meta || typeof ins.meta.changes !== 'number' || ins.meta.changes === 1) {
             return assignedNonce;
           }
         } catch {
@@ -574,6 +839,63 @@ export class BroadcastRecoveryMachine {
     });
   }
 
+  private mapExistingRecordToOutcome(
+    existing: SettlementBroadcastRow
+  ): ExecuteSettlementOutcome | null {
+    if (existing.state === 'CONFIRMED') {
+      return {
+        payoutId: existing.payout_id,
+        chain: existing.chain,
+        state: 'CONFIRMED',
+        txHash: existing.tx_hash,
+        assignedNonce: existing.assigned_nonce,
+        stellarSequence: existing.stellar_sequence,
+        timeboundsMaxUnix: existing.timebounds_max_unix,
+        turnkeyActivityId: existing.turnkey_activity_id,
+      };
+    }
+
+    if (existing.state === 'QUEUED_COLD_SAFE') {
+      return {
+        payoutId: existing.payout_id,
+        chain: existing.chain,
+        state: 'QUEUED_COLD_SAFE',
+        safeMultisigTxHash: existing.safe_multisig_tx_hash,
+        reason: existing.error_reason ?? undefined,
+      };
+    }
+
+    if (existing.state === 'BROADCAST_PENDING' || existing.state === 'SIGNING') {
+      return {
+        payoutId: existing.payout_id,
+        chain: existing.chain,
+        state: existing.state,
+        txHash: existing.tx_hash,
+        assignedNonce: existing.assigned_nonce,
+        stellarSequence: existing.stellar_sequence,
+        timeboundsMaxUnix: existing.timebounds_max_unix,
+        turnkeyActivityId: existing.turnkey_activity_id,
+        uncertainBroadcast: true,
+        reason:
+          existing.state === 'SIGNING'
+            ? 'Payout has an active or unresolved SIGNING claim; refusing to allocate a duplicate nonce/sequence'
+            : 'Payout is locked in BROADCAST_PENDING; invoke recoverUncertainBroadcast instead of allocating a duplicate nonce/sequence',
+      };
+    }
+
+    if (existing.state === 'FAILED_ABORTED') {
+      return {
+        payoutId: existing.payout_id,
+        chain: existing.chain,
+        state: 'FAILED_ABORTED',
+        reason: existing.error_reason ?? 'Settlement previously aborted',
+      };
+    }
+
+    // existing.state === 'EXPIRED_RECOVERED' is eligible for bounded re-execution.
+    return null;
+  }
+
   private async executeSettlementLocked(
     request: ExecuteSettlementRequest
   ): Promise<ExecuteSettlementOutcome> {
@@ -584,55 +906,28 @@ export class BroadcastRecoveryMachine {
     // Gate G8 Invariant: NEVER re-allocate nonce or re-sign an unresolved BROADCAST_PENDING record!
     const existing = await this.getSettlementRecord(request.payoutId);
     if (existing) {
-      if (existing.state === 'CONFIRMED') {
-        return {
-          payoutId: existing.payout_id,
-          chain: existing.chain,
-          state: 'CONFIRMED',
-          txHash: existing.tx_hash,
-          assignedNonce: existing.assigned_nonce,
-          stellarSequence: existing.stellar_sequence,
-          timeboundsMaxUnix: existing.timebounds_max_unix,
-          turnkeyActivityId: existing.turnkey_activity_id,
-        };
+      const existingOutcome = this.mapExistingRecordToOutcome(existing);
+      if (existingOutcome) {
+        return existingOutcome;
       }
-
-      if (existing.state === 'QUEUED_COLD_SAFE') {
-        return {
-          payoutId: existing.payout_id,
-          chain: existing.chain,
-          state: 'QUEUED_COLD_SAFE',
-          safeMultisigTxHash: existing.safe_multisig_tx_hash,
-          reason: existing.error_reason ?? undefined,
-        };
-      }
-
-      if (existing.state === 'BROADCAST_PENDING' || existing.state === 'SIGNING') {
-        return {
-          payoutId: existing.payout_id,
-          chain: existing.chain,
-          state: existing.state,
-          txHash: existing.tx_hash,
-          assignedNonce: existing.assigned_nonce,
-          stellarSequence: existing.stellar_sequence,
-          timeboundsMaxUnix: existing.timebounds_max_unix,
-          turnkeyActivityId: existing.turnkey_activity_id,
-          uncertainBroadcast: true,
-          reason:
-            'Payout is locked in BROADCAST_PENDING; invoke recoverUncertainBroadcast instead of allocating a duplicate nonce/sequence',
-        };
-      }
-
-      if (existing.state === 'FAILED_ABORTED') {
-        return {
-          payoutId: existing.payout_id,
-          chain: existing.chain,
-          state: 'FAILED_ABORTED',
-          reason: existing.error_reason ?? 'Settlement previously aborted',
-        };
-      }
-      // Note: existing.state === 'EXPIRED_RECOVERED' is eligible for bounded re-execution below.
     }
+
+    // Step 0b: Align requested 10^-8 ledger units to the target chain's native USDC precision
+    // (Stellar 7dp -> divisor 10; Arbitrum/Base 6dp -> divisor 100) so residual sub-chain dust
+    // is never burned or silently locked into settlement_broadcasts.
+    const requestedChainNormalized = String(request.chain).trim().toLowerCase();
+    const preChainConversion =
+      requestedChainNormalized === 'stellar' ||
+      requestedChainNormalized === 'arbitrum' ||
+      requestedChainNormalized === 'base'
+        ? ledgerUnitsToChainUnits(request.amountUnits1e8, requestedChainNormalized)
+        : null;
+    const disbursableUnits1e8 = preChainConversion
+      ? request.amountUnits1e8 - preChainConversion.residualDust1e8
+      : request.amountUnits1e8;
+    const residualDustUnits1e8 = preChainConversion
+      ? preChainConversion.residualDust1e8
+      : BigInt(0);
 
     // Step 1: Run all pre-signing safety guards (Phase 1 chain gate, peg band, $10 floor,
     // OFAC sanctions, Circle isBlacklisted + eth_call OR Stellar existing USDC trustline).
@@ -640,7 +935,7 @@ export class BroadcastRecoveryMachine {
       db: this.db,
       chain: request.chain,
       recipientAddress: request.recipientAddress,
-      amountUnits1e8: request.amountUnits1e8,
+      amountUnits1e8: disbursableUnits1e8,
       usdcReferencePriceUsd: referencePrice,
       sanctionsService: this.sanctionsService,
       evmAdapters: this.evmAdapters,
@@ -648,97 +943,116 @@ export class BroadcastRecoveryMachine {
     });
 
     const chain = verdict.chain;
+    const chainConversion =
+      preChainConversion ?? ledgerUnitsToChainUnits(disbursableUnits1e8, chain);
     const chainDecimals: 6 | 7 =
       chain === 'stellar' ? STELLAR_USDC_DECIMALS : EVM_USDC_DECIMALS;
-    const chainTokenUnitsBig =
-      chain === 'stellar'
-        ? ledgerUnits1e8ToStellarStroops(request.amountUnits1e8)
-        : ledgerUnits1e8ToEvmUsdcUnits(request.amountUnits1e8);
+    const chainTokenUnitsBig = chainConversion.chainUnits;
     const chainTokenUnits = chainTokenUnitsBig.toString();
 
-    // Step 2: Serialized Turnkey policy check + atomic nonce/sequence reservation +
-    // unsigned tx construction + HSM signing + durable BROADCAST_PENDING persistence.
-    // Keeping signing inside `reservationMutex` guarantees zero EVM nonce gaps and zero
-    // stranded `SIGNING` rows if gas estimation or Turnkey HSM fails pre-broadcast.
+    // Step 2: Serialized intra-isolate queue + cross-isolate atomic D1 `SIGNING` budget claim
+    // (`<= $250/tx` and `<= $1,500/24h` rolling hot-wallet cap) BEFORE reserving any EVM nonce /
+    // Stellar sequence or calling Turnkey HSM, followed by durable `BROADCAST_PENDING` persistence.
     const prepared = await this.reservationMutex.runExclusive(async () => {
-      const policy = await this.turnkeySigner.evaluateHotWalletPolicy(
-        this.db,
-        request.amountUnits1e8,
-        request.payoutId
-      );
+      const slotClaim = await this.turnkeySigner.claimHotWalletSigningSlot(this.db, {
+        payoutId: request.payoutId,
+        idempotencyKey: request.idempotencyKey,
+        affiliateId: request.affiliateId,
+        chain,
+        recipientAddress: verdict.recipientAddress,
+        amountUnits1e8: disbursableUnits1e8,
+        chainTokenUnits,
+        chainDecimals,
+        lockBatchId: request.lockBatchId ?? null,
+      });
 
-      if (!policy.allowedHotSign) {
+      if (!slotClaim.claimed) {
+        if (slotClaim.violationCode === 'WITHDRAWAL_LOCK_NOT_INFLIGHT') {
+          throw new Error(
+            slotClaim.reason ??
+              `Payout ${request.payoutId} withdrawal lock is already resolved; refusing to settle again`
+          );
+        }
+
+        if (slotClaim.violationCode === 'CONCURRENT_PAYOUT_ACTIVE') {
+          const concurrentRecord = await this.getSettlementRecord(request.payoutId);
+          const concurrentOutcome = concurrentRecord
+            ? this.mapExistingRecordToOutcome(concurrentRecord)
+            : null;
+          if (concurrentOutcome) {
+            return {
+              kind: 'existing' as const,
+              outcome: concurrentOutcome,
+            };
+          }
+        }
+
         const coldQueued = await this.turnkeySigner.enqueueColdSafeMultisig(this.db, {
           payoutId: request.payoutId,
           idempotencyKey: request.idempotencyKey,
           affiliateId: request.affiliateId,
           chain,
           recipientAddress: verdict.recipientAddress,
-          amountUnits1e8: request.amountUnits1e8,
+          amountUnits1e8: disbursableUnits1e8,
           chainTokenUnits,
           chainDecimals,
           lockBatchId: request.lockBatchId ?? null,
-          reason:
-            policy.reason ??
-            'Routed to Safe{Wallet} 2-of-3 cold multisig due to hot-wallet policy cap',
+          reason: slotClaim.reason,
         });
 
+        // Cross-isolate race guard: if a concurrent isolate claimed `SIGNING` / `BROADCAST_PENDING` /
+        // `CONFIRMED` between `claimHotWalletSigningSlot` and `enqueueColdSafeMultisig`, the conditional
+        // `WHERE state IN ('EXPIRED_RECOVERED', 'FAILED_ABORTED', 'QUEUED_COLD_SAFE')` clause prevented
+        // clobbering the active row; return that active outcome rather than reporting a phantom cold queue.
+        const postColdRecord = await this.getSettlementRecord(request.payoutId);
+        if (postColdRecord && postColdRecord.state !== 'QUEUED_COLD_SAFE') {
+          const postColdOutcome = this.mapExistingRecordToOutcome(postColdRecord);
+          if (postColdOutcome) {
+            return {
+              kind: 'existing' as const,
+              outcome: postColdOutcome,
+            };
+          }
+        }
+
         return {
-          routedCold: true as const,
+          kind: 'cold' as const,
           coldQueued,
         };
       }
 
-      const signerAddress = this.turnkeySigner.getHotWalletAddress(chain);
+      const { signerAddress } = slotClaim;
 
       if (chain === 'arbitrum' || chain === 'base') {
-        const adapter = this.evmAdapters[chain];
-        if (!adapter) {
-          throw new Error(`Missing ArbitrumBaseUsdcAdapter for ${chain}`);
-        }
-        const assignedNonce = await this.reserveEvmNonce(chain, adapter, signerAddress);
-
-        await this.db
-          .prepare(
-            `INSERT INTO settlement_broadcasts (
-               payout_id, idempotency_key, affiliate_id, chain, recipient_address,
-               amount_units_1e8, chain_token_units, chain_decimals, state,
-               signer_address, assigned_nonce, stellar_sequence, timebounds_max_unix,
-               tx_hash, signed_raw_tx, rbf_candidate_tx_hash, candidate_tx_hashes, lock_batch_id,
-               turnkey_activity_id, error_reason, created_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SIGNING', ?, ?, NULL, NULL, NULL, NULL, NULL, '[]', ?, NULL, NULL, datetime('now'), datetime('now'))
-             ON CONFLICT(payout_id) DO UPDATE SET
-               state = 'SIGNING',
-               signer_address = excluded.signer_address,
-               assigned_nonce = excluded.assigned_nonce,
-               tx_hash = NULL,
-               signed_raw_tx = NULL,
-               rbf_candidate_tx_hash = NULL,
-               candidate_tx_hashes = '[]',
-               lock_batch_id = COALESCE(settlement_broadcasts.lock_batch_id, excluded.lock_batch_id),
-               turnkey_activity_id = NULL,
-               error_reason = NULL,
-               updated_at = datetime('now')`
-          )
-          .bind(
-            request.payoutId,
-            request.idempotencyKey,
-            request.affiliateId,
-            chain,
-            verdict.recipientAddress,
-            Number(request.amountUnits1e8),
-            chainTokenUnits,
-            chainDecimals,
-            signerAddress,
-            assignedNonce,
-            request.lockBatchId ?? null
-          )
-          .run();
-
+        let assignedNonce: number | null = null;
+        let lostSigningOwnership = false;
         try {
+          const adapter = this.evmAdapters[chain];
+          if (!adapter) {
+            throw new Error(`Missing ArbitrumBaseUsdcAdapter for ${chain}`);
+          }
+
+          assignedNonce = await this.reserveEvmNonce(chain, adapter, signerAddress);
+
+          const nonceUpd = await this.db
+            .prepare(
+              `UPDATE settlement_broadcasts
+               SET assigned_nonce = ?,
+                   updated_at = datetime('now')
+               WHERE payout_id = ? AND state = 'SIGNING'`
+            )
+            .bind(assignedNonce, request.payoutId)
+            .run();
+          if (typeof nonceUpd.meta?.changes === 'number' && nonceUpd.meta.changes !== 1) {
+            lostSigningOwnership = true;
+            throw new Error(
+              `Lost SIGNING ownership for payout ${request.payoutId} before persisting assigned EVM nonce`
+            );
+          }
+
           const envelope = await adapter.buildUnsignedTransfer({
             recipientAddress: verdict.recipientAddress,
-            amountUnits1e8: request.amountUnits1e8,
+            amountUnits1e8: disbursableUnits1e8,
             assignedNonce,
           });
 
@@ -746,16 +1060,15 @@ export class BroadcastRecoveryMachine {
             db: this.db,
             payoutId: request.payoutId,
             chain,
-            amountUnits1e8: request.amountUnits1e8,
+            amountUnits1e8: disbursableUnits1e8,
             digestHex: envelope.signingDigestHex,
           });
 
           const assembled = adapter.assembleSignedTransaction(envelope, sig);
-          this.signedEvmRawTxCache.set(request.payoutId, assembled.signedRawTxHex);
           const candidateJson = JSON.stringify([assembled.txHash]);
 
           // Persist BROADCAST_PENDING + tx_hash + signed_raw_tx BEFORE calling eth_sendRawTransaction!
-          await this.db
+          const pendingUpd = await this.db
             .prepare(
               `UPDATE settlement_broadcasts
                SET state = 'BROADCAST_PENDING',
@@ -764,7 +1077,7 @@ export class BroadcastRecoveryMachine {
                    candidate_tx_hashes = ?,
                    turnkey_activity_id = ?,
                    updated_at = datetime('now')
-               WHERE payout_id = ?`
+               WHERE payout_id = ? AND state = 'SIGNING'`
             )
             .bind(
               assembled.txHash,
@@ -774,9 +1087,16 @@ export class BroadcastRecoveryMachine {
               request.payoutId
             )
             .run();
+          if (typeof pendingUpd.meta?.changes === 'number' && pendingUpd.meta.changes !== 1) {
+            lostSigningOwnership = true;
+            throw new Error(
+              `Lost SIGNING ownership for payout ${request.payoutId} before persisting BROADCAST_PENDING state`
+            );
+          }
+
+          this.signedEvmRawTxCache.set(request.payoutId, assembled.signedRawTxHex);
 
           return {
-            routedCold: false as const,
             kind: 'evm' as const,
             chain,
             adapter,
@@ -786,38 +1106,43 @@ export class BroadcastRecoveryMachine {
             activityId: sig.activityId,
           };
         } catch (preBroadcastErr: unknown) {
-          await this.reclaimPreBroadcastNonceOrSequence({
-            chain,
-            signerAddress,
-            assignedNonce,
-          });
+          this.signedEvmRawTxCache.delete(request.payoutId);
 
-          if (isTurnkeyHotPolicyBlockError(preBroadcastErr)) {
+          if (!lostSigningOwnership && assignedNonce !== null) {
+            await this.reclaimPreBroadcastNonceOrSequence({
+              chain,
+              signerAddress,
+              assignedNonce,
+            });
+          }
+
+          if (!lostSigningOwnership && isTurnkeyHotPolicyBlockError(preBroadcastErr)) {
             const coldQueued = await this.turnkeySigner.enqueueColdSafeMultisig(this.db, {
               payoutId: request.payoutId,
               idempotencyKey: request.idempotencyKey,
               affiliateId: request.affiliateId,
               chain,
               recipientAddress: verdict.recipientAddress,
-              amountUnits1e8: request.amountUnits1e8,
+              amountUnits1e8: disbursableUnits1e8,
               chainTokenUnits,
               chainDecimals,
               lockBatchId: request.lockBatchId ?? null,
+              allowFromSigningState: true,
               reason:
                 preBroadcastErr instanceof Error
-                  ? preBroadcastErr.message
+                  ? sanitizeSettlementErrorMessage(preBroadcastErr)
                   : 'Routed to Safe{Wallet} 2-of-3 cold multisig due to hot-wallet policy cap',
             });
             return {
-              routedCold: true as const,
+              kind: 'cold' as const,
               coldQueued,
             };
           }
 
-          const preErrMsg =
-            preBroadcastErr instanceof Error
-              ? preBroadcastErr.message
-              : String(preBroadcastErr);
+          const preErrMsg = sanitizeSettlementErrorMessage(
+            preBroadcastErr,
+            'Pre-broadcast EVM signing failed'
+          );
           await this.db
             .prepare(
               `UPDATE settlement_broadcasts
@@ -827,7 +1152,7 @@ export class BroadcastRecoveryMachine {
                    signed_raw_tx = NULL,
                    error_reason = ?,
                    updated_at = datetime('now')
-               WHERE payout_id = ?`
+               WHERE payout_id = ? AND state = 'SIGNING'`
             )
             .bind(preErrMsg, request.payoutId)
             .run();
@@ -835,55 +1160,37 @@ export class BroadcastRecoveryMachine {
         }
       }
 
-      if (!this.stellarTransport) {
-        throw new Error('Missing StellarBroadcastTransport for Stellar settlement');
-      }
-
-      const transport = this.stellarTransport;
-      const stellarSequence = await this.reserveStellarSequence(
-        transport,
-        signerAddress
-      );
-      const timeboundsMaxUnix = nowUnix + STELLAR_TIMEBOUNDS_SECONDS;
-
-      await this.db
-        .prepare(
-          `INSERT INTO settlement_broadcasts (
-             payout_id, idempotency_key, affiliate_id, chain, recipient_address,
-             amount_units_1e8, chain_token_units, chain_decimals, state,
-             signer_address, assigned_nonce, stellar_sequence, timebounds_max_unix,
-             tx_hash, signed_raw_tx, rbf_candidate_tx_hash, candidate_tx_hashes, lock_batch_id,
-             turnkey_activity_id, error_reason, created_at, updated_at
-           ) VALUES (?, ?, ?, 'stellar', ?, ?, ?, 7, 'SIGNING', ?, NULL, ?, ?, NULL, NULL, NULL, '[]', ?, NULL, NULL, datetime('now'), datetime('now'))
-           ON CONFLICT(payout_id) DO UPDATE SET
-             state = 'SIGNING',
-             signer_address = excluded.signer_address,
-             stellar_sequence = excluded.stellar_sequence,
-             timebounds_max_unix = excluded.timebounds_max_unix,
-             tx_hash = NULL,
-             signed_raw_tx = NULL,
-             rbf_candidate_tx_hash = NULL,
-             candidate_tx_hashes = '[]',
-             lock_batch_id = COALESCE(settlement_broadcasts.lock_batch_id, excluded.lock_batch_id),
-             turnkey_activity_id = NULL,
-             error_reason = NULL,
-             updated_at = datetime('now')`
-        )
-        .bind(
-          request.payoutId,
-          request.idempotencyKey,
-          request.affiliateId,
-          verdict.recipientAddress,
-          Number(request.amountUnits1e8),
-          chainTokenUnits,
-          signerAddress,
-          stellarSequence,
-          timeboundsMaxUnix,
-          request.lockBatchId ?? null
-        )
-        .run();
-
+      let stellarSequence: string | null = null;
+      let lostStellarSigningOwnership = false;
       try {
+        if (!this.stellarTransport) {
+          throw new Error('Missing StellarBroadcastTransport for Stellar settlement');
+        }
+
+        const transport = this.stellarTransport;
+        stellarSequence = await this.reserveStellarSequence(
+          transport,
+          signerAddress
+        );
+        const timeboundsMaxUnix = nowUnix + STELLAR_TIMEBOUNDS_SECONDS;
+
+        const seqUpd = await this.db
+          .prepare(
+            `UPDATE settlement_broadcasts
+             SET stellar_sequence = ?,
+                 timebounds_max_unix = ?,
+                 updated_at = datetime('now')
+             WHERE payout_id = ? AND state = 'SIGNING'`
+          )
+          .bind(stellarSequence, timeboundsMaxUnix, request.payoutId)
+          .run();
+        if (typeof seqUpd.meta?.changes === 'number' && seqUpd.meta.changes !== 1) {
+          lostStellarSigningOwnership = true;
+          throw new Error(
+            `Lost SIGNING ownership for payout ${request.payoutId} before persisting Stellar sequence`
+          );
+        }
+
         const amountFormatted7 = fromStellarStroops(chainTokenUnitsBig);
         const built = await transport.buildUnsignedUsdcPayment({
           fromAccount: signerAddress,
@@ -898,13 +1205,13 @@ export class BroadcastRecoveryMachine {
         const stellarSig = await this.turnkeySigner.signStellarEnvelopeEnforced({
           db: this.db,
           payoutId: request.payoutId,
-          amountUnits1e8: request.amountUnits1e8,
+          amountUnits1e8: disbursableUnits1e8,
           unsignedEnvelopeXdr: built.unsignedEnvelopeXdr,
           txHashHex: built.txHashHex,
         });
 
         // Persist BROADCAST_PENDING + tx_hash + signed_raw_tx BEFORE Horizon submission!
-        await this.db
+        const pendingUpd = await this.db
           .prepare(
             `UPDATE settlement_broadcasts
              SET state = 'BROADCAST_PENDING',
@@ -913,7 +1220,7 @@ export class BroadcastRecoveryMachine {
                  candidate_tx_hashes = ?,
                  turnkey_activity_id = ?,
                  updated_at = datetime('now')
-             WHERE payout_id = ?`
+             WHERE payout_id = ? AND state = 'SIGNING'`
           )
           .bind(
             stellarSig.txHash,
@@ -923,9 +1230,14 @@ export class BroadcastRecoveryMachine {
             request.payoutId
           )
           .run();
+        if (typeof pendingUpd.meta?.changes === 'number' && pendingUpd.meta.changes !== 1) {
+          lostStellarSigningOwnership = true;
+          throw new Error(
+            `Lost SIGNING ownership for payout ${request.payoutId} before persisting Stellar BROADCAST_PENDING state`
+          );
+        }
 
         return {
-          routedCold: false as const,
           kind: 'stellar' as const,
           transport,
           stellarSequence,
@@ -933,38 +1245,41 @@ export class BroadcastRecoveryMachine {
           stellarSig,
         };
       } catch (preBroadcastErr: unknown) {
-        await this.reclaimPreBroadcastNonceOrSequence({
-          chain: 'stellar',
-          signerAddress,
-          stellarSequence,
-        });
+        if (!lostStellarSigningOwnership && stellarSequence !== null) {
+          await this.reclaimPreBroadcastNonceOrSequence({
+            chain: 'stellar',
+            signerAddress,
+            stellarSequence,
+          });
+        }
 
-        if (isTurnkeyHotPolicyBlockError(preBroadcastErr)) {
+        if (!lostStellarSigningOwnership && isTurnkeyHotPolicyBlockError(preBroadcastErr)) {
           const coldQueued = await this.turnkeySigner.enqueueColdSafeMultisig(this.db, {
             payoutId: request.payoutId,
             idempotencyKey: request.idempotencyKey,
             affiliateId: request.affiliateId,
             chain: 'stellar',
             recipientAddress: verdict.recipientAddress,
-            amountUnits1e8: request.amountUnits1e8,
+            amountUnits1e8: disbursableUnits1e8,
             chainTokenUnits,
             chainDecimals: 7,
             lockBatchId: request.lockBatchId ?? null,
+            allowFromSigningState: true,
             reason:
               preBroadcastErr instanceof Error
-                ? preBroadcastErr.message
+                ? sanitizeSettlementErrorMessage(preBroadcastErr)
                 : 'Routed to Safe{Wallet} 2-of-3 cold multisig due to hot-wallet policy cap',
           });
           return {
-            routedCold: true as const,
+            kind: 'cold' as const,
             coldQueued,
           };
         }
 
-        const preErrMsg =
-          preBroadcastErr instanceof Error
-            ? preBroadcastErr.message
-            : String(preBroadcastErr);
+        const preErrMsg = sanitizeSettlementErrorMessage(
+          preBroadcastErr,
+          'Pre-broadcast Stellar signing failed'
+        );
         await this.db
           .prepare(
             `UPDATE settlement_broadcasts
@@ -975,7 +1290,7 @@ export class BroadcastRecoveryMachine {
                  signed_raw_tx = NULL,
                  error_reason = ?,
                  updated_at = datetime('now')
-             WHERE payout_id = ?`
+             WHERE payout_id = ? AND state = 'SIGNING'`
           )
           .bind(preErrMsg, request.payoutId)
           .run();
@@ -983,12 +1298,17 @@ export class BroadcastRecoveryMachine {
       }
     });
 
-    if (prepared.routedCold) {
+    if (prepared.kind === 'existing') {
+      return prepared.outcome;
+    }
+
+    if (prepared.kind === 'cold') {
       return {
         payoutId: request.payoutId,
         chain,
         state: 'QUEUED_COLD_SAFE',
         safeMultisigTxHash: prepared.coldQueued.safeMultisigTxHash,
+        residualDustUnits1e8: residualDustUnits1e8.toString(),
         reason: prepared.coldQueued.reason,
       };
     }
@@ -1012,7 +1332,7 @@ export class BroadcastRecoveryMachine {
                    candidate_tx_hashes = ?,
                    error_reason = NULL,
                    updated_at = datetime('now')
-               WHERE payout_id = ?`
+               WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
             )
             .bind(rpcHash, candidatesJson, request.payoutId)
             .run();
@@ -1024,6 +1344,7 @@ export class BroadcastRecoveryMachine {
             txHash: rpcHash,
             assignedNonce,
             turnkeyActivityId: activityId,
+            residualDustUnits1e8: residualDustUnits1e8.toString(),
           };
         }
 
@@ -1037,7 +1358,7 @@ export class BroadcastRecoveryMachine {
                    candidate_tx_hashes = ?,
                    error_reason = ?,
                    updated_at = datetime('now')
-               WHERE payout_id = ?`
+               WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
             )
             .bind(rpcHash, candidatesJson, revertReason, request.payoutId)
             .run();
@@ -1049,6 +1370,7 @@ export class BroadcastRecoveryMachine {
             txHash: rpcHash,
             assignedNonce,
             turnkeyActivityId: activityId,
+            residualDustUnits1e8: residualDustUnits1e8.toString(),
             reason: revertReason,
           };
         }
@@ -1062,7 +1384,7 @@ export class BroadcastRecoveryMachine {
                  candidate_tx_hashes = ?,
                  error_reason = NULL,
                  updated_at = datetime('now')
-             WHERE payout_id = ?`
+             WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
           )
           .bind(rpcHash, candidatesJson, request.payoutId)
           .run();
@@ -1074,11 +1396,14 @@ export class BroadcastRecoveryMachine {
           txHash: rpcHash,
           assignedNonce,
           turnkeyActivityId: activityId,
+          residualDustUnits1e8: residualDustUnits1e8.toString(),
           reason: 'Transaction broadcast to mempool; awaiting confirmed on-chain receipt',
         };
       } catch (broadcastErr: unknown) {
-        const errMsg =
-          broadcastErr instanceof Error ? broadcastErr.message : String(broadcastErr);
+        const errMsg = sanitizeSettlementErrorMessage(
+          broadcastErr,
+          'EVM broadcast failed with uncertain status'
+        );
 
         await this.db
           .prepare(
@@ -1086,7 +1411,7 @@ export class BroadcastRecoveryMachine {
              SET state = 'BROADCAST_PENDING',
                  error_reason = ?,
                  updated_at = datetime('now')
-             WHERE payout_id = ?`
+             WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
           )
           .bind(errMsg, request.payoutId)
           .run();
@@ -1099,6 +1424,7 @@ export class BroadcastRecoveryMachine {
           assignedNonce,
           turnkeyActivityId: activityId,
           uncertainBroadcast: true,
+          residualDustUnits1e8: residualDustUnits1e8.toString(),
           reason: errMsg,
         };
       }
@@ -1124,7 +1450,7 @@ export class BroadcastRecoveryMachine {
                tx_hash = ?,
                error_reason = NULL,
                updated_at = datetime('now')
-           WHERE payout_id = ?`
+           WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
         )
         .bind(finalState, submitRes.txHash, request.payoutId)
         .run();
@@ -1137,9 +1463,13 @@ export class BroadcastRecoveryMachine {
         stellarSequence,
         timeboundsMaxUnix,
         turnkeyActivityId: stellarSig.activityId,
+        residualDustUnits1e8: residualDustUnits1e8.toString(),
       };
     } catch (submitErr: unknown) {
-      const errMsg = submitErr instanceof Error ? submitErr.message : String(submitErr);
+      const errMsg = sanitizeSettlementErrorMessage(
+        submitErr,
+        'Stellar Horizon submission failed with uncertain status'
+      );
 
       await this.db
         .prepare(
@@ -1147,7 +1477,7 @@ export class BroadcastRecoveryMachine {
            SET state = 'BROADCAST_PENDING',
                error_reason = ?,
                updated_at = datetime('now')
-           WHERE payout_id = ?`
+           WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
         )
         .bind(errMsg, request.payoutId)
         .run();
@@ -1161,6 +1491,7 @@ export class BroadcastRecoveryMachine {
         timeboundsMaxUnix,
         turnkeyActivityId: stellarSig.activityId,
         uncertainBroadcast: true,
+        residualDustUnits1e8: residualDustUnits1e8.toString(),
         reason: errMsg,
       };
     }
@@ -1202,17 +1533,73 @@ export class BroadcastRecoveryMachine {
       };
     }
 
-    if (row.state === 'SIGNING' && !row.tx_hash && !row.signed_raw_tx) {
-      await this.reclaimPreBroadcastNonceOrSequence({
-        chain: row.chain,
-        signerAddress: row.signer_address,
-        assignedNonce: row.assigned_nonce,
-        stellarSequence: row.stellar_sequence,
-      });
+    if (row.state === 'SIGNING') {
+      const hasPersistedPayload =
+        Boolean(row.tx_hash) ||
+        Boolean(row.signed_raw_tx) ||
+        Boolean(row.turnkey_activity_id);
+
+      if (options?.passiveOnly) {
+        return {
+          payoutId: row.payout_id,
+          chain: row.chain,
+          state: 'SIGNING',
+          action: 'NO_RECOVERY_NEEDED',
+          txHash: row.tx_hash,
+          assignedNonce: row.assigned_nonce,
+          stellarSequence: row.stellar_sequence,
+          timeboundsMaxUnix: row.timebounds_max_unix,
+          reason:
+            'Passive reconciliation never aborts an active SIGNING claim; operator verification required',
+        };
+      }
+
+      if (hasPersistedPayload) {
+        return {
+          payoutId: row.payout_id,
+          chain: row.chain,
+          state: 'SIGNING',
+          action: 'NO_RECOVERY_NEEDED',
+          txHash: row.tx_hash,
+          assignedNonce: row.assigned_nonce,
+          stellarSequence: row.stellar_sequence,
+          timeboundsMaxUnix: row.timebounds_max_unix,
+          reason:
+            'SIGNING record holds a signed payload or Turnkey activity reference; refusing to release an uncertain signature',
+        };
+      }
+
+      const nowUnixForSigning = options?.nowUnix ?? this.nowUnixProvider();
+      const staleAfterSeconds = Math.max(
+        0,
+        options?.signingStaleTimeoutSeconds ?? SIGNING_STALE_ABORT_AFTER_SECONDS
+      );
+      const signingUpdatedAtUnix = parseD1TimestampUnixSeconds(row.updated_at);
+      const signingAgeSeconds =
+        signingUpdatedAtUnix === null ? null : nowUnixForSigning - signingUpdatedAtUnix;
+      if (signingAgeSeconds === null || signingAgeSeconds < staleAfterSeconds) {
+        return {
+          payoutId: row.payout_id,
+          chain: row.chain,
+          state: 'SIGNING',
+          action: 'NO_RECOVERY_NEEDED',
+          txHash: null,
+          assignedNonce: row.assigned_nonce,
+          stellarSequence: row.stellar_sequence,
+          timeboundsMaxUnix: row.timebounds_max_unix,
+          reason:
+            signingAgeSeconds === null
+              ? 'SIGNING claim age cannot be established from updated_at; refusing to abort an active claim'
+              : `SIGNING claim is younger than the ${staleAfterSeconds}s staleness window; refusing to abort an active claim`,
+        };
+      }
+
       const abortReason =
         row.error_reason ??
-        'Stale SIGNING record with zero signed/broadcast payload aborted during recovery';
-      await this.db
+        `Stale SIGNING record (age ${signingAgeSeconds}s >= ${staleAfterSeconds}s) with zero signed/broadcast payload aborted during recovery`;
+      // Claim the abort via the conditional transition FIRST, so a concurrent isolate that still
+      // owns this `SIGNING` claim can never proceed to broadcast after its nonce/sequence is rolled back.
+      const abortUpdate = await this.db
         .prepare(
           `UPDATE settlement_broadcasts
            SET state = 'FAILED_ABORTED',
@@ -1221,10 +1608,37 @@ export class BroadcastRecoveryMachine {
                timebounds_max_unix = NULL,
                error_reason = ?,
                updated_at = datetime('now')
-           WHERE payout_id = ? AND state = 'SIGNING'`
+           WHERE payout_id = ?
+             AND state = 'SIGNING'
+             AND tx_hash IS NULL
+             AND signed_raw_tx IS NULL
+             AND turnkey_activity_id IS NULL`
         )
         .bind(abortReason, payoutId)
         .run();
+
+      if (typeof abortUpdate.meta?.changes === 'number' && abortUpdate.meta.changes !== 1) {
+        const currentRow = await this.getSettlementRecord(payoutId);
+        return {
+          payoutId: row.payout_id,
+          chain: currentRow?.chain ?? row.chain,
+          state: currentRow?.state ?? row.state,
+          action: 'NO_RECOVERY_NEEDED',
+          txHash: currentRow?.tx_hash ?? row.tx_hash,
+          assignedNonce: currentRow?.assigned_nonce ?? row.assigned_nonce,
+          stellarSequence: currentRow?.stellar_sequence ?? row.stellar_sequence,
+          timeboundsMaxUnix: currentRow?.timebounds_max_unix ?? row.timebounds_max_unix,
+          reason: currentRow?.error_reason ??
+            'SIGNING claim was resolved concurrently before the stale abort could claim it',
+        };
+      }
+
+      await this.reclaimPreBroadcastNonceOrSequence({
+        chain: row.chain,
+        signerAddress: row.signer_address,
+        assignedNonce: row.assigned_nonce,
+        stellarSequence: row.stellar_sequence,
+      });
 
       return {
         payoutId: row.payout_id,
@@ -1236,6 +1650,38 @@ export class BroadcastRecoveryMachine {
         stellarSequence: null,
         timeboundsMaxUnix: null,
         reason: abortReason,
+      };
+    }
+
+    if (
+      row.state === 'EXPIRED_RECOVERED' &&
+      row.chain === 'stellar' &&
+      options?.reexecuteExpired &&
+      !options.passiveOnly
+    ) {
+      const nowUnixForReexec = options.nowUnix ?? this.nowUnixProvider();
+      const reexec = await this.executeSettlementLocked({
+        payoutId: row.payout_id,
+        idempotencyKey: row.idempotency_key,
+        affiliateId: row.affiliate_id,
+        chain: 'stellar',
+        recipientAddress: row.recipient_address,
+        amountUnits1e8: BigInt(row.amount_units_1e8),
+        lockBatchId: row.lock_batch_id ?? null,
+        usdcReferencePriceUsd: options.usdcReferencePriceUsd,
+        nowUnix: nowUnixForReexec,
+      });
+
+      return {
+        payoutId: row.payout_id,
+        chain: 'stellar',
+        state: reexec.state,
+        action: 'EXPIRED_AND_REEXECUTED',
+        txHash: reexec.txHash ?? null,
+        assignedNonce: null,
+        stellarSequence: reexec.stellarSequence ?? null,
+        timeboundsMaxUnix: reexec.timeboundsMaxUnix ?? null,
+        reason: reexec.reason,
       };
     }
 
@@ -1295,7 +1741,7 @@ export class BroadcastRecoveryMachine {
              SET state = 'CONFIRMED',
                  error_reason = NULL,
                  updated_at = datetime('now')
-             WHERE payout_id = ?`
+             WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
           )
           .bind(payoutId)
           .run();
@@ -1319,7 +1765,7 @@ export class BroadcastRecoveryMachine {
              SET state = 'FAILED_ABORTED',
                  error_reason = 'Stellar transaction failed on-chain',
                  updated_at = datetime('now')
-             WHERE payout_id = ?`
+             WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
           )
           .bind(payoutId)
           .run();
@@ -1356,18 +1802,36 @@ export class BroadcastRecoveryMachine {
 
       // 1c. nowUnix > timebounds_max_unix AND verified absent on Horizon -> mark EXPIRED_RECOVERED
       const expiredReason = `Stellar TimeBounds expired (now=${nowUnix} > maxTime=${maxUnix}) and verified absent on Horizon`;
-      await this.db
+      const expiredUpdate = await this.db
         .prepare(
           `UPDATE settlement_broadcasts
            SET state = 'EXPIRED_RECOVERED',
                error_reason = ?,
                updated_at = datetime('now')
-           WHERE payout_id = ?`
+           WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
         )
         .bind(expiredReason, payoutId)
         .run();
+      if (typeof expiredUpdate.meta?.changes === 'number' && expiredUpdate.meta.changes !== 1) {
+        // A concurrent isolate already resolved this record (e.g. receipt confirmed, or passive
+        // reconciliation reverted the lock). Never re-execute a transition this call did not own.
+        const currentRow = await this.getSettlementRecord(payoutId);
+        return {
+          payoutId: row.payout_id,
+          chain: 'stellar',
+          state: currentRow?.state ?? row.state,
+          action: 'NO_RECOVERY_NEEDED',
+          txHash: currentRow?.tx_hash ?? row.tx_hash,
+          assignedNonce: null,
+          stellarSequence: currentRow?.stellar_sequence ?? row.stellar_sequence,
+          timeboundsMaxUnix: currentRow?.timebounds_max_unix ?? maxUnix,
+          reason:
+            currentRow?.error_reason ??
+            'BROADCAST_PENDING record was resolved concurrently before the expiry transition could claim it',
+        };
+      }
 
-      if (options?.reexecuteExpired) {
+      if (options?.reexecuteExpired && !options.passiveOnly) {
         const reexec = await this.executeSettlementLocked({
           payoutId: row.payout_id,
           idempotencyKey: row.idempotency_key,
@@ -1375,6 +1839,7 @@ export class BroadcastRecoveryMachine {
           chain: 'stellar',
           recipientAddress: row.recipient_address,
           amountUnits1e8: BigInt(row.amount_units_1e8),
+          lockBatchId: row.lock_batch_id ?? null,
           usdcReferencePriceUsd: options.usdcReferencePriceUsd,
           nowUnix,
         });
@@ -1437,8 +1902,7 @@ export class BroadcastRecoveryMachine {
         assignedNonce: row.assigned_nonce,
         stellarSequence: null,
         timeboundsMaxUnix: null,
-        reason:
-          receiptErr instanceof Error ? receiptErr.message : 'EVM receipt lookup failed',
+        reason: sanitizeSettlementErrorMessage(receiptErr, 'EVM receipt lookup failed'),
       };
     }
 
@@ -1453,7 +1917,7 @@ export class BroadcastRecoveryMachine {
                tx_hash = ?,
                error_reason = NULL,
                updated_at = datetime('now')
-           WHERE payout_id = ?`
+           WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
         )
         .bind(resolvedOnChainTxHash, payoutId)
         .run();
@@ -1478,7 +1942,7 @@ export class BroadcastRecoveryMachine {
                tx_hash = ?,
                error_reason = 'EVM transaction reverted on-chain (status 0x0)',
                updated_at = datetime('now')
-           WHERE payout_id = ?`
+           WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
         )
         .bind(resolvedOnChainTxHash, payoutId)
         .run();
@@ -1496,8 +1960,39 @@ export class BroadcastRecoveryMachine {
       };
     }
 
-    // 2b. Receipt not found: inspect on-chain confirmed nonce for signer_address
-    const confirmedNonce = await adapter.getTransactionCount(row.signer_address, 'latest');
+    // 2b. Receipt not found: passive reconciliation must never sign or broadcast.
+    if (options?.passiveOnly) {
+      return {
+        payoutId: row.payout_id,
+        chain: row.chain,
+        state: 'BROADCAST_PENDING',
+        action: 'STILL_BROADCAST_PENDING',
+        txHash: row.tx_hash,
+        assignedNonce: row.assigned_nonce,
+        stellarSequence: null,
+        timeboundsMaxUnix: null,
+        reason:
+          'Passive reconciliation found no confirmed on-chain receipt; refusing to re-sign or re-broadcast',
+      };
+    }
+
+    // Inspect on-chain confirmed nonce for signer_address
+    let confirmedNonce: number;
+    try {
+      confirmedNonce = await adapter.getTransactionCount(row.signer_address, 'latest');
+    } catch (nonceErr: unknown) {
+      return {
+        payoutId: row.payout_id,
+        chain: row.chain,
+        state: 'BROADCAST_PENDING',
+        action: 'STILL_BROADCAST_PENDING',
+        txHash: row.tx_hash,
+        assignedNonce: row.assigned_nonce,
+        stellarSequence: null,
+        timeboundsMaxUnix: null,
+        reason: sanitizeSettlementErrorMessage(nonceErr, 'EVM confirmed nonce lookup failed'),
+      };
+    }
 
     if (confirmedNonce <= row.assigned_nonce) {
       // NEVER increment signer_nonces.next_nonce! Reuse the EXACT SAME assigned_nonce!
@@ -1507,6 +2002,22 @@ export class BroadcastRecoveryMachine {
         (typeof row.signed_raw_tx === 'string' && row.signed_raw_tx.startsWith('0x')
           ? (row.signed_raw_tx as Hex)
           : undefined);
+
+      if (!cachedSignedRawTx && !options?.bumpGasRbf) {
+        // No persisted signature and no explicit RBF request: refuse to build a fresh signature.
+        return {
+          payoutId: row.payout_id,
+          chain: row.chain,
+          state: 'BROADCAST_PENDING',
+          action: 'STILL_BROADCAST_PENDING',
+          txHash: row.tx_hash,
+          assignedNonce: row.assigned_nonce,
+          stellarSequence: null,
+          timeboundsMaxUnix: null,
+          reason:
+            'No persisted signed raw transaction and no RBF gas bump requested; refusing to sign a replacement',
+        };
+      }
 
       if (cachedSignedRawTx && !options?.bumpGasRbf) {
         try {
@@ -1528,7 +2039,7 @@ export class BroadcastRecoveryMachine {
                      candidate_tx_hashes = ?,
                      error_reason = NULL,
                      updated_at = datetime('now')
-                 WHERE payout_id = ?`
+                 WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
               )
               .bind(finalHash, updatedCandidatesJson, payoutId)
               .run();
@@ -1556,7 +2067,7 @@ export class BroadcastRecoveryMachine {
                      candidate_tx_hashes = ?,
                      error_reason = ?,
                      updated_at = datetime('now')
-                 WHERE payout_id = ?`
+                 WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
               )
               .bind(finalHash, updatedCandidatesJson, revertReason, payoutId)
               .run();
@@ -1581,7 +2092,7 @@ export class BroadcastRecoveryMachine {
                    candidate_tx_hashes = ?,
                    error_reason = NULL,
                    updated_at = datetime('now')
-               WHERE payout_id = ?`
+               WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
             )
             .bind(updatedCandidatesJson, payoutId)
             .run();
@@ -1612,7 +2123,7 @@ export class BroadcastRecoveryMachine {
                      tx_hash = ?,
                      error_reason = NULL,
                      updated_at = datetime('now')
-                 WHERE payout_id = ?`
+                 WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
               )
               .bind(minedHash, payoutId)
               .run();
@@ -1639,7 +2150,7 @@ export class BroadcastRecoveryMachine {
                      tx_hash = ?,
                      error_reason = ?,
                      updated_at = datetime('now')
-                 WHERE payout_id = ?`
+                 WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
               )
               .bind(minedHash, revertReason, payoutId)
               .run();
@@ -1695,13 +2206,12 @@ export class BroadcastRecoveryMachine {
       });
 
       const rbfAssembled = adapter.assembleSignedTransaction(rbfEnvelope, rbfSig);
-      this.signedEvmRawTxCache.set(payoutId, rbfAssembled.signedRawTxHex);
       const rbfCandidates = collectCandidateHashes(row, [rbfAssembled.txHash]);
       const rbfCandidatesJson = JSON.stringify(rbfCandidates);
 
       // Persist EVERY historical candidate hash in `candidate_tx_hashes` AND latest `rbf_candidate_tx_hash`
       // WITHOUT overwriting original `tx_hash`, so any earlier tx mining on-chain is always discovered!
-      await this.db
+      const rbfPreUpd = await this.db
         .prepare(
           `UPDATE settlement_broadcasts
            SET rbf_candidate_tx_hash = ?,
@@ -1709,7 +2219,7 @@ export class BroadcastRecoveryMachine {
                signed_raw_tx = ?,
                turnkey_activity_id = ?,
                updated_at = datetime('now')
-           WHERE payout_id = ? AND assigned_nonce = ?`
+           WHERE payout_id = ? AND state = 'BROADCAST_PENDING' AND assigned_nonce = ?`
         )
         .bind(
           rbfAssembled.txHash,
@@ -1720,6 +2230,26 @@ export class BroadcastRecoveryMachine {
           row.assigned_nonce
         )
         .run();
+      if (typeof rbfPreUpd.meta?.changes === 'number' && rbfPreUpd.meta.changes !== 1) {
+        const latestAfterRbfPrep = await this.getSettlementRecord(payoutId);
+        return {
+          payoutId: row.payout_id,
+          chain: row.chain,
+          state: latestAfterRbfPrep?.state ?? row.state,
+          action:
+            latestAfterRbfPrep?.state === 'CONFIRMED'
+              ? 'ALREADY_CONFIRMED'
+              : 'NO_RECOVERY_NEEDED',
+          txHash: latestAfterRbfPrep?.tx_hash ?? row.tx_hash,
+          assignedNonce: latestAfterRbfPrep?.assigned_nonce ?? row.assigned_nonce,
+          stellarSequence: null,
+          timeboundsMaxUnix: null,
+          reason:
+            latestAfterRbfPrep?.error_reason ??
+            'BROADCAST_PENDING state changed concurrently before RBF broadcast',
+        };
+      }
+      this.signedEvmRawTxCache.set(payoutId, rbfAssembled.signedRawTxHex);
 
       try {
         const rbfHash = await adapter.broadcastSignedTransaction(rbfAssembled.signedRawTxHex);
@@ -1744,7 +2274,7 @@ export class BroadcastRecoveryMachine {
                    candidate_tx_hashes = ?,
                    error_reason = NULL,
                    updated_at = datetime('now')
-               WHERE payout_id = ?`
+               WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
             )
             .bind(finalHash, rbfAssembled.txHash, postBroadcastCandidatesJson, payoutId)
             .run();
@@ -1773,7 +2303,7 @@ export class BroadcastRecoveryMachine {
                    candidate_tx_hashes = ?,
                    error_reason = ?,
                    updated_at = datetime('now')
-               WHERE payout_id = ?`
+               WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
             )
             .bind(
               finalHash,
@@ -1805,7 +2335,7 @@ export class BroadcastRecoveryMachine {
                  candidate_tx_hashes = ?,
                  error_reason = NULL,
                  updated_at = datetime('now')
-             WHERE payout_id = ?`
+             WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
           )
           .bind(rbfAssembled.txHash, postBroadcastCandidatesJson, payoutId)
           .run();
@@ -1836,7 +2366,7 @@ export class BroadcastRecoveryMachine {
                    tx_hash = ?,
                    error_reason = NULL,
                    updated_at = datetime('now')
-               WHERE payout_id = ?`
+               WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
             )
             .bind(minedHash, payoutId)
             .run();
@@ -1863,7 +2393,7 @@ export class BroadcastRecoveryMachine {
                    tx_hash = ?,
                    error_reason = ?,
                    updated_at = datetime('now')
-               WHERE payout_id = ?`
+               WHERE payout_id = ? AND state = 'BROADCAST_PENDING'`
             )
             .bind(minedHash, revertReason, payoutId)
             .run();
@@ -1881,7 +2411,10 @@ export class BroadcastRecoveryMachine {
           };
         }
 
-        const errMsg = rbfErr instanceof Error ? rbfErr.message : String(rbfErr);
+        const errMsg = sanitizeSettlementErrorMessage(
+          rbfErr,
+          'EVM RBF same-nonce replacement failed'
+        );
         return {
           payoutId: row.payout_id,
           chain: row.chain,
@@ -1919,6 +2452,7 @@ export class BroadcastRecoveryMachine {
     resolution: 'CONFIRMED' | 'CANCELLED';
     txHash?: string;
     reason?: string;
+    strictColdSafeVerification?: boolean;
   }): Promise<SettlementBroadcastRow> {
     return this.getPayoutLock(params.payoutId).runExclusive(async () => {
       const row = await this.getSettlementRecord(params.payoutId);
@@ -1951,6 +2485,15 @@ export class BroadcastRecoveryMachine {
               `Cannot confirm cold Safe Stellar payout ${params.payoutId}: transaction '${cleanHash}' is not confirmed on Horizon`
             );
           }
+          verifyColdSafeTransferDetails({
+            payoutId: params.payoutId,
+            chain: 'stellar',
+            txHash: cleanHash,
+            expectedRecipient: row.recipient_address,
+            expectedChainTokenUnits: row.chain_token_units,
+            payload: lookup,
+            strictColdSafeVerification: params.strictColdSafeVerification,
+          });
         } else {
           const adapter = this.evmAdapters[row.chain];
           if (!adapter) {
@@ -1964,6 +2507,16 @@ export class BroadcastRecoveryMachine {
               `Cannot confirm cold Safe ${row.chain} payout ${params.payoutId}: transaction '${cleanHash}' does not have a confirmed on-chain receipt (status 0x1)`
             );
           }
+          verifyColdSafeTransferDetails({
+            payoutId: params.payoutId,
+            chain: row.chain,
+            txHash: cleanHash,
+            expectedRecipient: row.recipient_address,
+            expectedChainTokenUnits: row.chain_token_units,
+            expectedEvmUsdcContract: adapter.usdcContractAddress,
+            payload: receipt as ColdSafeTransferVerificationPayload,
+            strictColdSafeVerification: params.strictColdSafeVerification,
+          });
         }
 
         await this.db

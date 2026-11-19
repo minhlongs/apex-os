@@ -36,11 +36,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Missing signature header' }, { status: 401 });
   }
 
-  // 2. Secret Resolution
-  const ipnSecret =
+  // 2. Secret Resolution — fail closed when no webhook secret is configured
+  const ipnSecret = (
     process.env.NOWPAYMENTS_IPN_SECRET ||
     process.env.NOWPAYMENTS_API_KEY ||
-    'apexos-nowpayments-ipn-secret-test-key-32b';
+    ''
+  ).trim();
+
+  if (!ipnSecret) {
+    logError('[IPN] IPN webhook secret not configured');
+    return NextResponse.json(
+      { error: 'IPN webhook secret not configured' },
+      { status: 503 }
+    );
+  }
 
   // 3. Cryptographic HMAC-SHA512 verification (F3)
   const sigCheck = verifyIpnSignature(rawBody, rawSigHeader, ipnSecret);

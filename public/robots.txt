@@ -1,5 +1,5 @@
 # robots.txt for ApexOS
-# https://www.apex-os.com
+# https://apex-os.agencyos-openclaw.workers.dev
 
 User-agent: *
 Allow: /
@@ -14,7 +14,7 @@ Disallow: /auth/
 Allow: /admin/health
 
 # Sitemap location
-Sitemap: https://apex-os.com/sitemap.xml
+Sitemap: https://apex-os.agencyos-openclaw.workers.dev/sitemap.xml
 
 # Crawl delay for politeness
 Crawl-delay: 1

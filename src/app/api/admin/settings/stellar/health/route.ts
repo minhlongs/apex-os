@@ -4,7 +4,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { StellarService } from '@/lib/payouts/stellar-service';
+import {
+  StellarService,
+  isValidStellarAccountId,
+  sanitizeStellarDiagnosticError,
+} from '@/lib/payouts/stellar-service';
 import { getStellarSettings, requireAdmin } from '@/lib/admin/stellar-actions';
 import { error as logError } from '@/lib/logger';
 
@@ -17,9 +21,14 @@ export async function GET(request: NextRequest) {
 
     const { config } = await getStellarSettings();
 
-    // Check if secret key is available
-    const secretKey = process.env.STELLAR_SECRET_KEY;
-    if (!secretKey) {
+    // Read-only Turnkey HSM hot-wallet public key boundary:
+    // NEVER read or fall back to raw STELLAR_SECRET_KEY in Worker health checks.
+    const rawCandidate =
+      process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS?.trim() ||
+      config.senderAccountId?.trim() ||
+      undefined;
+
+    if (!rawCandidate) {
       return NextResponse.json({
         healthy: false,
         network: config.network,
@@ -27,22 +36,44 @@ export async function GET(request: NextRequest) {
         senderBalanceUSDC: 0,
         senderBalanceXLM: 0,
         horizonConnected: false,
-        errors: ['STELLAR_SECRET_KEY not set in environment variables'],
+        errors: [
+          'TURNKEY_STELLAR_HOT_WALLET_ADDRESS not set in environment variables (Turnkey HSM Stellar hot wallet)',
+        ],
       });
     }
 
-    // Create service with current config
+    if (!isValidStellarAccountId(rawCandidate)) {
+      return NextResponse.json({
+        healthy: false,
+        network: config.network,
+        senderAccount: null,
+        senderBalanceUSDC: 0,
+        senderBalanceXLM: 0,
+        horizonConnected: false,
+        errors: [
+          'Invalid Stellar public account ID configured for TURNKEY_STELLAR_HOT_WALLET_ADDRESS (expected G... Ed25519 StrKey)',
+        ],
+      });
+    }
+
     const service = new StellarService({
       network: config.network,
       horizonUrl: config.horizonUrl || undefined,
-      secretKey,
+      usdcIssuer: config.usdcIssuer || undefined,
+      senderPublicKey: rawCandidate,
     });
 
     const health = await service.healthCheck();
 
-    return NextResponse.json(health);
+    return NextResponse.json({
+      ...health,
+      errors: health.errors.map(sanitizeStellarDiagnosticError),
+    });
   } catch (error) {
-logError('Stellar health check error:', error);
+    const safeMessage = sanitizeStellarDiagnosticError(
+      error instanceof Error ? error.message : 'Unknown error'
+    );
+    logError('Stellar health check error:', safeMessage);
     return NextResponse.json(
       {
         healthy: false,
@@ -51,7 +82,7 @@ logError('Stellar health check error:', error);
         senderBalanceUSDC: 0,
         senderBalanceXLM: 0,
         horizonConnected: false,
-        errors: [error instanceof Error ? error.message : 'Unknown error'],
+        errors: [safeMessage],
       },
       { status: 500 }
     );

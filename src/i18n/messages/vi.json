@@ -3,7 +3,6 @@
     "home": "Trang chủ",
     "dashboard": "Trung tâm điều khiển",
     "affiliates": "Bàn giao dịch",
-    "signals": "Tín hiệu",
     "copyTrading": "Đối soát định lượng",
     "pricing": "Bảng phí",
     "login": "Đăng nhập",
@@ -15,46 +14,50 @@
     "settings": "Cài đặt"
   },
   "landing": {
-    "heroBadge": "Phân bổ phí không lưu ký & đối soát thanh khoản vi mô",
-    "heroTitle": "Thu hồi từng điểm cơ bản (bps). Thực thi định lượng không lưu ký.",
-    "heroSubtitle": "Hạ tầng định lượng đầu tiên kết nối phục hồi phí điểm cơ bản (bps) và động cơ đối soát thanh khoản 3 tầng (30%/10%/5%) cho khu vực Đông Nam Á. Xác minh API Key ID không lưu ký trên Binance, Bybit, OKX và KuCoin.",
-    "ctaPrimary": "Kích hoạt Terminal",
-    "ctaSecondary": "Tra cứu Nghiên cứu",
-    "ctaDeals": "Xem ma trận phân bổ bps",
+    "heroBadge": "Hạ Tầng Hoàn Phí Giao Dịch Không Lưu Ký & Bằng Chứng Hoàn Phí B2B",
+    "heroTitle": "Thu Hồi Phí Giao Dịch Chỉ Với UID & Quyết Toán USDC Tự Quản Minh Bạch.",
+    "heroSubtitle": "Nền tảng hoàn phí giao dịch tiền mã hóa và đối soát Proof-of-Rebate B2B mật mã học trên Bybit, OKX, Bitget, KuCoin và Gate.io. Không yêu cầu API Key sàn, sổ cái kép 10^-8 USD và thanh toán USDC trực tiếp về ví tự quản qua Stellar, Arbitrum và Base.",
+    "ctaPrimary": "Mở Terminal Hoàn Phí",
+    "ctaSecondary": "Tra Cứu Nghiên Cứu",
+    "ctaDeals": "Xem Biểu Hoàn Phí Các Sàn",
     "features": {
-      "title": "Hạ tầng định lượng cho lợi thế giao dịch",
-      "aiSignals": {
-        "title": "Đối soát dưới 1 giây",
-        "desc": "Động cơ đối chiếu lệnh theo thời gian thực, xử lý webhook trao đổi ký HMAC-SHA256 chỉ trong chưa đến 1 giây."
+      "title": "Sáu Trụ Cột Kiến Trúc Ascendancy Cho Hoàn Phí Không Lưu Ký",
+      "uidOnlyAttribution": {
+        "title": "Không Dùng API Key (Đối Soát Chỉ Bằng UID)",
+        "desc": "Tuyệt đối không chia sẻ khóa giao dịch hay khóa rút tiền trên sàn. Đối soát chỉ sử dụng UID sàn thông qua kênh đối tác tổ chức, không can thiệp tài khoản."
       },
-      "copyTrading": {
-        "title": "Thu hồi điểm cơ bản (bps)",
-        "desc": "Thu về 2.7 – 12.0 bps chi phí Taker/Maker, nâng kỳ vọng toán học của danh mục mà không tăng thêm rủi ro hướng đi."
+      "atomicLedger": {
+        "title": "Sổ Cái Kép Nguyên Tử (10^-8 USD)",
+        "desc": "Hạch toán số nguyên có dấu không sai số dấu phẩy động. Sao kê đối tác được xác thực CASH_COLLECTED trước khi mở khóa kỳ giữ T+7 chống clawback."
       },
-      "riskManage": {
-        "title": "Kiến trúc Zero-Secret",
-        "desc": "Xác minh API Key ID chỉ đọc. Không lưu Secret, không cấp quyền Trade, không có rủi ro rút tiền."
+      "proofOfRebate": {
+        "title": "Bằng Chứng Hoàn Phí Mật Mã Học (SHA-256)",
+        "desc": "Mọi bảng kê hoa hồng sàn và biên nhận ví đối tác đều được băm SHA-256 và lưu trữ bất biến 5 năm trên Cloudflare R2."
       },
-      "paperTrade": {
-        "title": "Sổ cái kép trên D1",
-        "desc": "Kế toán kép mật mã học trên Cloudflare D1, đối soát minh bạch và không rò rỉ dòng tiền."
+      "multiChainUsdc": {
+        "title": "USDC Đa Chuỗi Về Ví Tự Quản",
+        "desc": "Thanh toán trực tiếp không lưu ký trên Stellar, Arbitrum và Base (tối thiểu $10.00 USDC) kèm khóa an toàn 48 giờ khi thay đổi địa chỉ ví nhận."
       },
-      "referral": {
-        "title": "Kinh tế bàn 3 tầng",
-        "desc": "Nhận 30% Tier 1, 10% Tier 2 và 5% Tier 3 từ toàn bộ mạng lưới, tất toán tự động hàng tuần."
+      "twoTierPartner": {
+        "title": "Mạng Lưới Đối Tác 2 Tầng (Giới Hạn Cứng L1 + B2B L2)",
+        "desc": "Phân bổ minh bạch 30% Platform Spread (14.25% tổng) cho đối tác trực tiếp L1 và 0%–10% Spread (≤4.75% tổng) cho đại lý B2B L2 theo Safe-Spread I4, khóa cứng tối đa 2 tầng tuân thủ pháp luật."
       },
-      "multiExchange": {
-        "title": "Quyết toán Stellar USDC",
-        "desc": "Tự động tất toán về ví không lưu ký hàng tuần qua blockchain Stellar với mức phí mạng không đáng kể."
+      "hsmTreasury": {
+        "title": "Khóa Phần Cứng Passkey & Kho Bạc Turnkey HSM",
+        "desc": "Lệnh giải ngân được kiểm soát chính sách trong vùng an toàn Turnkey HSM kết hợp xác thực WebAuthn ES256 và kho lạnh đa chữ ký Safe 2-of-3."
       }
     },
     "stats": {
-      "users": "Bàn giao dịch hoạt động",
-      "volume": "Khối lượng đối soát 30 ngày",
-      "masters": "Sàn liên kết"
+      "waterfall": "Phân Bổ Safe-Spread (Trader / L1 / L2)",
+      "ledger": "Sổ Cái Nguyên Tử & Chu Kỳ T+7",
+      "rails": "Thanh Toán USDC Tự Quản (Tối Thiểu $10)"
     },
     "footer": {
-      "rights": "© 2026 Bộ Kỹ thuật Định lượng ApexOS. Mọi quyền được bảo lưu."
+      "rights": "© 2026 Bộ Kỹ thuật Định lượng ApexOS. Mọi quyền được bảo lưu.",
+      "disclaimer": "ApexOS là nền tảng phân tích dữ liệu hoàn phí và tiếp thị liên kết thương mại — không phải sàn giao dịch, môi giới chứng khoán, tư vấn đầu tư hay đơn vị lưu ký tài sản.",
+      "terms": "Điều Khoản Dịch Vụ",
+      "nonCustodialDisclosure": "Công Bố Không Lưu Ký",
+      "geoRestriction": "Thông Báo Giới Hạn Lãnh Thổ"
     }
   },
   "insights": {
@@ -67,7 +70,7 @@
     "keyMetrics": "Chỉ số định lượng then chốt",
     "publishedOn": "Xuất bản ngày {date}",
     "ctaTitle": "Sẵn sàng loại bỏ lực cản phí thực thi?",
-    "ctaDesc": "Kết nối API Key ID chỉ đọc trong vài giây và bắt đầu thu hồi phí vi mô trên Binance, Bybit, OKX và KuCoin.",
+    "ctaDesc": "Liên kết UID sàn trong vài giây — không yêu cầu API Key — và thu hồi phí giao dịch theo điểm cơ bản trên Bybit, OKX và Bitget.",
     "ctaButton": "Kích hoạt Terminal"
   },
   "auth": {
@@ -416,7 +419,7 @@
       "copied": "Đã sao chép!",
       "note": {
         "title": "Về đối soát bàn giao dịch",
-        "description": "Toàn bộ khối lượng phát sinh qua liên kết này được ghi nhận dưới bàn Tier 1 (30%) của bạn trong D1."
+        "description": "Toàn bộ khối lượng phát sinh qua liên kết này được ghi nhận dưới bàn Đối tác Trực tiếp L1 — 30% Platform Spread (14.25% tổng hoa hồng) — trong D1."
       }
     },
     "footer": {
@@ -446,22 +449,27 @@
       "generateNew": "Tạo mã mới"
     },
     "tiers": {
-      "title": "Cấu trúc bàn thanh khoản 3 tầng",
-      "subtitle": "Đối soát tự động qua 3 cấp độ thực thi phân cấp",
+      "title": "Thác Phân Bổ Safe-Spread (I4)",
+      "subtitle": "Phân bổ sau quỹ dự phòng 5% chống clawback, khóa cứng L3+ ở mức 0% (Nghị định 40/2018/NĐ-CP)",
+      "traderRebate": {
+        "name": "Hoàn Phí Trader",
+        "description": "50% hoa hồng khả phân bổ (sau 5% quỹ dự phòng) hoàn trực tiếp cho nhà giao dịch",
+        "rate": "47.5%"
+      },
       "tier1": {
-        "name": "Bàn Tier 1",
-        "description": "Bàn giao dịch & nhà giao dịch được liên kết trực tiếp",
-        "rate": "30%"
+        "name": "Đối Tác Trực Tiếp L1",
+        "description": "30% Platform Spread từ nhà giao dịch & bàn giao dịch liên kết trực tiếp",
+        "rate": "14.25%"
       },
       "tier2": {
-        "name": "Bàn phụ Tier 2",
-        "description": "Đối tác cấp hai và bàn giao dịch phụ",
-        "rate": "10%"
+        "name": "Đại Lý B2B L2 (Hợp Đồng)",
+        "description": "Tối đa 10% Platform Spread chỉ áp dụng theo hợp đồng đại lý B2B (0% bán lẻ)",
+        "rate": "≤4.75%"
       },
       "tier3": {
-        "name": "Mạng lưới Tier 3",
-        "description": "Dòng giao dịch rộng từ cộng đồng và mạng lưới",
-        "rate": "5%"
+        "name": "Tầng L3+ (Khóa Cứng)",
+        "description": "Khóa cứng 0% tuân thủ Nghị định 40/2018/NĐ-CP phòng chống mô hình đa cấp",
+        "rate": "0%"
       }
     },
     "referralTree": {
@@ -671,9 +679,9 @@
         "total": "Tổng",
         "avgRate": "Tỷ lệ trung bình",
         "byLevel": "Theo tầng giới thiệu",
-        "tier1": "Tầng 1 (30%)",
-        "tier2": "Tầng 2 (10%)",
-        "tier3": "Tầng 3 (5%)"
+        "tier1": "L1 Trực tiếp (14.25% tổng / 30% spread)",
+        "tier2": "L2 B2B (≤4.75% tổng / ≤10% spread)",
+        "tier3": "L3+ (Khóa cứng 0%)"
       },
       "payouts": {
         "total": "Tổng",

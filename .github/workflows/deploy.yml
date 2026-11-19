@@ -76,7 +76,7 @@ jobs:
       github.event.inputs.action == 'deploy-production'
     environment:
       name: production
-      url: https://apex-os.com
+      url: ${{ vars.PRODUCTION_URL || 'https://apex-os.agencyos-openclaw.workers.dev' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -133,7 +133,8 @@ jobs:
       - name: Verify production deployment
         env:
           EXPECTED_SHA: ${{ github.sha }}
-        run: bash scripts/verify-deployment.sh https://apex-os.com "${EXPECTED_SHA}"
+          PRODUCTION_TARGET_URL: ${{ vars.PRODUCTION_URL || 'https://apex-os.agencyos-openclaw.workers.dev' }}
+        run: bash scripts/verify-deployment.sh "${PRODUCTION_TARGET_URL}" "${EXPECTED_SHA}"
 
   rollback:
     name: Rollback Deployment

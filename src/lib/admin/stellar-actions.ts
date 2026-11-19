@@ -12,10 +12,81 @@ import {
   StellarNetwork,
   CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
   CANONICAL_STELLAR_TESTNET_USDC_ISSUER,
+  isValidStellarAccountId,
+  sanitizeStellarDiagnosticError,
 } from '@/lib/payouts/stellar-service'
 
 // KV storage key for Stellar config
 const STELLAR_CONFIG_KEY = 'stellar_config'
+
+const DEFAULT_ALLOWED_HORIZON_HOSTS = new Set<string>([
+  'horizon.stellar.org',
+  'horizon-testnet.stellar.org',
+])
+
+function isPrivateOrLocalHostname(hostname: string): boolean {
+  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '')
+  if (
+    !lower ||
+    lower === 'localhost' ||
+    lower.endsWith('.localhost') ||
+    lower.endsWith('.local') ||
+    lower.endsWith('.internal') ||
+    lower.includes(':') // IPv6 literal
+  ) {
+    return true
+  }
+  // Reject IPv4 literals (including loopback 127.x, RFC1918 10.x/172.16-31.x/192.168.x, link-local 169.254.x, 0.0.0.0)
+  if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(lower) || /^\d+$/.test(lower) || /^0x[0-9a-f]+$/i.test(lower)) {
+    return true
+  }
+  return false
+}
+
+function getAllowedHorizonHosts(): Set<string> {
+  const allowed = new Set<string>(DEFAULT_ALLOWED_HORIZON_HOSTS)
+  const extraRaw = process.env.STELLAR_ALLOWED_HORIZON_HOSTS ?? ''
+  for (const entry of extraRaw.split(',')) {
+    const host = entry.trim().toLowerCase().replace(/\.$/, '')
+    if (host && !isPrivateOrLocalHostname(host)) {
+      allowed.add(host)
+    }
+  }
+  return allowed
+}
+
+function validateAllowedHorizonUrl(rawUrl: string): { ok: true; normalizedUrl: string } | { ok: false; error: string } {
+  const trimmed = rawUrl.trim()
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return { ok: false, error: 'Invalid horizon URL format' }
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return { ok: false, error: 'Horizon URL must use HTTPS protocol' }
+  }
+
+  if (parsed.username || parsed.password) {
+    return { ok: false, error: 'Horizon URL must not contain embedded credentials' }
+  }
+
+  const hostname = parsed.hostname.toLowerCase().replace(/\.$/, '')
+  if (isPrivateOrLocalHostname(hostname)) {
+    return { ok: false, error: 'Horizon URL hostname is not permitted (local or IP addresses are blocked)' }
+  }
+
+  const allowedHosts = getAllowedHorizonHosts()
+  if (!allowedHosts.has(hostname)) {
+    return {
+      ok: false,
+      error: `Horizon URL host '${hostname}' is not in the allowed Stellar Horizon host allowlist`,
+    }
+  }
+
+  return { ok: true, normalizedUrl: parsed.toString().replace(/\/+$/, '') }
+}
 
 // Minimal KV binding interface for Cloudflare Pages runtime
 interface KVNamespace {
@@ -118,26 +189,52 @@ export async function getStellarSettings(): Promise<{
     }
   }
 
-  // Get health status if we have secret key configured
+  const turnkeyHotWallet = process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS?.trim()
+  if (turnkeyHotWallet && isValidStellarAccountId(turnkeyHotWallet)) {
+    config.secretKeyConfigured = true
+    config.senderAccountId = turnkeyHotWallet
+  } else if (config.senderAccountId && isValidStellarAccountId(config.senderAccountId)) {
+    config.secretKeyConfigured = true
+  } else {
+    config.secretKeyConfigured = false
+    config.senderAccountId = null
+  }
+
+  // Get read-only health status using Turnkey HSM hot-wallet public key only (zero raw secret in Worker memory)
   let health = null
-  if (config.secretKeyConfigured) {
+  if (config.secretKeyConfigured && config.senderAccountId) {
     try {
-      const secretKey = process.env.STELLAR_SECRET_KEY
-      if (secretKey) {
-        const service = new StellarService({
-          network: config.network,
-          horizonUrl: config.horizonUrl || undefined,
-          secretKey,
-        })
-        health = await service.healthCheck()
+      const service = new StellarService({
+        network: config.network,
+        horizonUrl: config.horizonUrl || undefined,
+        usdcIssuer: config.usdcIssuer || undefined,
+        senderPublicKey: config.senderAccountId,
+      })
+      const rawHealth = await service.healthCheck()
+      health = {
+        ...rawHealth,
+        errors: rawHealth.errors.map(sanitizeStellarDiagnosticError),
       }
     } catch (error) {
       health = {
         horizonConnected: false,
         senderBalanceUSDC: 0,
         senderBalanceXLM: 0,
-        errors: [error instanceof Error ? error.message : 'Failed to get health status'],
+        errors: [
+          sanitizeStellarDiagnosticError(
+            error instanceof Error ? error.message : 'Failed to get health status'
+          ),
+        ],
       }
+    }
+  } else if (turnkeyHotWallet && !isValidStellarAccountId(turnkeyHotWallet)) {
+    health = {
+      horizonConnected: false,
+      senderBalanceUSDC: 0,
+      senderBalanceXLM: 0,
+      errors: [
+        'Invalid Stellar public account ID configured for TURNKEY_STELLAR_HOT_WALLET_ADDRESS (expected G... Ed25519 StrKey)',
+      ],
     }
   }
 
@@ -195,12 +292,11 @@ export async function updateStellarConfig(
     }
 
     if (updates.horizonUrl) {
-      try {
-        new URL(updates.horizonUrl)
-        current.horizonUrl = updates.horizonUrl
-      } catch {
-        return { success: false, error: 'Invalid horizon URL format' }
+      const validation = validateAllowedHorizonUrl(updates.horizonUrl)
+      if (!validation.ok) {
+        return { success: false, error: validation.error }
       }
+      current.horizonUrl = validation.normalizedUrl
     }
 
     current.updatedAt = new Date().toISOString()
@@ -212,8 +308,11 @@ export async function updateStellarConfig(
 
     return { success: true }
   } catch (error) {
-    logError('Failed to update Stellar config:', error)
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    const safeMessage = sanitizeStellarDiagnosticError(
+      error instanceof Error ? error.message : 'Unknown error'
+    )
+    logError('Failed to update Stellar config:', safeMessage)
+    return { success: false, error: safeMessage }
   }
 }
 
@@ -245,8 +344,12 @@ export async function testStellarConnection(): Promise<{
   try {
     const { config } = await getStellarSettings()
 
-    const secretKey = process.env.STELLAR_SECRET_KEY
-    if (!secretKey) {
+    const rawCandidate =
+      process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS?.trim() ||
+      config.senderAccountId?.trim() ||
+      undefined
+
+    if (!rawCandidate) {
       return {
         success: false,
         network: config.network,
@@ -254,18 +357,32 @@ export async function testStellarConnection(): Promise<{
         senderAccountId: null,
         senderBalanceUSDC: 0,
         senderBalanceXLM: 0,
-        error: 'STELLAR_SECRET_KEY not set in environment variables',
+        error: 'TURNKEY_STELLAR_HOT_WALLET_ADDRESS not set in environment variables',
+      }
+    }
+
+    if (!isValidStellarAccountId(rawCandidate)) {
+      return {
+        success: false,
+        network: config.network,
+        horizonConnected: false,
+        senderAccountId: null,
+        senderBalanceUSDC: 0,
+        senderBalanceXLM: 0,
+        error:
+          'Invalid Stellar public account ID configured for TURNKEY_STELLAR_HOT_WALLET_ADDRESS (expected G... Ed25519 StrKey)',
       }
     }
 
     const service = new StellarService({
       network: config.network,
       horizonUrl: config.horizonUrl || undefined,
-      secretKey,
+      senderPublicKey: rawCandidate,
       usdcIssuer: config.usdcIssuer || undefined,
     })
 
     const health = await service.healthCheck()
+    const safeErrors = health.errors.map(sanitizeStellarDiagnosticError)
 
     return {
       success: health.healthy,
@@ -274,7 +391,7 @@ export async function testStellarConnection(): Promise<{
       senderAccountId: health.senderAccount,
       senderBalanceUSDC: health.senderBalanceUSDC,
       senderBalanceXLM: health.senderBalanceXLM,
-      error: health.errors.length > 0 ? health.errors.join(', ') : undefined,
+      error: safeErrors.length > 0 ? safeErrors.join(', ') : undefined,
     }
   } catch (error) {
     return {
@@ -284,7 +401,9 @@ export async function testStellarConnection(): Promise<{
       senderAccountId: null,
       senderBalanceUSDC: 0,
       senderBalanceXLM: 0,
-      error: error instanceof Error ? error.message : 'Unknown error during connection test',
+      error: sanitizeStellarDiagnosticError(
+        error instanceof Error ? error.message : 'Unknown error during connection test'
+      ),
     }
   }
 }

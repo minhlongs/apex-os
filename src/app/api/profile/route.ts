@@ -9,7 +9,7 @@ import {
 import { error as logError } from '@/lib/logger';
 import { isAscendancyGuardActive } from '@/lib/compliance/legacy-route-guards';
 import type { D1Database } from '@/lib/db';
-import { parseExternalIds } from './exchange-keys/route';
+import { parseExternalIds } from './exchange-keys/helpers';
 
 interface ProfileRow {
   id: string;

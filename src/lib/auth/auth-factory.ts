@@ -3,6 +3,10 @@
  * Avoids kysely version conflicts by using custom D1 adapter.
  */
 
+import {
+  resolveCanonicalAppOrigin,
+  resolveTrustedBrowserOrigins,
+} from '@/config/canonical-origin'
 import { createD1Adapter, D1Database } from './adapters/d1-adapter'
 
 export interface AuthEnv {
@@ -44,9 +48,29 @@ export function createAuth(env: AuthEnv): BetterAuthInstance {
   const { betterAuth } = require('better-auth') as {
     betterAuth: (opts: Record<string, unknown>) => BetterAuthInstance
   }
+
+  const appEnv = (process.env.APP_ENV ?? '').trim().toLowerCase()
+  const isManagedDeployment =
+    appEnv === 'production' || appEnv === 'staging' || process.env.NODE_ENV === 'production'
+
+  const rawSecret = (process.env.BETTER_AUTH_SECRET ?? '').trim()
+  if (
+    isManagedDeployment &&
+    (!rawSecret || rawSecret === 'dev-secret-change-in-production' || rawSecret.length < 32)
+  ) {
+    throw new Error(
+      'BETTER_AUTH_SECRET must be explicitly configured (>= 32 chars) in staging/production'
+    )
+  }
+
+  const canonicalBaseUrl = resolveCanonicalAppOrigin()
+  const trustedOrigins = resolveTrustedBrowserOrigins()
+
   return betterAuth({
     database: createD1Adapter({ db: env.DB }),
+    baseURL: canonicalBaseUrl,
     basePath: '/api/auth',
+    trustedOrigins,
     emailAndPassword: {
       enabled: true,
     },
@@ -54,7 +78,16 @@ export function createAuth(env: AuthEnv): BetterAuthInstance {
       expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24,
     },
-    secret: process.env.BETTER_AUTH_SECRET || 'dev-secret-change-in-production',
+    advanced: {
+      useSecureCookies: isManagedDeployment,
+      defaultCookieAttributes: {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: isManagedDeployment,
+        path: '/',
+      },
+    },
+    secret: rawSecret || 'dev-secret-change-in-production',
     plugins: [],
   })
 }

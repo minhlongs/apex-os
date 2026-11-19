@@ -9,3 +9,4 @@ export * from './evidence-vault';
 export * from './reconciliation-service';
 export * from './double-entry-ledger';
 export * from './proof-of-rebate';
+export * from './b2b-agency-contracts';

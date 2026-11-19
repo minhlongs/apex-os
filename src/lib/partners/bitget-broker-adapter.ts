@@ -239,7 +239,7 @@ export class BitgetBrokerAdapter implements PartnerIngestionAdapter {
 
       const commissionAsset = validateUsdStablecoinCommissionAsset(
         'bitget',
-        item.coin ?? item.tokenId ?? 'USDT',
+        item.coin ?? item.tokenId,
         `Bitget data.list[${idx}]`
       );
 
@@ -278,6 +278,7 @@ export class BitgetBrokerAdapter implements PartnerIngestionAdapter {
       rows,
       nextCursor,
       evidence,
+      rawPayload,
     };
   }
 }

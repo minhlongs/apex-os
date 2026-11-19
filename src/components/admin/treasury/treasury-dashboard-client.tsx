@@ -30,6 +30,11 @@ import type {
   BatchExecutionResult,
 } from '@/lib/payouts/types';
 import { getHealthBadgeStyle, formatChainDisplayName } from './treasury-helpers';
+import {
+  PasskeySecurityPanel,
+  type ActivePasskeyStepUpSession,
+} from './passkey-security-panel';
+import { AscendancyOpsPanel } from './ascendancy-ops-panel';
 
 export { getHealthBadgeStyle, formatChainDisplayName };
 
@@ -79,6 +84,7 @@ export function TreasuryDashboardClient({ locale }: TreasuryDashboardClientProps
   const [executionResult, setExecutionResult] = useState<BatchExecutionResult | null>(null);
   const [actionLoading, setActionLoading] = useState<boolean>(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [activeStepUp, setActiveStepUp] = useState<ActivePasskeyStepUpSession | null>(null);
 
   const fetchTreasuryStatus = useCallback(async () => {
     setLoading(true);
@@ -182,6 +188,12 @@ export function TreasuryDashboardClient({ locale }: TreasuryDashboardClientProps
           <span>{error}</span>
         </div>
       ) : null}
+
+      {/* WebAuthn FIDO2 Passkey Enrollment & Step-Up Session Gate */}
+      <PasskeySecurityPanel
+        activeStepUp={activeStepUp}
+        onStepUpChange={setActiveStepUp}
+      />
 
       {/* Global Circuit Breaker Banner */}
       {health ? (
@@ -462,6 +474,12 @@ export function TreasuryDashboardClient({ locale }: TreasuryDashboardClientProps
           </div>
         ) : null}
       </div>
+
+      {/* Ascendancy Runtime Circuit Breakers, 5-Exchange Ingestion & Turnkey/Safe Broadcast Queue */}
+      <AscendancyOpsPanel
+        activeStepUp={activeStepUp}
+        onStepUpChange={setActiveStepUp}
+      />
     </div>
   );
 }

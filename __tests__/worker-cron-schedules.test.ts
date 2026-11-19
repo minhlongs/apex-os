@@ -11,6 +11,8 @@ import path from 'path';
 import {
   CRON_ALERT_ENGINE,
   CRON_D1_METRICS,
+  CRON_PARTNER_RECONCILIATION,
+  CRON_T7_HOLD_RELEASE,
   CRON_WEEKLY_PAYOUTS,
 } from '../worker-cron-schedules.js';
 
@@ -53,7 +55,9 @@ function resolvedForTest(name: string, into: Set<string>): void {
   const values: Record<string, string> = {
     CRON_ALERT_ENGINE,
     CRON_D1_METRICS,
+    CRON_PARTNER_RECONCILIATION,
     CRON_WEEKLY_PAYOUTS,
+    CRON_T7_HOLD_RELEASE,
   };
   const value = values[name];
   if (value !== undefined) {
@@ -62,11 +66,13 @@ function resolvedForTest(name: string, into: Set<string>): void {
 }
 
 describe('cron schedule contract', () => {
-  it('declares exactly the three schedules the dispatcher handles', () => {
+  it('declares exactly the five schedules the dispatcher handles', () => {
     expect(readConfiguredCrons().sort()).toEqual([
       CRON_ALERT_ENGINE,
       CRON_D1_METRICS,
+      CRON_PARTNER_RECONCILIATION,
       CRON_WEEKLY_PAYOUTS,
+      CRON_T7_HOLD_RELEASE,
     ].sort());
   });
 
@@ -74,7 +80,9 @@ describe('cron schedule contract', () => {
     expect(readDispatchedCrons().sort()).toEqual([
       CRON_ALERT_ENGINE,
       CRON_D1_METRICS,
+      CRON_PARTNER_RECONCILIATION,
       CRON_WEEKLY_PAYOUTS,
+      CRON_T7_HOLD_RELEASE,
     ].sort());
   });
 
@@ -156,5 +164,18 @@ describe('cron scheduled entrypoint wiring', () => {
   it('passes the deployment host so the synthesized origin is routable', () => {
     expect(wrapper).toMatch(/buildCronRequestDescriptor\([\s\S]*FORWARDED_HOST_HEADER/);
     expect(wrapper).toMatch(/import \{[\s\S]*FORWARDED_HOST_HEADER/);
+  });
+
+  it('dispatches the hourly T+7 hold release schedule to its own handler', () => {
+    // Without a dispatch branch this schedule reaches the unknown-schedule 400,
+    // so the holds only ever release as a side effect of the daily poller run.
+    expect(wrapper).toMatch(/cronSchedule === CRON_T7_HOLD_RELEASE/);
+    expect(wrapper).toMatch(/return this\.handleT7ReleaseCron\(request, env, ctx\)/);
+  });
+
+  it('delegates the T+7 hold release to /api/cron?job=t7_release with the cron secret', () => {
+    expect(wrapper).toMatch(/async handleT7ReleaseCron\(request, env, ctx\)/);
+    expect(wrapper).toMatch(/\/api\/cron\?job=t7_release/);
+    expect(wrapper).toMatch(/Authorization: `Bearer \$\{env\.CRON_SECRET \|\| ''\}`/);
   });
 });

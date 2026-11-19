@@ -31,7 +31,7 @@ export default async function DashboardPage({ params }: Props) {
         <StitchObsidianBanner
           locale={locale}
           targetTab="cockpit"
-          screenLabel="Screen 1 · Cashback & 3-Tier Affiliate Cockpit"
+          screenLabel="Screen 1 · Non-Custodial Cashback & 2-Tier Partner Cockpit"
         />
 
         {/* Page Header */}
