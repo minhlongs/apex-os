@@ -360,6 +360,7 @@ export interface LedgerJournalBatchRecord {
   grossCommissionUnits: bigint;
   holdUntil: string | null;
   settledTxHash: string | null;
+  payoutId?: string | null;
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -479,6 +480,7 @@ interface RawBatchRow {
   gross_commission_units: number;
   hold_until: string | null;
   settled_tx_hash: string | null;
+  payout_id?: string | null;
   metadata: string;
   created_at: string;
   updated_at: string;
@@ -538,6 +540,7 @@ function mapBatchRow(row: RawBatchRow): LedgerJournalBatchRecord {
     ),
     holdUntil: row.hold_until,
     settledTxHash: row.settled_tx_hash,
+    payoutId: row.payout_id ?? null,
     metadata: parseJsonObject(row.metadata),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -850,7 +853,7 @@ export class DoubleEntryLedgerService {
       .prepare(
         `SELECT id, idempotency_key, payload_fingerprint, journal_type, status,
                 exchange, trader_uid, reconciliation_id, evidence_id,
-                gross_commission_units, hold_until, settled_tx_hash,
+                gross_commission_units, hold_until, settled_tx_hash, payout_id,
                 metadata, created_at, updated_at
          FROM ledger_journal_batches
          WHERE id = ?`
@@ -867,7 +870,7 @@ export class DoubleEntryLedgerService {
       .prepare(
         `SELECT id, idempotency_key, payload_fingerprint, journal_type, status,
                 exchange, trader_uid, reconciliation_id, evidence_id,
-                gross_commission_units, hold_until, settled_tx_hash,
+                gross_commission_units, hold_until, settled_tx_hash, payout_id,
                 metadata, created_at, updated_at
          FROM ledger_journal_batches
          WHERE idempotency_key = ?`
@@ -2365,15 +2368,16 @@ export class DoubleEntryLedgerService {
         `INSERT INTO ledger_journal_batches (
           id, idempotency_key, payload_fingerprint, journal_type, status,
           exchange, trader_uid, reconciliation_id, evidence_id,
-          gross_commission_units, hold_until, settled_tx_hash,
+          gross_commission_units, hold_until, settled_tx_hash, payout_id,
           metadata, created_at, updated_at
-        ) VALUES (?, ?, ?, 'WITHDRAWAL_REVERTED', 'SETTLED', NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?)`
+        ) VALUES (?, ?, ?, 'WITHDRAWAL_REVERTED', 'SETTLED', NULL, NULL, NULL, NULL, ?, NULL, NULL, ?, ?, ?, ?)`
       )
       .bind(
         revertBatchId,
         params.idempotencyKey,
         fingerprint,
         toSafeSqlInteger(amountUnits, 'reverted_withdrawal_units'),
+        lockBatch.payoutId ?? null,
         JSON.stringify({ lockBatchId: lockBatch.id, reason: params.reason.trim() }),
         nowIso,
         nowIso

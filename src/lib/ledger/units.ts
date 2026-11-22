@@ -46,8 +46,10 @@ export type SupportedSettlementChain = 'stellar' | 'arbitrum' | 'base';
 export interface ChainUnitConversion {
   chain: SupportedSettlementChain;
   chainUnits: bigint;
+  disbursableUnits1e8: bigint;
   formatted: string;
   decimals: 6 | 7;
+  divisor: bigint;
   residualDust1e8: bigint;
 }
 
@@ -239,20 +241,59 @@ export function ledgerUnitsToChainUnits(
 
   const chainUnits = units1e8 / divisor;
   const residualDust1e8 = units1e8 % divisor;
+  const disbursableUnits1e8 = chainUnits * divisor;
 
   const whole = chainUnits / scale;
   const frac = (chainUnits % scale).toString().padStart(decimals, '0');
   const formatted = `${whole.toString()}.${frac}`;
 
-  if (chainUnits * divisor + residualDust1e8 !== units1e8) {
+  if (disbursableUnits1e8 + residualDust1e8 !== units1e8) {
     throw new LedgerOverflowError('Chain unit conversion failed exact conservation check');
   }
 
   return {
     chain,
     chainUnits,
+    disbursableUnits1e8,
     formatted,
     decimals,
+    divisor,
     residualDust1e8,
   };
+}
+
+/**
+ * Convert a non-negative `bigint` monetary amount to a validated JavaScript safe
+ * integer for D1 / SQLite `INTEGER` bindings. Rejects non-bigint, negative values,
+ * values exceeding `Number.MAX_SAFE_INTEGER`, and non-safe integers.
+ */
+export function toSafeNonNegativeSqlInteger(units: bigint, label = 'ledger_units'): number {
+  if (typeof units !== 'bigint') {
+    throw new LedgerUnitValidationError(`${label} must be a bigint`);
+  }
+  if (units < BI_ZERO) {
+    throw new LedgerUnitValidationError(`${label} must be non-negative; received ${units.toString()}`);
+  }
+  return toSafeSqlInteger(units, label);
+}
+
+/**
+ * Compute the chain-representable portion of a withdrawal request and the exact
+ * residual dust (`10^-8` units) that must remain as customer liability.
+ *
+ * When `requireZeroDust` is true, rejects any amount that is not an exact multiple
+ * of the target chain's unit divisor (`10` for Stellar, `100` for Arbitrum/Base).
+ */
+export function splitChainSettlementAndDust(
+  requestedUnits1e8: bigint,
+  chain: SupportedSettlementChain,
+  options?: { requireZeroDust?: boolean }
+): ChainUnitConversion {
+  const conversion = ledgerUnitsToChainUnits(requestedUnits1e8, chain);
+  if (options?.requireZeroDust && conversion.residualDust1e8 !== BI_ZERO) {
+    throw new LedgerUnitValidationError(
+      `Amount ${requestedUnits1e8.toString()} (10^-8 units) has ${conversion.residualDust1e8.toString()} unrepresentable dust units on ${chain} (divisor ${conversion.divisor.toString()})`
+    );
+  }
+  return conversion;
 }
