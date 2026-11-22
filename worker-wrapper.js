@@ -244,7 +244,7 @@ export default {
         return new Response('Database not available', { status: 503 });
       }
 
-      if (String(env.AUTO_SETTLE_PAYOUTS || '').toLowerCase() === 'false') {
+      if (String(env.AUTO_SETTLE_PAYOUTS || '').toLowerCase() !== 'true') {
         return new Response(JSON.stringify({
           success: true,
           message: 'Manual-first rollout: set AUTO_SETTLE_PAYOUTS=true to enable automatic cron payouts',

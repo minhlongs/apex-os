@@ -9,7 +9,26 @@
 import type * as StellarSdkTypes from '@stellar/stellar-sdk';
 import Decimal from 'decimal.js';
 import { error as logError, warn as logWarn } from '@/lib/logger';
-import { track } from '@/lib/analytics-http';
+
+/**
+ * Raised when a disabled legacy money-moving API is invoked directly.
+ * All settlement execution must flow through DoubleEntryLedgerService
+ * withdrawal locks, PayoutEffectFence grants, and BroadcastRecoveryMachine.
+ */
+export class LegacyPayoutPathDisabledError extends Error {
+  readonly code = 'LEGACY_PAYOUT_PATH_DISABLED' as const;
+  readonly legacyMethod: string;
+
+  constructor(legacyMethod: string, detail?: string) {
+    super(
+      `LEGACY_PAYOUT_PATH_DISABLED: ${legacyMethod} is permanently disabled because it bypasses ` +
+        `double-entry withdrawal locks, payout effect grants, and on-chain finality reconciliation.` +
+        (detail ? ` ${detail}` : '')
+    );
+    this.name = 'LegacyPayoutPathDisabledError';
+    this.legacyMethod = legacyMethod;
+  }
+}
 
 function resolveStellarSdkModule(): typeof StellarSdkTypes {
   try {
@@ -376,12 +395,20 @@ export function formatStellarUsdcAmount(amount: string | number | Decimal): stri
 
 /**
  * Convert ledger minor units (10^-8 USD) to Stellar stroops (10^-7 USDC) using floor division.
+ * Rejects non-bigint, non-positive, or sub-stroop dust (< 10 ledger units) so no zero-stroop
+ * Stellar payment instruction can ever be constructed.
  */
 export function ledgerUnits1e8ToStellarStroops(amountUnits1e8: bigint): bigint {
-  if (amountUnits1e8 <= BigInt(0)) {
-    throw new Error(`Invalid ledger 1e8 amount: ${amountUnits1e8.toString()}`);
+  if (typeof amountUnits1e8 !== 'bigint' || amountUnits1e8 <= BigInt(0)) {
+    throw new Error(`Invalid ledger 1e8 amount: ${String(amountUnits1e8)}`);
   }
-  return amountUnits1e8 / BigInt(10);
+  const stroops = amountUnits1e8 / BigInt(10);
+  if (stroops <= BigInt(0)) {
+    throw new Error(
+      `Ledger 1e8 amount ${amountUnits1e8.toString()} is sub-stroop dust (< 10 ledger units = 10^-7 USDC)`
+    );
+  }
+  return stroops;
 }
 
 function parseNonNegativeStroops(balanceStr: string): bigint {
@@ -920,167 +947,25 @@ export class StellarService {
   }
 
   /**
-   * Process batch payouts from pending earnings
+   * Legacy batch payout execution path — permanently disabled (fail-closed).
+   *
+   * This method previously read legacy `earnings`, submitted transactions directly,
+   * and marked earnings paid without double-entry withdrawal locks, PayoutEffectFence
+   * grants, or on-chain finality verification. Any invocation fails closed with
+   * LegacyPayoutPathDisabledError before touching the database, signer, or Horizon.
    */
   async processBatchPayouts(
-    db: PayoutDatabase,
-    options: {
+    _db: PayoutDatabase,
+    _options: {
       limit?: number;
       dryRun?: boolean;
       memoPrefix?: string;
     } = {}
   ): Promise<BatchPayoutResult> {
-    const jobId = `batch_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    const { limit, dryRun, memoPrefix } = {
-      limit: this.config.maxBatchSize,
-      dryRun: false,
-      memoPrefix: 'ApexOS Payout',
-      ...options,
-    };
-
-    const results: BatchPayoutResult['results'] = [];
-    let successful = 0;
-    let failed = 0;
-    let totalAmountDec = new Decimal(0);
-    let totalFeeStroops = BigInt(0);
-
-    try {
-      const pendingEarnings = await db.getPendingEarnings(limit);
-
-      if (pendingEarnings.length === 0) {
-        return {
-          jobId,
-          total: 0,
-          successful: 0,
-          failed: 0,
-          results: [],
-          totalAmount: 0,
-          totalFees: 0,
-          network: this.config.network,
-        };
-      }
-
-      const affiliateGroups = new Map<string, PendingEarning[]>();
-      for (const earning of pendingEarnings) {
-        const group = affiliateGroups.get(earning.affiliate_id) || [];
-        group.push(earning);
-        affiliateGroups.set(earning.affiliate_id, group);
-      }
-
-      for (const [affiliateId, earnings] of affiliateGroups) {
-        const totalEarningDec = earnings.reduce(
-          (sum, e) => sum.plus(new Decimal(e.amount)),
-          new Decimal(0)
-        );
-        const totalEarning = totalEarningDec.toNumber();
-        const walletAddress = earnings[0].wallet_address;
-
-        let isWalletValid = false;
-        if (walletAddress) {
-          try {
-            StellarSdk.Keypair.fromPublicKey(walletAddress);
-            isWalletValid = true;
-          } catch {
-            isWalletValid = false;
-          }
-        }
-
-        if (!isWalletValid) {
-          results.push({
-            error: `Invalid wallet address for affiliate ${affiliateId}: ${walletAddress}`,
-            affiliateId,
-            amount: totalEarning,
-          });
-          failed++;
-          continue;
-        }
-
-        const formattedTotalEarning = formatStellarUsdcAmount(totalEarningDec);
-
-        const payoutId = await db.createPayout({
-          affiliate_id: affiliateId,
-          payout_method: 'crypto',
-          payout_method_details: { network: this.config.network, wallet_address: walletAddress },
-          amount: totalEarning,
-          currency: 'USDC',
-          fee: 0,
-          net_amount: totalEarning,
-          status: dryRun ? 'completed' : 'processing',
-          scheduled_at: new Date().toISOString(),
-          paid_at: null,
-          transaction_id: null,
-          notes: `Batch payout ${jobId} - ${earnings.length} earnings`,
-          metadata: { job_id: jobId, earnings_count: earnings.length },
-        });
-
-        if (dryRun) {
-          results.push({
-            transactionId: `DRY_RUN_${payoutId}`,
-            fromAccount: this.senderKeypair?.publicKey() || 'unknown',
-            toAccount: walletAddress,
-            asset: 'USDC',
-            amount: formattedTotalEarning,
-            fee: '0',
-          });
-          successful++;
-          totalAmountDec = totalAmountDec.plus(totalEarningDec);
-          continue;
-        }
-
-        try {
-          const result = await this.sendPayout(walletAddress, formattedTotalEarning, {
-            memo: `${memoPrefix} - ${affiliateId.slice(0, 10)}`,
-          });
-
-          track('payout', affiliateId, {
-            payout_id: payoutId,
-            amount: totalEarning,
-            currency: 'USDC',
-            wallet_address: walletAddress,
-            transaction_id: result.transactionId,
-            network: this.config.network,
-            earnings_count: earnings.length,
-          }).catch(() => {});
-
-          const earningIds = earnings.map((e) => e.id);
-          await db.markEarningsPaid(earningIds, payoutId);
-
-          results.push(result);
-          successful++;
-          totalAmountDec = totalAmountDec.plus(totalEarningDec);
-          totalFeeStroops += BigInt(result.fee || '0');
-        } catch (error) {
-          results.push({
-            error: `Payout failed: ${error instanceof Error ? error.message : String(error)}`,
-            affiliateId,
-            amount: totalEarning,
-          });
-          failed++;
-        }
-      }
-
-      return {
-        jobId,
-        total: pendingEarnings.length,
-        successful,
-        failed,
-        results,
-        totalAmount: totalAmountDec.toNumber(),
-        totalFees: new Decimal(totalFeeStroops.toString()).div(STROOPS_SCALE_DECIMAL).toNumber(),
-        network: this.config.network,
-      };
-    } catch {
-      return {
-        jobId,
-        total: 0,
-        successful,
-        failed,
-        results,
-        totalAmount: totalAmountDec.toNumber(),
-        totalFees: 0,
-        network: this.config.network,
-      };
-    }
+    throw new LegacyPayoutPathDisabledError(
+      'StellarService.processBatchPayouts',
+      'Use BroadcastRecoveryMachine with DoubleEntryLedgerService withdrawal locks instead.'
+    );
   }
 
   /**

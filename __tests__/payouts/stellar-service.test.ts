@@ -613,81 +613,30 @@ describe('StellarService', () => {
       });
     });
 
-    it('should process batch payouts correctly', async () => {
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(result.total).toBe(3);
-      expect(result.successful).toBe(2);
-      expect(result.failed).toBe(0);
-      expect(result.totalAmount).toBeCloseTo(51, 1);
+    it('hard-fails closed on direct invocation with zero signing, zero broadcast, and zero DB mutation', async () => {
+      await expect(
+        service.processBatchPayouts(mockDb as unknown as PayoutDatabase)
+      ).rejects.toThrow(/LEGACY_PAYOUT_PATH_DISABLED/);
+
+      expect(mockDb.getPendingEarnings).not.toHaveBeenCalled();
+      expect(mockDb.createPayout).not.toHaveBeenCalled();
+      expect(mockDb.markEarningsPaid).not.toHaveBeenCalled();
+      expect(mocks.server.loadAccount).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
 
-    it('should consolidate earnings per affiliate', async () => {
-      await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(mockDb.createPayout).toHaveBeenCalledTimes(2);
-      const firstPayoutCall = mockDb.createPayout.mock.calls[0];
-      expect(firstPayoutCall[0].amount).toBe(26);
-    });
+    it('hard-fails closed even in dryRun mode with zero DB or Horizon access', async () => {
+      await expect(
+        service.processBatchPayouts(mockDb as unknown as PayoutDatabase, {
+          dryRun: true,
+          limit: 1,
+        })
+      ).rejects.toThrow(/LEGACY_PAYOUT_PATH_DISABLED/);
 
-    it('should mark earnings as paid after successful payout', async () => {
-      await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(mockDb.markEarningsPaid).toHaveBeenCalledWith(['earn1', 'earn2'], 'payout123');
-    });
-
-    it('should handle dry run mode', async () => {
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase, {
-        dryRun: true,
-      });
-      expect(result.successful).toBe(2);
-      expect(result.results[0]).toHaveProperty('transactionId');
-      if ('transactionId' in result.results[0]) {
-        expect(result.results[0].transactionId).toContain('DRY_RUN');
-      }
-    });
-
-    it('should skip invalid wallet addresses', async () => {
-      mockDb.getPendingEarnings.mockResolvedValue([
-        {
-          id: 'earn1',
-          affiliate_id: 'affiliate1',
-          amount: 10,
-          wallet_address: 'INVALID_ADDRESS',
-          affiliate_name: 'Invalid',
-          affiliate_email: 'invalid@example.com',
-        },
-      ]);
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(result.failed).toBe(1);
-      expect(result.results[0]).toHaveProperty('error');
-    });
-
-    it('should respect limit parameter', async () => {
-      mockDb.getPendingEarnings.mockResolvedValue([
-        {
-          id: 'earn1',
-          affiliate_id: 'affiliate1',
-          amount: 10,
-          wallet_address: 'GBVALIDWALLET2345672345672345672345672345672345672345672',
-          affiliate_name: 'User',
-          affiliate_email: 'user@example.com',
-        },
-      ]);
-      await service.processBatchPayouts(mockDb as unknown as PayoutDatabase, { limit: 1 });
-      expect(mockDb.getPendingEarnings).toHaveBeenCalledWith(1);
-    });
-
-    it('should handle payout failures gracefully', async () => {
-      mocks.server.submitTransaction.mockRejectedValueOnce(new Error('Transaction failed'));
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(result.failed).toBeGreaterThan(0);
-      expect(result.results.some((r) => 'error' in r)).toBe(true);
-    });
-
-    it('should return empty result when no pending earnings', async () => {
-      mockDb.getPendingEarnings.mockResolvedValue([]);
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(result.total).toBe(0);
-      expect(result.successful).toBe(0);
-      expect(result.failed).toBe(0);
+      expect(mockDb.getPendingEarnings).not.toHaveBeenCalled();
+      expect(mockDb.createPayout).not.toHaveBeenCalled();
+      expect(mockDb.markEarningsPaid).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
   });
 
