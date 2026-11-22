@@ -55,7 +55,30 @@
 
 ## 4. Non-Negotiable External Blockers Before Any Real Funds
 
-1. **Legal & Compliance:** Corporate entity, Decree 40/2018/ND-CP & jurisdictional legal memo, Terms of Service, KYC/sanctions policy.
+1. **Legal & Compliance:** Corporate entity, independent external counsel legal memo evaluating ApexOS's retail L1 and B2B L2 structures under current Vietnamese MLM regulations (historically Decree 40/2018/ND-CP as amended/replaced — disabling L3 in code is a product restriction and does NOT by itself establish legal compliance for B2B L2), Terms of Service, KYC/sanctions policy.
 2. **Partner Contracts:** Signed Bybit/OKX/Bitget affiliate agreements + production read-only API credentials.
 3. **Custody & Signing:** Turnkey production organization + HSM policy + Safe (Gnosis) multisig cold vaults (Arbitrum/Base) + Stellar multisig cold vault + **pre-cutover `TurnkeyServerHsmTransport` bounded timeout/error classification PR**.
 4. **Release Gates:** Founder merge of PR #56 → remote D1 backup → sequential `031`–`036` migration → staging soak with `AUTO_SETTLE_PAYOUTS = false`.
+
+---
+
+## 5. Founder Commercial Execution Packet (G19.7 / G18 Track)
+
+**Current Empirical Baseline (Honest Accounting):**
+- Actual partner commission collected to date: **`$0.00`**
+- Signed exchange partner agreements: **`NOT VERIFIED`**
+- 30-day B2B commercial pilot: **`NOT STARTED`**
+
+### A. Milestone A — Exchange Partner Enrollment Checklist (Bybit / OKX / Bitget)
+1. **Bybit Affiliate / Broker Program:** Apply under corporate entity; request official UID commission reporting API scope (read-only); obtain written fee/rebate schedule, clawback window, and restricted-jurisdiction list; store read-only API credentials exclusively in Cloudflare Secrets (never in Git or logs).
+2. **OKX Affiliate / FD Broker v5:** Same enrollment, read-only UID reporting scope, settlement currency confirmation (USDC/USDT), and actual bank/exchange wallet receipt accounting procedure.
+3. **Bitget Broker v2:** Same enrollment, read-only commission feed verification, wash-trading/clawback terms, and cash receipt reconciliation evidence.
+
+### B. Milestone B — 48-Hour Controlled Validation Compliance Checklist (NOT AUTHORIZED UNDER G19)
+- **Prerequisite Gate:** Written Founder authorization + external counsel clearance + explicit exchange partner-program confirmation that test trades comply with program rules (strictly **no** prohibited self-referral, wash trading, or ToS circumvention).
+- **Estimated Direct Cost Budget:** 3 small legitimate trades across approved exchanges (estimated trading fees + spread `< $15–$30 USD` total; zero real user liabilities created).
+- **Read-Only Evidence Collector Outputs:** Masked UID linkage proof, trade execution receipt, partner commission API statement, exchange cash-settlement deposit receipt, and offline `computeSafeSpreadWaterfall` verification archived to R2 with SHA-256 checksums.
+
+### C. Milestone C — 30-Day Real B2B Pilot Expansion Targets
+- **Initial Pilot Gate:** `>= 1` authorized B2B agency partner (with `3–5` B2B partners as post-pilot expansion target per PDF R11), `>= 30` legitimate active traders, `>= 99.9%` EOD reconciliation accuracy on eligible transactions, `0` unauthorized payouts, `0` double settlements, `100%` R2 Proof-of-Rebate match, and measured Founder workload `<= 20h` / 100 accounts trending to `< 16h`.
+- **Anti-Simulation Rule:** Simulated or test-fixture data **cannot** satisfy Milestone C; only real verified cash-collected partner receipts count.

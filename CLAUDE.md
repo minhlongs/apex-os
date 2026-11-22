@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**ApexOS (Ascendancy v1.5.0)** — Non-custodial, cryptographically auditable crypto fee-rebate and B2B Proof-of-Rebate platform (`package.json` version `1.5.0`). Next.js 16 application deployed to Cloudflare Workers (OpenNext) with D1, KV, and R2. Users earn non-custodial trading fee rebates via UID-only attribution (zero exchange API keys); partners earn commissions under the **Safe-Spread Waterfall I4** (`5%` clawback reserve, `47.5%` trader rebate, `14.25%` L1 direct partner, `<=4.75%` L2 B2B agency override under executed contract only / `0%` retail, `0%` L3+ hard-locked per Vietnam Decree 40/2018/ND-CP) after `CASH_COLLECTED` verification and a `T+7` maturity hold.
+**ApexOS (Ascendancy v1.5.0)** — Non-custodial, cryptographically auditable crypto fee-rebate and B2B Proof-of-Rebate platform (`package.json` version `1.5.0`). Next.js 16 application deployed to Cloudflare Workers (OpenNext) with D1, KV, and R2. Users earn non-custodial trading fee rebates via UID-only attribution (zero exchange API keys); partners earn commissions under the **Safe-Spread Waterfall I4** (`5%` clawback reserve, `47.5%` trader rebate, `14.25%` L1 direct partner, `<=4.75%` L2 B2B agency override under executed contract only / `0%` retail, `0%` L3+ hard-locked by product policy — legal classification and B2B L2 eligibility remain subject to external counsel approval) after `CASH_COLLECTED` verification and a `T+7` maturity hold.
 
 **Tech Stack:**
 - Next.js 16 (App Router) + TypeScript + Tailwind CSS
@@ -101,7 +101,7 @@ curl -X POST http://localhost:3000/api/payouts/run -H "Authorization: Bearer ADM
    - `47.5%` gross trader fee rebate (`50%` of post-5%-reserve distributable commission)
    - `14.25%` gross L1 direct partner (`30%` of platform spread)
    - `<=4.75%` gross L2 B2B agency override (`<=10%` of platform spread, B2B contract only; `0%` retail)
-   - `0%` L3+ hard-locked (Vietnam Decree 40/2018/ND-CP anti-MLM compliance)
+   - `0%` L3+ hard-locked by product policy (external legal classification and B2B L2 eligibility under current Vietnamese law require independent counsel approval)
 4. Postings clear the **T+7 maturity hold** before becoming withdrawable
 5. `$10+` **Circle Native USDC** payouts settle on **Stellar (7dp)**, **Arbitrum One (6dp)**, or **Base (6dp)** (`Ethereum L1` & `Solana` are `DISABLED_PHASE1`), signed via **Turnkey HSM** enclaves (zero raw `STELLAR_SECRET_KEY` in Cloudflare Worker memory) backed by **Safe 2-of-3** cold multisig (`AUTO_SETTLE_PAYOUTS = "false"`)
 
@@ -594,7 +594,7 @@ git commit -m "refactor: split matcher into separate module"
 
 - **Multi-chain settlement:** Circle Native USDC on **Stellar (7dp)**, **Arbitrum One (6dp)**, and **Base (6dp)**; **Ethereum L1 & Solana** are `DISABLED_PHASE1`; `AUTO_SETTLE_PAYOUTS = "false"`
 - **Exchange integrations:** **Bybit, OKX, Bitget** (`ACTIVE`); **KuCoin UTA v2 & Gate.io v4** (`SHADOW_ONLY`, 30-day clean shadow gate); **Binance** (`BLOCKED`)
-- **Compliance:** Vietnam Decree 40/2018/ND-CP (L3+ hard-locked at `0%`), Vietnam Resolution 05/2025/NQ-CP (`BLOCK_VN_SIGNUPS` circuit breaker), OFAC/sanctions HTTP 451 edge geo-fencing, 48-hour wallet-change timelock
+- **Compliance:** Product-policy L3+ `0%` hard-lock (legal classification and B2B L2 eligibility under current applicable Vietnamese MLM law require external counsel review), `BLOCK_VN_SIGNUPS` circuit breaker, OFAC/sanctions HTTP 451 edge geo-fencing, 48-hour wallet-change timelock
 - **Fraud prevention:** IP hashing, persistent D1 rate limiting (`032_persistent_d1_rate_limits.sql`), alert engine with circuit breaker protection
 - **Admin Dashboards:** See `docs/admin-dashboards.md` for comprehensive user guide
 - **Metrics API:** See `docs/api/metrics-api.md` for API documentation
