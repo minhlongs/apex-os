@@ -348,7 +348,18 @@ describe('durable global exposure invariants', () => {
 
     expect(sqlite.prepare("SELECT confirmation_lane FROM settlement_broadcasts WHERE payout_id='stellar-fast-confirm'").get())
       .toEqual({ confirmation_lane: 'HOT' });
-    // Now that finality is verified and observed >24h ago, exposure ages out cleanly
+    // Hardened invariant: UNVERIFIED_HOT -> HOT unconditionally stamps fresh unixepoch('now')
+    // so a stale unverified timestamp cannot prematurely release 24h rolling exposure.
+    const observedAfterPromotion = (
+      sqlite.prepare("SELECT confirmation_observed_at FROM settlement_broadcasts WHERE payout_id='stellar-fast-confirm'").get() as {
+        confirmation_observed_at: number;
+      }
+    ).confirmation_observed_at;
+    expect(observedAfterPromotion).toBeGreaterThanOrEqual(now() - 5);
+    expect(observedAfterPromotion).toBeLessThanOrEqual(now() + 1);
+    expect(await total()).toBe(BigInt(250) * unit);
+    // Once 24h elapses after verified finality observation, exposure ages out cleanly
+    sqlite.prepare("UPDATE settlement_broadcasts SET confirmation_observed_at=? WHERE payout_id='stellar-fast-confirm'").run(now() - 86401);
     expect(await total()).toBe(BigInt(0));
   });
 
@@ -378,6 +389,15 @@ describe('durable global exposure invariants', () => {
 
     expect(sqlite.prepare("SELECT confirmation_lane FROM settlement_broadcasts WHERE payout_id='stellar-horizon-ledger'").get())
       .toEqual({ confirmation_lane: 'HOT' });
+    const observedHorizon = (
+      sqlite.prepare("SELECT confirmation_observed_at FROM settlement_broadcasts WHERE payout_id='stellar-horizon-ledger'").get() as {
+        confirmation_observed_at: number;
+      }
+    ).confirmation_observed_at;
+    expect(observedHorizon).toBeGreaterThanOrEqual(now() - 5);
+    expect(observedHorizon).toBeLessThanOrEqual(now() + 1);
+    expect(await total()).toBe(BigInt(250) * unit);
+    sqlite.prepare("UPDATE settlement_broadcasts SET confirmation_observed_at=? WHERE payout_id='stellar-horizon-ledger'").run(now() - 86401);
     expect(await total()).toBe(BigInt(0));
   });
 

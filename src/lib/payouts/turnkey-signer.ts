@@ -19,7 +19,7 @@
 import type * as StellarSdkTypes from '@stellar/stellar-sdk';
 import Decimal from 'decimal.js';
 import { Turnkey } from '@turnkey/sdk-server';
-import { keccak256, type Hex } from 'viem';
+import { keccak256, recoverAddress, type Hex } from 'viem';
 import type { D1Database } from '../db';
 import {
   LEDGER_UNITS_PER_USD,
@@ -28,6 +28,7 @@ import {
 } from './adapters/arbitrum-base-usdc-adapter';
 import { withPayoutEffect, withPayoutWorkflow, type PayoutEffectKind, type PayoutWorkflow } from './payout-effect-fence';
 import { StellarNetwork, resolveStellarNetwork } from './stellar-service';
+import { toSafeNonNegativeSqlInteger } from '../ledger/units';
 
 function resolveStellarSdkForSigner(): typeof StellarSdkTypes {
   try {
@@ -97,11 +98,105 @@ const LEDGER_SCALE_DECIMAL = new Decimal(LEDGER_UNITS_PER_USD.toString());
 // Transport & Policy Types
 // ============================================================================
 
+export const DEFAULT_TURNKEY_SIGN_TIMEOUT_MS = 12_000;
+export const MAX_TURNKEY_SIGN_TIMEOUT_MS = 15_000;
+export const MIN_TURNKEY_SIGN_TIMEOUT_MS = 10;
+
+export type TurnkeySigningOutcomeState =
+  | 'DEFINITE_REJECTED'
+  | 'SIGNED_CONFIRMED'
+  | 'UNCERTAIN_OUTCOME'
+  | 'CONFIGURATION_ERROR'
+  | 'POLICY_DENIED'
+  | 'TRANSIENT_READ_ERROR';
+
+export interface TurnkeySigningOperationIdentity {
+  payoutId: string;
+  withdrawalId?: string;
+  lockBatchId?: string | null;
+  chain: Phase1SettlementChain;
+  recipientAddress?: string;
+  asset?: string;
+  amountUnits1e8?: bigint;
+  nonceOrSequence?: string | number | null;
+  signingRequestId: string;
+  providerActivityId?: string;
+}
+
+export class TurnkeyHsmOutcomeError extends Error {
+  public readonly outcomeState: Exclude<TurnkeySigningOutcomeState, 'SIGNED_CONFIRMED'>;
+  public readonly payoutId: string;
+  public readonly activityId?: string;
+  public readonly requestDispatched: boolean;
+  public readonly retryAllowed: boolean;
+  public readonly requiresHumanReview: boolean;
+  public readonly operationIdentity?: TurnkeySigningOperationIdentity;
+
+  constructor(params: {
+    outcomeState: Exclude<TurnkeySigningOutcomeState, 'SIGNED_CONFIRMED'>;
+    payoutId: string;
+    message: string;
+    activityId?: string;
+    requestDispatched: boolean;
+    retryAllowed?: boolean;
+    requiresHumanReview?: boolean;
+    operationIdentity?: TurnkeySigningOperationIdentity;
+    cause?: unknown;
+  }) {
+    super(params.message, params.cause !== undefined ? { cause: params.cause } : undefined);
+    this.name = 'TurnkeyHsmOutcomeError';
+    this.outcomeState = params.outcomeState;
+    this.payoutId = params.payoutId;
+    this.activityId = params.activityId;
+    this.requestDispatched = params.requestDispatched;
+    this.retryAllowed = params.retryAllowed ?? false;
+    this.requiresHumanReview =
+      params.requiresHumanReview ?? params.outcomeState === 'UNCERTAIN_OUTCOME';
+    this.operationIdentity = params.operationIdentity;
+  }
+}
+
+export function isTurnkeyHsmOutcomeError(error: unknown): error is TurnkeyHsmOutcomeError {
+  return error instanceof TurnkeyHsmOutcomeError;
+}
+
+export function isTurnkeyUncertainOutcomeError(error: unknown): error is TurnkeyHsmOutcomeError {
+  return error instanceof TurnkeyHsmOutcomeError && error.outcomeState === 'UNCERTAIN_OUTCOME';
+}
+
+export interface TurnkeyActivityRecoveryResult {
+  outcomeState: TurnkeySigningOutcomeState;
+  payoutId: string;
+  activityId: string;
+  requiresHumanReview: boolean;
+  reason: string;
+  evmSignature?: EvmDigestSignature;
+  stellarSignature?: StellarEnvelopeSignature;
+}
+
+export interface TurnkeyRawApiClient {
+  signRawPayload(
+    params: {
+      signWith: string;
+      payload: string;
+      encoding: 'PAYLOAD_ENCODING_HEXADECIMAL';
+      hashFunction: 'HASH_FUNCTION_NO_OP' | 'HASH_FUNCTION_NOT_APPLICABLE';
+    },
+    options?: { signal?: AbortSignal }
+  ): Promise<TurnkeyRawPayloadApiResponse>;
+  getActivity?(
+    params: { organizationId: string; activityId: string },
+    options?: { signal?: AbortSignal }
+  ): Promise<TurnkeyRawPayloadApiResponse>;
+}
+
 export interface EvmDigestSignature {
   r: Hex;
   s: Hex;
   yParity: 0 | 1;
   activityId: string;
+  outcomeState?: 'SIGNED_CONFIRMED';
+  signingRequestId?: string;
 }
 
 export interface StellarEnvelopeSignature {
@@ -109,6 +204,8 @@ export interface StellarEnvelopeSignature {
   txHash: string;
   signatureBase64: string;
   activityId: string;
+  outcomeState?: 'SIGNED_CONFIRMED';
+  signingRequestId?: string;
 }
 
 /**
@@ -121,6 +218,8 @@ export interface TurnkeySigningTransport {
     signerAddress: string;
     digestHex: Hex;
     payoutId: string;
+    operationIdentity?: Partial<TurnkeySigningOperationIdentity>;
+    signal?: AbortSignal;
   }): Promise<EvmDigestSignature>;
 
   signStellarEnvelope(params: {
@@ -128,7 +227,19 @@ export interface TurnkeySigningTransport {
     unsignedEnvelopeXdr: string;
     txHashHex: string;
     payoutId: string;
+    operationIdentity?: Partial<TurnkeySigningOperationIdentity>;
+    signal?: AbortSignal;
   }): Promise<StellarEnvelopeSignature>;
+
+  lookupSigningActivity?(params: {
+    activityId: string;
+    payoutId: string;
+    chain: Phase1SettlementChain;
+    signerAddress: string;
+    digestHex?: Hex;
+    unsignedEnvelopeXdr?: string;
+    txHashHex?: string;
+  }): Promise<TurnkeyActivityRecoveryResult>;
 }
 
 export interface TurnkeyServerSdkCredentials {
@@ -136,6 +247,10 @@ export interface TurnkeyServerSdkCredentials {
   apiPublicKey: string;
   apiPrivateKey: string;
   organizationId: string;
+  /** Bounded signing timeout in milliseconds (default 12,000ms; max 15,000ms). */
+  signTimeoutMs?: number;
+  /** Optional deterministic client override for offline HSM simulation tests. */
+  apiClientOverride?: TurnkeyRawApiClient;
 }
 
 export interface TurnkeySignerConfig {
@@ -282,6 +397,7 @@ async function inspectResolvedWithdrawalLock(
 interface TurnkeyRawPayloadApiResponse {
   activity?: {
     id?: string;
+    status?: string;
     result?: {
       signRawPayloadResult?: {
         r?: string;
@@ -300,9 +416,9 @@ function extractTurnkeySignatureComponents(
   payoutId: string
 ): { rHex: string; sHex: string; vHex: string; activityId: string } {
   const nested = response.activity?.result?.signRawPayloadResult;
-  const rCandidate = (response.r ?? nested?.r ?? '').replace(/^0x/i, '').trim();
-  const sCandidate = (response.s ?? nested?.s ?? '').replace(/^0x/i, '').trim();
-  const vCandidate = (response.v ?? nested?.v ?? '').replace(/^0x/i, '').trim();
+  const rCandidate = String(response.r ?? nested?.r ?? '').replace(/^0x/i, '').trim();
+  const sCandidate = String(response.s ?? nested?.s ?? '').replace(/^0x/i, '').trim();
+  const vCandidate = String(response.v ?? nested?.v ?? '').replace(/^0x/i, '').trim();
 
   if (
     !/^[0-9a-fA-F]{1,64}$/.test(rCandidate) ||
@@ -375,26 +491,413 @@ export function attachEd25519SignatureToStellarEnvelopeXdr(params: {
 /**
  * Production HSM transport backed by `@turnkey/sdk-server` `Turnkey` client.
  * Authenticates via Turnkey API stamper keys; blockchain private keys remain sealed in AWS Nitro Enclaves.
+ *
+ * Timeout & Outcome Safety:
+ * - Enforces a bounded signing timeout (default 12s, max 15s) using AbortController + Promise.race.
+ * - Classifies every failure explicitly into `DEFINITE_REJECTED`, `UNCERTAIN_OUTCOME`,
+ *   `CONFIGURATION_ERROR`, `POLICY_DENIED`, or `TRANSIENT_READ_ERROR`.
+ * - Any timeout or transport ambiguity after dispatch is classified `UNCERTAIN_OUTCOME` with
+ *   `retryAllowed = false` and `requiresHumanReview = true` so callers preserve withdrawal locks
+ *   and never blind-retry or rotate nonces.
  */
 export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
-  private readonly turnkey: Turnkey;
+  private readonly turnkey: Turnkey | null;
+  private readonly apiClientOverride?: TurnkeyRawApiClient;
+  private readonly organizationId: string;
+  private readonly signTimeoutMs: number;
+  private readonly completedByRequestId = new Map<string, EvmDigestSignature | StellarEnvelopeSignature>();
+  private readonly inFlightByRequestId = new Map<string, Promise<unknown>>();
 
   constructor(credentials: TurnkeyServerSdkCredentials) {
+    if (
+      !credentials.organizationId ||
+      !credentials.apiPublicKey ||
+      !credentials.apiPrivateKey
+    ) {
+      throw new TurnkeyHsmOutcomeError({
+        outcomeState: 'CONFIGURATION_ERROR',
+        payoutId: 'CONFIG',
+        message: 'Turnkey HSM credentials require organizationId, apiPublicKey, and apiPrivateKey',
+        requestDispatched: false,
+        retryAllowed: false,
+        requiresHumanReview: false,
+      });
+    }
+
     if (
       credentials.apiPrivateKey.startsWith('S') &&
       credentials.apiPrivateKey.length === 56
     ) {
-      throw new Error(
-        'Refusing raw Stellar secret seed (S...) in TurnkeyServerHsmTransport; provide Turnkey P-256 stamper API key'
-      );
+      throw new TurnkeyHsmOutcomeError({
+        outcomeState: 'CONFIGURATION_ERROR',
+        payoutId: 'CONFIG',
+        message:
+          'Refusing raw Stellar secret seed (S...) in TurnkeyServerHsmTransport; provide Turnkey P-256 stamper API key',
+        requestDispatched: false,
+        retryAllowed: false,
+        requiresHumanReview: false,
+      });
     }
 
-    this.turnkey = new Turnkey({
-      apiBaseUrl: credentials.apiBaseUrl ?? 'https://api.turnkey.com',
-      apiPublicKey: credentials.apiPublicKey,
-      apiPrivateKey: credentials.apiPrivateKey,
-      defaultOrganizationId: credentials.organizationId,
+    const requestedTimeout = credentials.signTimeoutMs ?? DEFAULT_TURNKEY_SIGN_TIMEOUT_MS;
+    if (
+      !Number.isFinite(requestedTimeout) ||
+      requestedTimeout < MIN_TURNKEY_SIGN_TIMEOUT_MS ||
+      requestedTimeout > MAX_TURNKEY_SIGN_TIMEOUT_MS
+    ) {
+      throw new TurnkeyHsmOutcomeError({
+        outcomeState: 'CONFIGURATION_ERROR',
+        payoutId: 'CONFIG',
+        message: `Turnkey HSM signTimeoutMs must be within [${MIN_TURNKEY_SIGN_TIMEOUT_MS}, ${MAX_TURNKEY_SIGN_TIMEOUT_MS}] ms`,
+        requestDispatched: false,
+        retryAllowed: false,
+        requiresHumanReview: false,
+      });
+    }
+
+    this.organizationId = credentials.organizationId;
+    this.signTimeoutMs = requestedTimeout;
+    this.apiClientOverride = credentials.apiClientOverride;
+    this.turnkey = credentials.apiClientOverride
+      ? null
+      : new Turnkey({
+          apiBaseUrl: credentials.apiBaseUrl ?? 'https://api.turnkey.com',
+          apiPublicKey: credentials.apiPublicKey,
+          apiPrivateKey: credentials.apiPrivateKey,
+          defaultOrganizationId: credentials.organizationId,
+        });
+  }
+
+  private getApiClient(): TurnkeyRawApiClient {
+    if (this.apiClientOverride) {
+      return this.apiClientOverride;
+    }
+    if (!this.turnkey) {
+      throw new TurnkeyHsmOutcomeError({
+        outcomeState: 'CONFIGURATION_ERROR',
+        payoutId: 'CONFIG',
+        message: 'Turnkey SDK client is not initialized',
+        requestDispatched: false,
+      });
+    }
+    return this.turnkey.apiClient() as unknown as TurnkeyRawApiClient;
+  }
+
+  private buildOperationIdentity(
+    payoutId: string,
+    chain: Phase1SettlementChain,
+    partial?: Partial<TurnkeySigningOperationIdentity>,
+    payloadFingerprint?: string
+  ): TurnkeySigningOperationIdentity {
+    const signingRequestId =
+      partial?.signingRequestId ??
+      `sign:${chain}:${payoutId}:${partial?.nonceOrSequence ?? 'none'}:${payloadFingerprint ?? '0'}`;
+    return {
+      payoutId,
+      withdrawalId: partial?.withdrawalId ?? payoutId,
+      lockBatchId: partial?.lockBatchId ?? null,
+      chain,
+      recipientAddress: partial?.recipientAddress,
+      asset: partial?.asset ?? 'USDC',
+      amountUnits1e8: partial?.amountUnits1e8,
+      nonceOrSequence: partial?.nonceOrSequence ?? null,
+      signingRequestId,
+      providerActivityId: partial?.providerActivityId,
+    };
+  }
+
+  private classifyProviderError(
+    error: unknown,
+    params: {
+      payoutId: string;
+      requestDispatched: boolean;
+      isReadOnly: boolean;
+      operationIdentity?: TurnkeySigningOperationIdentity;
+    }
+  ): TurnkeyHsmOutcomeError {
+    if (isTurnkeyHsmOutcomeError(error)) {
+      return error;
+    }
+
+    const errObj = (error && typeof error === 'object' ? error : {}) as {
+      name?: string;
+      code?: string | number;
+      status?: number;
+      statusCode?: number;
+      httpStatus?: number;
+      activityId?: string;
+      message?: string;
+    };
+    const msg = error instanceof Error ? error.message : String(error);
+    const lower = msg.toLowerCase();
+    const status = errObj.status ?? errObj.statusCode ?? errObj.httpStatus;
+    const code = String(errObj.code ?? '').toUpperCase();
+
+    if (params.isReadOnly) {
+      return new TurnkeyHsmOutcomeError({
+        outcomeState: 'TRANSIENT_READ_ERROR',
+        payoutId: params.payoutId,
+        activityId: errObj.activityId,
+        requestDispatched: params.requestDispatched,
+        retryAllowed: true,
+        requiresHumanReview: false,
+        operationIdentity: params.operationIdentity,
+        message: `Turnkey read-only status lookup failed for payout ${params.payoutId}: ${msg}`,
+        cause: error,
+      });
+    }
+
+    if (!params.requestDispatched) {
+      return new TurnkeyHsmOutcomeError({
+        outcomeState: 'DEFINITE_REJECTED',
+        payoutId: params.payoutId,
+        requestDispatched: false,
+        retryAllowed: false,
+        requiresHumanReview: false,
+        operationIdentity: params.operationIdentity,
+        message: `Turnkey signing aborted before request dispatch for payout ${params.payoutId}: ${msg}`,
+        cause: error,
+      });
+    }
+
+    if (typeof status === 'number' && status >= 500) {
+      return new TurnkeyHsmOutcomeError({
+        outcomeState: 'UNCERTAIN_OUTCOME',
+        payoutId: params.payoutId,
+        activityId: errObj.activityId,
+        requestDispatched: true,
+        retryAllowed: false,
+        requiresHumanReview: true,
+        operationIdentity: params.operationIdentity,
+        message: `Turnkey HSM returned HTTP ${status} after dispatch for payout ${params.payoutId}; outcome uncertain`,
+        cause: error,
+      });
+    }
+
+    if (
+      status === 403 ||
+      code === 'POLICY_DENIED' ||
+      code === 'PERMISSION_DENIED' ||
+      lower.includes('policy denied') ||
+      lower.includes('consensus needed') ||
+      lower.includes('permission_denied') ||
+      lower.includes('explicit denial')
+    ) {
+      return new TurnkeyHsmOutcomeError({
+        outcomeState: 'POLICY_DENIED',
+        payoutId: params.payoutId,
+        activityId: errObj.activityId,
+        requestDispatched: true,
+        retryAllowed: false,
+        requiresHumanReview: false,
+        operationIdentity: params.operationIdentity,
+        message: `Turnkey HSM policy denied signing for payout ${params.payoutId}: ${msg}`,
+        cause: error,
+      });
+    }
+
+    if (
+      status === 401 ||
+      status === 404 ||
+      code === 'UNAUTHENTICATED' ||
+      code === 'CONFIGURATION_ERROR' ||
+      lower.includes('invalid api key') ||
+      lower.includes('invalid stamper') ||
+      lower.includes('organization not found') ||
+      lower.includes('unauthorized')
+    ) {
+      return new TurnkeyHsmOutcomeError({
+        outcomeState: 'CONFIGURATION_ERROR',
+        payoutId: params.payoutId,
+        activityId: errObj.activityId,
+        requestDispatched: true,
+        retryAllowed: false,
+        requiresHumanReview: false,
+        operationIdentity: params.operationIdentity,
+        message: `Turnkey HSM configuration/authentication error for payout ${params.payoutId}: ${msg}`,
+        cause: error,
+      });
+    }
+
+    if (
+      status === 400 ||
+      status === 422 ||
+      code === 'INVALID_ARGUMENT' ||
+      code === 'ACTIVITY_STATUS_FAILED' ||
+      code === 'ACTIVITY_STATUS_REJECTED' ||
+      lower.includes('invalid argument') ||
+      lower.includes('activity_status_failed') ||
+      lower.includes('activity_status_rejected') ||
+      lower.includes('malformed request')
+    ) {
+      return new TurnkeyHsmOutcomeError({
+        outcomeState: 'DEFINITE_REJECTED',
+        payoutId: params.payoutId,
+        activityId: errObj.activityId,
+        requestDispatched: true,
+        retryAllowed: false,
+        requiresHumanReview: false,
+        operationIdentity: params.operationIdentity,
+        message: `Turnkey HSM definitely rejected signing for payout ${params.payoutId}: ${msg}`,
+        cause: error,
+      });
+    }
+
+    // Timeout, abort after transmission, network disconnect, 5xx, or unknown response:
+    // Remote HSM may have signed the payload. Classify UNCERTAIN_OUTCOME; never blind-retry.
+    return new TurnkeyHsmOutcomeError({
+      outcomeState: 'UNCERTAIN_OUTCOME',
+      payoutId: params.payoutId,
+      activityId: errObj.activityId,
+      requestDispatched: true,
+      retryAllowed: false,
+      requiresHumanReview: true,
+      operationIdentity: params.operationIdentity,
+      message: `Turnkey HSM signing outcome uncertain for payout ${params.payoutId} (preserve lock; do not blind-retry): ${msg}`,
+      cause: error,
     });
+  }
+
+  private async executeBoundedRawSign(params: {
+    payoutId: string;
+    signWith: string;
+    payload: string;
+    hashFunction: 'HASH_FUNCTION_NO_OP' | 'HASH_FUNCTION_NOT_APPLICABLE';
+    operationIdentity: TurnkeySigningOperationIdentity;
+    externalSignal?: AbortSignal;
+  }): Promise<TurnkeyRawPayloadApiResponse> {
+    if (params.externalSignal?.aborted) {
+      throw new TurnkeyHsmOutcomeError({
+        outcomeState: 'DEFINITE_REJECTED',
+        payoutId: params.payoutId,
+        requestDispatched: false,
+        retryAllowed: false,
+        requiresHumanReview: false,
+        operationIdentity: params.operationIdentity,
+        message: `Turnkey signing cancelled before transmission for payout ${params.payoutId}`,
+      });
+    }
+
+    const apiClient = this.getApiClient();
+    const controller = new AbortController();
+    const onExternalAbort = () => controller.abort();
+    params.externalSignal?.addEventListener('abort', onExternalAbort, { once: true });
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+    let requestDispatched = false;
+
+    try {
+      const signPromise = Promise.resolve().then(() => {
+        if (controller.signal.aborted) {
+          throw new TurnkeyHsmOutcomeError({
+            outcomeState: 'DEFINITE_REJECTED',
+            payoutId: params.payoutId,
+            requestDispatched: false,
+            retryAllowed: false,
+            requiresHumanReview: false,
+            operationIdentity: params.operationIdentity,
+            message: `Turnkey signing timed out or aborted before transmission for payout ${params.payoutId}`,
+          });
+        }
+        requestDispatched = true;
+        return apiClient.signRawPayload(
+          {
+            signWith: params.signWith,
+            payload: params.payload,
+            encoding: 'PAYLOAD_ENCODING_HEXADECIMAL',
+            hashFunction: params.hashFunction,
+          },
+          { signal: controller.signal }
+        );
+      });
+
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(
+            new TurnkeyHsmOutcomeError({
+              outcomeState: requestDispatched ? 'UNCERTAIN_OUTCOME' : 'DEFINITE_REJECTED',
+              payoutId: params.payoutId,
+              requestDispatched,
+              retryAllowed: false,
+              requiresHumanReview: requestDispatched,
+              operationIdentity: params.operationIdentity,
+              message: requestDispatched
+                ? `Turnkey HSM signing timed out after ${this.signTimeoutMs}ms post-dispatch for payout ${params.payoutId}; remote outcome unknown`
+                : `Turnkey HSM signing timed out before dispatch for payout ${params.payoutId}`,
+            })
+          );
+        }, this.signTimeoutMs);
+      });
+
+      // Swallow late rejections from signPromise if timeout wins the race
+      signPromise.catch(() => undefined);
+
+      const response = await Promise.race([signPromise, timeoutPromise]);
+      if (settled) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: params.operationIdentity,
+          message: `Duplicate response detected for payout ${params.payoutId}`,
+        });
+      }
+      settled = true;
+
+      const activityStatus = response?.activity?.status?.toUpperCase();
+      if (activityStatus === 'ACTIVITY_STATUS_REJECTED') {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'POLICY_DENIED',
+          payoutId: params.payoutId,
+          activityId: response.activity?.id,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: false,
+          operationIdentity: params.operationIdentity,
+          message: `Turnkey HSM activity rejected by policy for payout ${params.payoutId}`,
+        });
+      }
+      if (activityStatus === 'ACTIVITY_STATUS_FAILED') {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'DEFINITE_REJECTED',
+          payoutId: params.payoutId,
+          activityId: response.activity?.id,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: false,
+          operationIdentity: params.operationIdentity,
+          message: `Turnkey HSM activity failed for payout ${params.payoutId}`,
+        });
+      }
+      if (activityStatus && activityStatus !== 'ACTIVITY_STATUS_COMPLETED') {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId: response.activity?.id,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: params.operationIdentity,
+          message: `Turnkey HSM activity ${activityStatus} for payout ${params.payoutId}; requires status reconciliation`,
+        });
+      }
+
+      return response;
+    } catch (error) {
+      throw this.classifyProviderError(error, {
+        payoutId: params.payoutId,
+        requestDispatched,
+        isReadOnly: false,
+        operationIdentity: params.operationIdentity,
+      });
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      params.externalSignal?.removeEventListener('abort', onExternalAbort);
+    }
   }
 
   async signEvmDigest(params: {
@@ -402,35 +905,135 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
     signerAddress: string;
     digestHex: Hex;
     payoutId: string;
+    operationIdentity?: Partial<TurnkeySigningOperationIdentity>;
+    signal?: AbortSignal;
   }): Promise<EvmDigestSignature> {
-    const apiClient = this.turnkey.apiClient();
     const cleanPayload = params.digestHex.replace(/^0x/, '');
-
-    const response = (await apiClient.signRawPayload({
-      signWith: params.signerAddress,
-      payload: cleanPayload,
-      encoding: 'PAYLOAD_ENCODING_HEXADECIMAL',
-      hashFunction: 'HASH_FUNCTION_NO_OP',
-    })) as unknown as TurnkeyRawPayloadApiResponse;
-
-    const { rHex, sHex, vHex, activityId } = extractTurnkeySignatureComponents(
-      response,
-      params.payoutId
+    const opIdentity = this.buildOperationIdentity(
+      params.payoutId,
+      params.chain,
+      params.operationIdentity,
+      cleanPayload.slice(0, 16)
     );
-    if (!/^[0-9a-fA-F]{1,4}$/.test(vHex)) {
-      throw new Error(
-        `Turnkey HSM returned invalid EVM recovery parameter (v) for payout ${params.payoutId}`
-      );
-    }
-    const vNum = parseInt(vHex, 16);
-    const yParity: 0 | 1 = vNum === 27 || vNum === 0 ? 0 : vNum === 28 || vNum === 1 ? 1 : (vNum % 2 === 1 ? 1 : 0);
 
-    return {
-      r: `0x${rHex}`,
-      s: `0x${sHex}`,
-      yParity,
-      activityId,
-    };
+    const existing = this.completedByRequestId.get(opIdentity.signingRequestId);
+    if (existing && 'r' in existing) {
+      return existing;
+    }
+    const inFlight = this.inFlightByRequestId.get(opIdentity.signingRequestId);
+    if (inFlight) {
+      return inFlight as Promise<EvmDigestSignature>;
+    }
+
+    const work = (async (): Promise<EvmDigestSignature> => {
+      const response = await this.executeBoundedRawSign({
+        payoutId: params.payoutId,
+        signWith: params.signerAddress,
+        payload: cleanPayload,
+        hashFunction: 'HASH_FUNCTION_NO_OP',
+        operationIdentity: opIdentity,
+        externalSignal: params.signal,
+      });
+
+      let extracted: { rHex: string; sHex: string; vHex: string; activityId: string };
+      try {
+        extracted = extractTurnkeySignatureComponents(response, params.payoutId);
+      } catch (err) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId: response?.activity?.id,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: opIdentity,
+          message: err instanceof Error ? err.message : `Malformed EVM signature for payout ${params.payoutId}`,
+          cause: err,
+        });
+      }
+
+      const { rHex, sHex, vHex, activityId } = extracted;
+      const SECP256K1_HALF_N = BigInt(
+        '0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0'
+      );
+      if (BigInt(`0x${sHex}`) > SECP256K1_HALF_N) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: opIdentity,
+          message: `Turnkey HSM returned non-canonical high-S EVM signature (EIP-2 violation) for payout ${params.payoutId}`,
+        });
+      }
+      const vNum = /^[0-9a-fA-F]{1,4}$/.test(vHex) ? parseInt(vHex, 16) : NaN;
+      if (vNum !== 0 && vNum !== 1 && vNum !== 27 && vNum !== 28) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: opIdentity,
+          message: `Turnkey HSM returned invalid EVM recovery parameter (v="${vHex}") for payout ${params.payoutId}`,
+        });
+      }
+      const yParity: 0 | 1 = vNum === 27 || vNum === 0 ? 0 : 1;
+
+      const vByteHex = yParity === 0 ? '1b' : '1c';
+      let recoveredAddress: string;
+      try {
+        recoveredAddress = await recoverAddress({
+          hash: `0x${cleanPayload}` as Hex,
+          signature: `0x${rHex}${sHex}${vByteHex}` as Hex,
+        });
+      } catch (ecErr) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: opIdentity,
+          message: `Turnkey HSM EVM signature failed secp256k1 recovery for payout ${params.payoutId}: ${ecErr instanceof Error ? ecErr.message : String(ecErr)}`,
+          cause: ecErr,
+        });
+      }
+      if (recoveredAddress.toLowerCase() !== params.signerAddress.toLowerCase()) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: opIdentity,
+          message: `Turnkey HSM EVM signature recovered unexpected signer ${recoveredAddress} (expected ${params.signerAddress}) for payout ${params.payoutId}`,
+        });
+      }
+
+      const confirmed: EvmDigestSignature = {
+        r: `0x${rHex}`,
+        s: `0x${sHex}`,
+        yParity,
+        activityId,
+        outcomeState: 'SIGNED_CONFIRMED',
+        signingRequestId: opIdentity.signingRequestId,
+      };
+      this.completedByRequestId.set(opIdentity.signingRequestId, confirmed);
+      return confirmed;
+    })();
+
+    this.inFlightByRequestId.set(opIdentity.signingRequestId, work);
+    try {
+      return await work;
+    } finally {
+      this.inFlightByRequestId.delete(opIdentity.signingRequestId);
+    }
   }
 
   async signStellarEnvelope(params: {
@@ -438,35 +1041,270 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
     unsignedEnvelopeXdr: string;
     txHashHex: string;
     payoutId: string;
+    operationIdentity?: Partial<TurnkeySigningOperationIdentity>;
+    signal?: AbortSignal;
   }): Promise<StellarEnvelopeSignature> {
-    const apiClient = this.turnkey.apiClient();
     const cleanHash = params.txHashHex.replace(/^0x/, '');
-
-    const response = (await apiClient.signRawPayload({
-      signWith: params.signerAddress,
-      payload: cleanHash,
-      encoding: 'PAYLOAD_ENCODING_HEXADECIMAL',
-      hashFunction: 'HASH_FUNCTION_NOT_APPLICABLE',
-    })) as unknown as TurnkeyRawPayloadApiResponse;
-
-    const { rHex, sHex, activityId } = extractTurnkeySignatureComponents(
-      response,
-      params.payoutId
+    const opIdentity = this.buildOperationIdentity(
+      params.payoutId,
+      'stellar',
+      params.operationIdentity,
+      cleanHash.slice(0, 16)
     );
-    const sigBytes = Buffer.from(`${rHex}${sHex}`, 'hex');
-    const signatureBase64 = sigBytes.toString('base64');
-    const signedEnvelopeXdr = attachEd25519SignatureToStellarEnvelopeXdr({
-      signerAddress: params.signerAddress,
-      unsignedEnvelopeXdr: params.unsignedEnvelopeXdr,
-      sigBytes,
-    });
 
-    return {
-      signedEnvelopeXdr,
-      txHash: cleanHash,
-      signatureBase64,
-      activityId,
-    };
+    const existing = this.completedByRequestId.get(opIdentity.signingRequestId);
+    if (existing && 'signedEnvelopeXdr' in existing) {
+      return existing;
+    }
+    const inFlight = this.inFlightByRequestId.get(opIdentity.signingRequestId);
+    if (inFlight) {
+      return inFlight as Promise<StellarEnvelopeSignature>;
+    }
+
+    const work = (async (): Promise<StellarEnvelopeSignature> => {
+      const response = await this.executeBoundedRawSign({
+        payoutId: params.payoutId,
+        signWith: params.signerAddress,
+        payload: cleanHash,
+        hashFunction: 'HASH_FUNCTION_NOT_APPLICABLE',
+        operationIdentity: opIdentity,
+        externalSignal: params.signal,
+      });
+
+      let extracted: { rHex: string; sHex: string; vHex: string; activityId: string };
+      let signedEnvelopeXdr: string;
+      let signatureBase64: string;
+      try {
+        extracted = extractTurnkeySignatureComponents(response, params.payoutId);
+        const sigBytes = Buffer.from(`${extracted.rHex}${extracted.sHex}`, 'hex');
+        signatureBase64 = sigBytes.toString('base64');
+        signedEnvelopeXdr = attachEd25519SignatureToStellarEnvelopeXdr({
+          signerAddress: params.signerAddress,
+          unsignedEnvelopeXdr: params.unsignedEnvelopeXdr,
+          sigBytes,
+        });
+      } catch (err) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId: response?.activity?.id,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: opIdentity,
+          message:
+            err instanceof Error
+              ? err.message
+              : `Malformed Stellar signature for payout ${params.payoutId}`,
+          cause: err,
+        });
+      }
+
+      const confirmed: StellarEnvelopeSignature = {
+        signedEnvelopeXdr,
+        txHash: cleanHash,
+        signatureBase64,
+        activityId: extracted.activityId,
+        outcomeState: 'SIGNED_CONFIRMED',
+        signingRequestId: opIdentity.signingRequestId,
+      };
+      this.completedByRequestId.set(opIdentity.signingRequestId, confirmed);
+      return confirmed;
+    })();
+
+    this.inFlightByRequestId.set(opIdentity.signingRequestId, work);
+    try {
+      return await work;
+    } finally {
+      this.inFlightByRequestId.delete(opIdentity.signingRequestId);
+    }
+  }
+
+  /**
+   * Read-only provider status lookup for uncertain signing activities.
+   * Performs zero new signing requests; classifies network failures as `TRANSIENT_READ_ERROR`.
+   */
+  async lookupSigningActivity(params: {
+    activityId: string;
+    payoutId: string;
+    chain: Phase1SettlementChain;
+    signerAddress: string;
+    digestHex?: Hex;
+    unsignedEnvelopeXdr?: string;
+    txHashHex?: string;
+  }): Promise<TurnkeyActivityRecoveryResult> {
+    const apiClient = this.getApiClient();
+    if (typeof apiClient.getActivity !== 'function') {
+      return {
+        outcomeState: 'UNCERTAIN_OUTCOME',
+        payoutId: params.payoutId,
+        activityId: params.activityId,
+        requiresHumanReview: true,
+        reason: 'Turnkey client does not expose read-only getActivity; human review required',
+      };
+    }
+
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const readPromise = apiClient.getActivity(
+        { organizationId: this.organizationId, activityId: params.activityId },
+        { signal: controller.signal }
+      );
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Turnkey getActivity timed out after ${this.signTimeoutMs}ms`));
+        }, this.signTimeoutMs);
+      });
+      readPromise.catch(() => undefined);
+
+      const response = await Promise.race([readPromise, timeoutPromise]);
+      const status = response?.activity?.status?.toUpperCase() ?? '';
+
+      if (status === 'ACTIVITY_STATUS_REJECTED') {
+        return {
+          outcomeState: 'POLICY_DENIED',
+          payoutId: params.payoutId,
+          activityId: params.activityId,
+          requiresHumanReview: false,
+          reason: 'Provider activity confirmed rejected by HSM policy',
+        };
+      }
+      if (status === 'ACTIVITY_STATUS_FAILED') {
+        return {
+          outcomeState: 'DEFINITE_REJECTED',
+          payoutId: params.payoutId,
+          activityId: params.activityId,
+          requiresHumanReview: false,
+          reason: 'Provider activity confirmed failed without producing a signature',
+        };
+      }
+      if (status === 'ACTIVITY_STATUS_COMPLETED') {
+        try {
+          const extracted = extractTurnkeySignatureComponents(response, params.payoutId);
+          if (params.chain === 'stellar') {
+            if (!params.unsignedEnvelopeXdr || !params.txHashHex) {
+              return {
+                outcomeState: 'UNCERTAIN_OUTCOME',
+                payoutId: params.payoutId,
+                activityId: params.activityId,
+                requiresHumanReview: true,
+                reason: 'Provider activity completed but unsignedEnvelopeXdr/txHashHex missing for reconstruction',
+              };
+            }
+            const sigBytes = Buffer.from(`${extracted.rHex}${extracted.sHex}`, 'hex');
+            const signedEnvelopeXdr = attachEd25519SignatureToStellarEnvelopeXdr({
+              signerAddress: params.signerAddress,
+              unsignedEnvelopeXdr: params.unsignedEnvelopeXdr,
+              sigBytes,
+            });
+            return {
+              outcomeState: 'SIGNED_CONFIRMED',
+              payoutId: params.payoutId,
+              activityId: extracted.activityId,
+              requiresHumanReview: false,
+              reason: 'Recovered verified Stellar signature via read-only Turnkey activity lookup',
+              stellarSignature: {
+                signedEnvelopeXdr,
+                txHash: params.txHashHex.replace(/^0x/, ''),
+                signatureBase64: sigBytes.toString('base64'),
+                activityId: extracted.activityId,
+                outcomeState: 'SIGNED_CONFIRMED',
+              },
+            };
+          }
+
+          const SECP256K1_HALF_N = BigInt(
+            '0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0'
+          );
+          if (BigInt(`0x${extracted.sHex}`) > SECP256K1_HALF_N) {
+            return {
+              outcomeState: 'UNCERTAIN_OUTCOME',
+              payoutId: params.payoutId,
+              activityId: extracted.activityId,
+              requiresHumanReview: true,
+              reason: 'Provider activity completed with non-canonical high-S EVM signature (EIP-2 violation); human review required',
+            };
+          }
+          const vNum = /^[0-9a-fA-F]{1,4}$/.test(extracted.vHex) ? parseInt(extracted.vHex, 16) : NaN;
+          if (vNum !== 0 && vNum !== 1 && vNum !== 27 && vNum !== 28) {
+            return {
+              outcomeState: 'UNCERTAIN_OUTCOME',
+              payoutId: params.payoutId,
+              activityId: extracted.activityId,
+              requiresHumanReview: true,
+              reason: `Provider activity completed with malformed EVM signature recovery id (v="${extracted.vHex}"); human review required`,
+            };
+          }
+          const yParity: 0 | 1 = vNum === 27 || vNum === 0 ? 0 : 1;
+          const cleanDigest = params.digestHex?.replace(/^0x/i, '').trim() ?? '';
+          if (!/^[0-9a-fA-F]{64}$/.test(cleanDigest)) {
+            return {
+              outcomeState: 'UNCERTAIN_OUTCOME',
+              payoutId: params.payoutId,
+              activityId: extracted.activityId,
+              requiresHumanReview: true,
+              reason: 'Provider activity completed for EVM but 32-byte digestHex is missing for cryptographic signer recovery; human review required',
+            };
+          }
+          const vByteHex = yParity === 0 ? '1b' : '1c';
+          const recoveredAddress = await recoverAddress({
+            hash: `0x${cleanDigest}` as Hex,
+            signature: `0x${extracted.rHex}${extracted.sHex}${vByteHex}` as Hex,
+          });
+          if (recoveredAddress.toLowerCase() !== params.signerAddress.toLowerCase()) {
+            return {
+              outcomeState: 'UNCERTAIN_OUTCOME',
+              payoutId: params.payoutId,
+              activityId: extracted.activityId,
+              requiresHumanReview: true,
+              reason: `Provider activity EVM signature recovered unexpected signer ${recoveredAddress} (expected ${params.signerAddress}); human review required`,
+            };
+          }
+          return {
+            outcomeState: 'SIGNED_CONFIRMED',
+            payoutId: params.payoutId,
+            activityId: extracted.activityId,
+            requiresHumanReview: false,
+            reason: 'Recovered verified EVM signature via read-only Turnkey activity lookup',
+            evmSignature: {
+              r: `0x${extracted.rHex}`,
+              s: `0x${extracted.sHex}`,
+              yParity,
+              activityId: extracted.activityId,
+              outcomeState: 'SIGNED_CONFIRMED',
+            },
+          };
+        } catch (verifyErr) {
+          return {
+            outcomeState: 'UNCERTAIN_OUTCOME',
+            payoutId: params.payoutId,
+            activityId: params.activityId,
+            requiresHumanReview: true,
+            reason: `Provider activity completed but signature verification failed: ${verifyErr instanceof Error ? verifyErr.message : String(verifyErr)}`,
+          };
+        }
+      }
+
+      return {
+        outcomeState: 'UNCERTAIN_OUTCOME',
+        payoutId: params.payoutId,
+        activityId: params.activityId,
+        requiresHumanReview: true,
+        reason: `Provider activity status remains non-terminal (${status || 'UNKNOWN'}); human review required`,
+      };
+    } catch (error) {
+      return {
+        outcomeState: 'TRANSIENT_READ_ERROR',
+        payoutId: params.payoutId,
+        activityId: params.activityId,
+        requiresHumanReview: false,
+        reason: `Read-only Turnkey activity lookup failed: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 }
 
@@ -819,8 +1657,14 @@ export class TurnkeySigner {
     }
 
     const signerAddress = this.getHotWalletAddress(params.chain);
-    const amountUnitsNum = Number(params.amountUnits1e8);
-    const capUnitsNum = Number(HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8);
+    const amountUnitsNum = toSafeNonNegativeSqlInteger(
+      params.amountUnits1e8,
+      'hot_wallet_slot_amount_units_1e8'
+    );
+    const capUnitsNum = toSafeNonNegativeSqlInteger(
+      HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8,
+      'hot_wallet_rolling_24h_cap_units_1e8'
+    );
 
     const tryConditionalUpdate = async (): Promise<boolean> => {
       const updRes = await db
@@ -1063,7 +1907,7 @@ export class TurnkeySigner {
         proposal.affiliateId,
         proposal.chain,
         proposal.recipientAddress,
-        Number(proposal.amountUnits1e8),
+        toSafeNonNegativeSqlInteger(proposal.amountUnits1e8, 'cold_safe_amount_units_1e8'),
         proposal.chainTokenUnits,
         proposal.chainDecimals,
         safeAddress,
@@ -1135,6 +1979,15 @@ export class TurnkeySigner {
       signerAddress: this.evmHotWalletAddress,
       digestHex: params.digestHex,
       payoutId: params.payoutId,
+      operationIdentity: {
+        payoutId: params.payoutId,
+        withdrawalId: params.payoutId,
+        chain: params.chain,
+        asset: 'USDC',
+        amountUnits1e8: params.amountUnits1e8,
+        nonceOrSequence: params.assignedNonce ?? null,
+        signingRequestId: `${params.workflow!.attemptId}:${params.effect ?? 'TURNKEY_SIGN'}:${params.payoutId}:${params.assignedNonce ?? 'none'}`,
+      },
     }));
   }
 
@@ -1184,6 +2037,48 @@ export class TurnkeySigner {
       unsignedEnvelopeXdr: params.unsignedEnvelopeXdr,
       txHashHex: params.txHashHex,
       payoutId: params.payoutId,
+      operationIdentity: {
+        payoutId: params.payoutId,
+        withdrawalId: params.payoutId,
+        chain: 'stellar',
+        asset: 'USDC',
+        amountUnits1e8: params.amountUnits1e8,
+        nonceOrSequence: params.stellarSequence ?? null,
+        signingRequestId: `${params.workflow!.attemptId}:${params.effect ?? 'STELLAR_SIGN'}:${params.payoutId}:${params.stellarSequence ?? 'none'}`,
+      },
     }));
+  }
+
+  /**
+   * Read-only recovery lookup for an uncertain Turnkey signing activity.
+   * Returns `UNCERTAIN_OUTCOME` with `requiresHumanReview: true` when provider lookup is unavailable
+   * or still non-terminal; never triggers a new signing request.
+   */
+  async recoverUncertainSigningActivity(params: {
+    activityId: string;
+    payoutId: string;
+    chain: Phase1SettlementChain;
+    digestHex?: Hex;
+    unsignedEnvelopeXdr?: string;
+    txHashHex?: string;
+  }): Promise<TurnkeyActivityRecoveryResult> {
+    if (typeof this.transport.lookupSigningActivity !== 'function') {
+      return {
+        outcomeState: 'UNCERTAIN_OUTCOME',
+        payoutId: params.payoutId,
+        activityId: params.activityId,
+        requiresHumanReview: true,
+        reason: 'Configured Turnkey transport does not support read-only activity lookup; human review required',
+      };
+    }
+    return this.transport.lookupSigningActivity({
+      activityId: params.activityId,
+      payoutId: params.payoutId,
+      chain: params.chain,
+      signerAddress: this.getHotWalletAddress(params.chain),
+      digestHex: params.digestHex,
+      unsignedEnvelopeXdr: params.unsignedEnvelopeXdr,
+      txHashHex: params.txHashHex,
+    });
   }
 }

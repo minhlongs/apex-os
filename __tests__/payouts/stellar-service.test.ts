@@ -17,6 +17,7 @@ import {
   toStellarStroops,
   fromStellarStroops,
   formatStellarUsdcAmount,
+  LegacyPayoutPathDisabledError,
   PayoutDatabase,
 } from '@/lib/payouts/stellar-service';
 
@@ -402,71 +403,44 @@ describe('StellarService', () => {
       });
     });
 
-    it('should send a USDC payout successfully and set explicit 180s TimeBounds', async () => {
-      const result = await service.sendPayout(
+    it('should build a USDC transfer with explicit 180s TimeBounds without signing', () => {
+      const tx = service.buildUSDCTransfer(
+        mocks.account as never,
         'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V',
-        '10.5'
-      );
-      expect(result.transactionId).toBe('mock_transaction_123');
-      expect(result.fromAccount).toBe(
-        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U'
-      );
-      expect(result.toAccount).toBe(
-        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V'
-      );
-      expect(result.asset).toBe('USDC');
-      expect(result.amount).toBe('10.5000000');
+        '10.5000000'
+      ) as unknown as { sign: jest.Mock };
       expect(mocks.builderInstance.setTimeout).toHaveBeenCalledWith(STELLAR_TIMEBOUNDS_SECONDS);
       expect(STELLAR_TIMEBOUNDS_SECONDS).toBe(180);
+      expect(tx.sign).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
 
-    it('should fail without sender account', async () => {
+    it('should fail closed on sendPayout with LegacyPayoutPathDisabledError even when secretKey is configured', async () => {
+      await expect(
+        service.sendPayout(
+          'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V',
+          '10.5'
+        )
+      ).rejects.toThrow(LegacyPayoutPathDisabledError);
+      expect(mocks.builderInstance.build).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('should fail closed on sendPayout without sender account', async () => {
       service = new StellarService({ network: StellarNetwork.TESTNET });
       await expect(
         service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 10)
-      ).rejects.toThrow('Sender account not configured');
+      ).rejects.toThrow(LegacyPayoutPathDisabledError);
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
 
-    it('should validate positive amount', async () => {
+    it('should fail closed on submitTransaction with LegacyPayoutPathDisabledError without signing or broadcasting', async () => {
+      const mockTx = { sign: jest.fn(), operations: [] };
       await expect(
-        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 0)
-      ).rejects.toThrow('Invalid payout amount');
-    });
-
-    it('should check USDC balance before sending', async () => {
-      mocks.account.balances = [
-        { asset_code: 'XLM', asset_issuer: null, balance: '10.0000000', asset_type: 'native' },
-      ];
-      mocks.server.loadAccount.mockResolvedValue(mocks.account);
-      await expect(
-        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 10)
-      ).rejects.toThrow('Insufficient USDC balance');
-    });
-
-    it('should check XLM balance for fees', async () => {
-      mocks.account.balances = [
-        {
-          asset_code: 'USDC',
-          asset_issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
-          balance: '100.0000000',
-          asset_type: 'credit_alphanum4',
-        },
-        { asset_code: 'XLM', asset_issuer: null, balance: '0.0000001', asset_type: 'native' },
-      ];
-      mocks.server.loadAccount.mockResolvedValue(mocks.account);
-      await expect(
-        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', '1')
-      ).rejects.toThrow('Insufficient XLM for fee');
-    });
-
-    it('should handle transaction submission failures', async () => {
-      mocks.server.loadAccount.mockResolvedValue(mocks.account);
-      mocks.server.submitTransaction.mockRejectedValueOnce(
-        new Error('Transaction failed: insufficient balance')
-      );
-      await expect(
-        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', '10')
-      ).rejects.toThrow('Transaction failed');
+        service.submitTransaction(mockTx as never)
+      ).rejects.toThrow(LegacyPayoutPathDisabledError);
+      expect(mockTx.sign).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
   });
 
@@ -613,81 +587,30 @@ describe('StellarService', () => {
       });
     });
 
-    it('should process batch payouts correctly', async () => {
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(result.total).toBe(3);
-      expect(result.successful).toBe(2);
-      expect(result.failed).toBe(0);
-      expect(result.totalAmount).toBeCloseTo(51, 1);
+    it('hard-fails closed on direct invocation with zero signing, zero broadcast, and zero DB mutation', async () => {
+      await expect(
+        service.processBatchPayouts(mockDb as unknown as PayoutDatabase)
+      ).rejects.toThrow(/LEGACY_PAYOUT_PATH_DISABLED/);
+
+      expect(mockDb.getPendingEarnings).not.toHaveBeenCalled();
+      expect(mockDb.createPayout).not.toHaveBeenCalled();
+      expect(mockDb.markEarningsPaid).not.toHaveBeenCalled();
+      expect(mocks.server.loadAccount).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
 
-    it('should consolidate earnings per affiliate', async () => {
-      await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(mockDb.createPayout).toHaveBeenCalledTimes(2);
-      const firstPayoutCall = mockDb.createPayout.mock.calls[0];
-      expect(firstPayoutCall[0].amount).toBe(26);
-    });
+    it('hard-fails closed even in dryRun mode with zero DB or Horizon access', async () => {
+      await expect(
+        service.processBatchPayouts(mockDb as unknown as PayoutDatabase, {
+          dryRun: true,
+          limit: 1,
+        })
+      ).rejects.toThrow(/LEGACY_PAYOUT_PATH_DISABLED/);
 
-    it('should mark earnings as paid after successful payout', async () => {
-      await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(mockDb.markEarningsPaid).toHaveBeenCalledWith(['earn1', 'earn2'], 'payout123');
-    });
-
-    it('should handle dry run mode', async () => {
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase, {
-        dryRun: true,
-      });
-      expect(result.successful).toBe(2);
-      expect(result.results[0]).toHaveProperty('transactionId');
-      if ('transactionId' in result.results[0]) {
-        expect(result.results[0].transactionId).toContain('DRY_RUN');
-      }
-    });
-
-    it('should skip invalid wallet addresses', async () => {
-      mockDb.getPendingEarnings.mockResolvedValue([
-        {
-          id: 'earn1',
-          affiliate_id: 'affiliate1',
-          amount: 10,
-          wallet_address: 'INVALID_ADDRESS',
-          affiliate_name: 'Invalid',
-          affiliate_email: 'invalid@example.com',
-        },
-      ]);
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(result.failed).toBe(1);
-      expect(result.results[0]).toHaveProperty('error');
-    });
-
-    it('should respect limit parameter', async () => {
-      mockDb.getPendingEarnings.mockResolvedValue([
-        {
-          id: 'earn1',
-          affiliate_id: 'affiliate1',
-          amount: 10,
-          wallet_address: 'GBVALIDWALLET2345672345672345672345672345672345672345672',
-          affiliate_name: 'User',
-          affiliate_email: 'user@example.com',
-        },
-      ]);
-      await service.processBatchPayouts(mockDb as unknown as PayoutDatabase, { limit: 1 });
-      expect(mockDb.getPendingEarnings).toHaveBeenCalledWith(1);
-    });
-
-    it('should handle payout failures gracefully', async () => {
-      mocks.server.submitTransaction.mockRejectedValueOnce(new Error('Transaction failed'));
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(result.failed).toBeGreaterThan(0);
-      expect(result.results.some((r) => 'error' in r)).toBe(true);
-    });
-
-    it('should return empty result when no pending earnings', async () => {
-      mockDb.getPendingEarnings.mockResolvedValue([]);
-      const result = await service.processBatchPayouts(mockDb as unknown as PayoutDatabase);
-      expect(result.total).toBe(0);
-      expect(result.successful).toBe(0);
-      expect(result.failed).toBe(0);
+      expect(mockDb.getPendingEarnings).not.toHaveBeenCalled();
+      expect(mockDb.createPayout).not.toHaveBeenCalled();
+      expect(mockDb.markEarningsPaid).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
   });
 

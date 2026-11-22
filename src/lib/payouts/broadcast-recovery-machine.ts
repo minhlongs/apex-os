@@ -39,7 +39,7 @@ import {
 } from './stellar-service';
 import { hasAdmittedPayoutEffect, isPayoutEffectBlockedError, PayoutEffectBlockedError, withPayoutWorkflow, type PayoutWorkflow } from './payout-effect-fence';
 import { normalizeColdTxHash, selectColdPaymentTransfer, type ColdPaymentEvidence } from './cold-payment-evidence';
-import { TurnkeySigner } from './turnkey-signer';
+import { TurnkeySigner, isTurnkeyUncertainOutcomeError } from './turnkey-signer';
 import {
   assertPreSigningSafetyGuards,
   type StellarTrustlineVerifier,
@@ -924,7 +924,33 @@ export class BroadcastRecoveryMachine {
             activityId: sig.activityId,
           };
         } catch (preBroadcastErr: unknown) {
-          // Never reclaim after a signature was admitted, even if local persistence fails.
+          // Persist diagnostic Turnkey activityId if wrapped inside PayoutEffectBlockedError.cause
+          const underlyingHsmErr =
+            isTurnkeyUncertainOutcomeError(preBroadcastErr)
+              ? preBroadcastErr
+              : isPayoutEffectBlockedError(preBroadcastErr) &&
+                  isTurnkeyUncertainOutcomeError(preBroadcastErr.cause)
+                ? preBroadcastErr.cause
+                : null;
+          if (underlyingHsmErr?.activityId) {
+            await this.db
+              .prepare(
+                `UPDATE settlement_broadcasts
+                 SET turnkey_activity_id = COALESCE(turnkey_activity_id, ?),
+                     error_reason = COALESCE(error_reason, ?),
+                     updated_at = datetime('now')
+                 WHERE payout_id = ? AND state = 'SIGNING'`
+              )
+              .bind(
+                underlyingHsmErr.activityId,
+                sanitizeSettlementErrorMessage(underlyingHsmErr, 'Turnkey HSM outcome uncertain'),
+                request.payoutId
+              )
+              .run()
+              .catch(() => undefined);
+          }
+          // Never reclaim after a signature was admitted or when HSM outcome is uncertain.
+          if (isTurnkeyUncertainOutcomeError(preBroadcastErr)) throw preBroadcastErr;
           if (isPayoutEffectBlockedError(preBroadcastErr)) throw preBroadcastErr;
           if (hasAdmittedPayoutEffect(workflow)) throw new PayoutEffectBlockedError('admitted signature not durably recorded');
           this.signedEvmRawTxCache.delete(request.payoutId);
@@ -1077,7 +1103,33 @@ export class BroadcastRecoveryMachine {
           stellarSig,
         };
       } catch (preBroadcastErr: unknown) {
-        // A denied or ambiguous admission is not proof that a reserved nonce is reusable.
+        // Persist diagnostic Turnkey activityId if wrapped inside PayoutEffectBlockedError.cause
+        const underlyingStellarHsmErr =
+          isTurnkeyUncertainOutcomeError(preBroadcastErr)
+            ? preBroadcastErr
+            : isPayoutEffectBlockedError(preBroadcastErr) &&
+                isTurnkeyUncertainOutcomeError(preBroadcastErr.cause)
+              ? preBroadcastErr.cause
+              : null;
+        if (underlyingStellarHsmErr?.activityId) {
+          await this.db
+            .prepare(
+              `UPDATE settlement_broadcasts
+               SET turnkey_activity_id = COALESCE(turnkey_activity_id, ?),
+                   error_reason = COALESCE(error_reason, ?),
+                   updated_at = datetime('now')
+               WHERE payout_id = ? AND state = 'SIGNING'`
+            )
+            .bind(
+              underlyingStellarHsmErr.activityId,
+              sanitizeSettlementErrorMessage(underlyingStellarHsmErr, 'Turnkey HSM outcome uncertain'),
+              request.payoutId
+            )
+            .run()
+            .catch(() => undefined);
+        }
+        // A denied, uncertain, or ambiguous admission is not proof that a reserved sequence is reusable.
+        if (isTurnkeyUncertainOutcomeError(preBroadcastErr)) throw preBroadcastErr;
         if (isPayoutEffectBlockedError(preBroadcastErr)) throw preBroadcastErr;
         if (hasAdmittedPayoutEffect(workflow)) throw new PayoutEffectBlockedError('admitted signature not durably recorded');
         if (!lostStellarSigningOwnership && stellarSequence !== null) {
@@ -1397,7 +1449,7 @@ export class BroadcastRecoveryMachine {
         .prepare(
           `UPDATE settlement_broadcasts
            SET confirmation_lane = 'HOT',
-               confirmation_observed_at = COALESCE(confirmation_observed_at, unixepoch('now')),
+               confirmation_observed_at = unixepoch('now'),
                updated_at = datetime('now')
            WHERE payout_id = ?
              AND state = 'CONFIRMED'

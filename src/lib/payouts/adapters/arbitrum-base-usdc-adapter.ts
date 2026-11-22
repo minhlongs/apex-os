@@ -251,12 +251,20 @@ export function toEvmUsdcUnits(amountUsd: string | number | Decimal): bigint {
 
 /**
  * Convert 10^-8 ledger units into exact 6-decimal EVM USDC units via integer floor division.
+ * Rejects non-bigint, non-positive, or values whose floor-divided EVM amount is 0 (sub-micro-USDC dust)
+ * so no zero-value ERC-20 transfer instruction can ever be constructed.
  */
 export function ledgerUnits1e8ToEvmUsdcUnits(amountUnits1e8: bigint): bigint {
-  if (amountUnits1e8 <= BigInt(0)) {
-    throw new Error(`Invalid non-positive ledger 1e8 amount: ${amountUnits1e8.toString()}`);
+  if (typeof amountUnits1e8 !== 'bigint' || amountUnits1e8 <= BigInt(0)) {
+    throw new Error(`Invalid non-positive ledger 1e8 amount: ${String(amountUnits1e8)}`);
   }
-  return amountUnits1e8 / BigInt(100);
+  const evmUnits = amountUnits1e8 / BigInt(100);
+  if (evmUnits <= BigInt(0)) {
+    throw new Error(
+      `Ledger 1e8 amount ${amountUnits1e8.toString()} is sub-EVM dust (< 100 ledger units = 10^-6 USDC)`
+    );
+  }
+  return evmUnits;
 }
 
 /**

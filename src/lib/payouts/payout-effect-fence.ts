@@ -6,9 +6,13 @@ export type PayoutEffectKind =
 
 export class PayoutEffectBlockedError extends Error {
   readonly code = 'PAYOUT_EFFECT_BLOCKED';
-  constructor(reason: string) {
+  readonly cause?: unknown;
+  constructor(reason: string, cause?: unknown) {
     super(`Payout effect denied: ${reason}`);
     this.name = 'PayoutEffectBlockedError';
+    if (cause !== undefined) {
+      this.cause = cause;
+    }
   }
 }
 
@@ -223,7 +227,11 @@ export async function withPayoutEffect<T>(request: PayoutEffectRequest, invokeOn
   } catch (error) {
     if (isPayoutEffectBlockedError(error)) throw error;
     // Provider exceptions do not establish non-execution. Keep owner and nonce; no automatic takeover.
-    throw new PayoutEffectBlockedError(granted ? 'provider outcome uncertain; reconcile retained owner' : 'grant storage unavailable');
+    // Preserve provider error as `cause` so callers can record diagnostic activityId/outcomeState without relaxing the fence.
+    throw new PayoutEffectBlockedError(
+      granted ? 'provider outcome uncertain; reconcile retained owner' : 'grant storage unavailable',
+      error
+    );
   } finally {
     owner.inFlight = false;
   }
