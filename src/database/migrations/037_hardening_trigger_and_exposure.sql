@@ -152,3 +152,31 @@ WHEN OLD.state = 'CONFIRMED'
 BEGIN
   SELECT RAISE(ABORT, 'Confirmed settlement broadcast rows cannot be deleted');
 END;
+
+-- Enforce identical finality invariants on direct INSERT into HOT or COLD lanes so callers
+-- cannot bypass UPDATE triggers by inserting pre-forged CONFIRMED HOT/COLD rows.
+DROP TRIGGER IF EXISTS trg_settlement_enforce_insert_finality;
+CREATE TRIGGER trg_settlement_enforce_insert_finality
+BEFORE INSERT ON settlement_broadcasts
+WHEN (
+  NEW.confirmation_lane = 'HOT'
+  AND (
+    NEW.state IS NOT 'CONFIRMED'
+    OR NEW.safe_multisig_tx_hash IS NOT NULL
+    OR NEW.tx_hash IS NULL
+    OR length(trim(NEW.tx_hash)) = 0
+    OR typeof(NEW.confirmation_observed_at) != 'integer'
+    OR NEW.confirmation_observed_at <= 0
+    OR NEW.confirmation_observed_at > unixepoch('now')
+    OR NEW.confirmation_observed_at < unixepoch('now') - 300
+  )
+) OR (
+  NEW.confirmation_lane = 'COLD'
+  AND (
+    NEW.safe_multisig_tx_hash IS NULL
+    OR length(trim(NEW.safe_multisig_tx_hash)) = 0
+  )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Direct INSERT into HOT/COLD confirmation lane requires verified finality evidence');
+END;

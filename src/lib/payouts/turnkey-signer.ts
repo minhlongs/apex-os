@@ -952,7 +952,8 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
       }
 
       const { rHex, sHex, vHex, activityId } = extracted;
-      if (!/^[0-9a-fA-F]{1,4}$/.test(vHex)) {
+      const vNum = /^[0-9a-fA-F]{1,4}$/.test(vHex) ? parseInt(vHex, 16) : NaN;
+      if (vNum !== 0 && vNum !== 1 && vNum !== 27 && vNum !== 28) {
         throw new TurnkeyHsmOutcomeError({
           outcomeState: 'UNCERTAIN_OUTCOME',
           payoutId: params.payoutId,
@@ -961,12 +962,10 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
           retryAllowed: false,
           requiresHumanReview: true,
           operationIdentity: opIdentity,
-          message: `Turnkey HSM returned invalid EVM recovery parameter (v) for payout ${params.payoutId}`,
+          message: `Turnkey HSM returned invalid EVM recovery parameter (v="${vHex}") for payout ${params.payoutId}`,
         });
       }
-      const vNum = parseInt(vHex, 16);
-      const yParity: 0 | 1 =
-        vNum === 27 || vNum === 0 ? 0 : vNum === 28 || vNum === 1 ? 1 : vNum % 2 === 1 ? 1 : 0;
+      const yParity: 0 | 1 = vNum === 27 || vNum === 0 ? 0 : 1;
 
       const confirmed: EvmDigestSignature = {
         r: `0x${rHex}`,
@@ -1166,7 +1165,8 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
             };
           }
 
-          if (!/^[0-9a-fA-F]{1,4}$/.test(extracted.vHex)) {
+          const vNum = /^[0-9a-fA-F]{1,4}$/.test(extracted.vHex) ? parseInt(extracted.vHex, 16) : NaN;
+          if (vNum !== 0 && vNum !== 1 && vNum !== 27 && vNum !== 28) {
             return {
               outcomeState: 'UNCERTAIN_OUTCOME',
               payoutId: params.payoutId,
@@ -1175,9 +1175,7 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
               reason: `Provider activity completed with malformed EVM signature recovery id (v="${extracted.vHex}"); human review required`,
             };
           }
-          const vNum = parseInt(extracted.vHex, 16);
-          const yParity: 0 | 1 =
-            vNum === 27 || vNum === 0 ? 0 : vNum === 28 || vNum === 1 ? 1 : vNum % 2 === 1 ? 1 : 0;
+          const yParity: 0 | 1 = vNum === 27 || vNum === 0 ? 0 : 1;
           return {
             outcomeState: 'SIGNED_CONFIRMED',
             payoutId: params.payoutId,
