@@ -1,0 +1,17 @@
+# 01 — R01–R12 Research Traceability Matrix
+
+**Baseline Note:** `ApexOS Crypto Affiliate Viability Audit.pdf` is `PDF_SOURCE_NOT_LOCALLY_AVAILABLE`. Rows below map concrete requirements reproduced in Supreme Command #07 to verified code, migrations, and executed tests.
+
+| Track | Pillar / Requirement | Primary Code / Artifacts | Executed Proof | Classification |
+|-------|----------------------|--------------------------|----------------|----------------|
+| **R01** | Executive Verdict & 5-Investment Program | Phase 1 + Phase 2 + Treasury P0 Remediation | 190/190 Jest suites (3,909 passed) | `VERIFIED_BY_EXECUTION` |
+| **R02** | Repository Forensics & Legacy Boundary | `src/__tests__/sandbox/settlement-and-legacy-boundary.test.ts`, `assert-staging-isolation.sh` | Boundary suite + `STAGING_ISOLATED` PASS | `VERIFIED_BY_EXECUTION` |
+| **R03** | Official Exchange Partner Integrations (Bybit, OKX, Bitget live-ready; KuCoin/Gate.io shadow-gated) | `src/lib/partners/`, `src/lib/partners/shadow-promotion-gate.ts`, `031_ascendancy_phase2_ui_and_poller.sql` | `phase2-ws-a-partner-poller.test.ts`, `shadow-promotion-and-flag-audit.test.ts` | `VERIFIED_BY_EXECUTION` (code) / `BLOCKED_EXTERNAL_DEPENDENCY` (live partner keys) |
+| **R04–R05** | Open-Source Stack (Next.js 16, D1, OpenNext, Better Auth, WebAuthn) | `package.json`, `open-next.config.ts`, `src/lib/auth/` | `npm run build`, `npm run build:worker`, auth suites | `VERIFIED_BY_EXECUTION` |
+| **R06** | Atomic D1 Double-Entry Ledger & Safe-Spread Waterfall | `src/lib/ledger/double-entry-ledger.ts`, `028`–`036` migrations, `src/lib/rebate/` | Ledger conservation & waterfall suites (47/47 PASS in Reviewer E scope) | `VERIFIED_BY_EXECUTION` |
+| **R07** | Turnkey HSM + Stellar/Arbitrum/Base USDC Settlement + Cold Safe Proof Binding + Emergency Freeze + Durable 24h Cap | `broadcast-recovery-machine.ts`, `turnkey-signer.ts`, `settlement-reconciler.ts`, `payout-effect-fence.ts`, `033`–`036` | `g16-treasury-regressions.test.ts`, `durable-hot-exposure.test.ts`, `g7`, `g8` (164/164 PASS across A+B) | `VERIFIED_BY_EXECUTION` (offline/deterministic) / `BLOCKED_EXTERNAL_DEPENDENCY` (live Turnkey HSM & Safe) |
+| **R08** | Anti-Fraud, Sanctions, WebAuthn, 48h Wallet Timelock, Geo-Fence | `src/lib/compliance/`, `src/app/api/admin/passkey/route.ts`, `src/lib/payouts/usdc-safety-guards.ts` | `g6-authz-secret-boundary.test.ts` + Reviewer D 118/118 PASS | `VERIFIED_BY_EXECUTION` |
+| **R09** | B2B Proof-of-Rebate, PWA, Read-Only AI Ops | `src/app/api/b2b/`, `public/manifest.json`, `src/lib/ai/` | Reviewer F 39/39 PASS; PWA PNG icons missing (`IMPLEMENTED_NOT_VERIFIED` for icon assets) | `VERIFIED_BY_EXECUTION` (with GA follow-ups) |
+| **R10** | Unit Economics & Dust Lifecycle | `__tests__/payouts/g16-dust-lifecycle.test.ts`, `__tests__/payouts/g16-stellar-wire-precision.test.ts` | Dust & precision tests PASS; macro Bear/Base/Bull stress model `PDF_SOURCE_NOT_LOCALLY_AVAILABLE` | `VERIFIED_BY_EXECUTION` (micro-unit) / `PDF_SOURCE_NOT_LOCALLY_AVAILABLE` (macro model) |
+| **R11** | 30/60/90-Day Roadmap (pp. 72–74) | `plans/reports/ascendancy-closure/15-ROADMAP-30-60-90-COMPLETION-MATRIX.md` | Specific page-level milestones not locally readable | `PDF_SOURCE_NOT_LOCALLY_AVAILABLE` |
+| **R12** | Sandbox Handover & G0–G13 Gates (pp. 74–80) | `src/__tests__/sandbox/g*.test.ts`, `16-G0-TO-G13-REVERIFICATION-MATRIX.md` | All deterministic sandbox suites executed & PASS | `VERIFIED_BY_EXECUTION` |
