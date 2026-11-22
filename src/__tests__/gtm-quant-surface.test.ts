@@ -74,14 +74,14 @@ describe('GTM & Quant Surface Integration Tests', () => {
       expect(org['@context']).toBe('https://schema.org');
       expect(org['@type']).toBe('Organization');
       expect(org.name).toBe('ApexOS');
-      expect(org.url).toBe('https://apex-os.com');
+      expect(org.url).toBe('https://apex-os.agencyos-openclaw.workers.dev');
     });
 
     it('generates valid SoftwareApplication JSON-LD', () => {
       const app = generateSoftwareApplicationJsonLd();
       expect(app['@type']).toBe('SoftwareApplication');
       expect(app.applicationCategory).toBe('FinanceApplication');
-      expect(app.url).toBe('https://apex-os.com/landing');
+      expect(app.url).toBe('https://apex-os.agencyos-openclaw.workers.dev/landing');
     });
 
     it('generates valid TechArticle JSON-LD for an article', () => {
@@ -97,7 +97,7 @@ describe('GTM & Quant Surface Integration Tests', () => {
       expect(techArticle['@context']).toBe('https://schema.org');
       expect(techArticle['@type']).toBe('TechArticle');
       expect(techArticle.headline).toBe(article.title.en);
-      expect(techArticle.mainEntityOfPage['@id']).toBe(`https://apex-os.com/en/insights/${article.slug}`);
+      expect(techArticle.mainEntityOfPage['@id']).toBe(`https://apex-os.agencyos-openclaw.workers.dev/en/insights/${article.slug}`);
       expect(techArticle.inLanguage).toBe('en');
     });
   });
@@ -110,19 +110,19 @@ describe('GTM & Quant Surface Integration Tests', () => {
       const urls = entries.map((e) => e.url);
 
       // Verifies public routes
-      expect(urls).toContain('https://apex-os.com/vi');
-      expect(urls).toContain('https://apex-os.com/en');
-      expect(urls).toContain('https://apex-os.com/vi/deals');
-      expect(urls).toContain('https://apex-os.com/en/deals');
-      expect(urls).toContain('https://apex-os.com/vi/insights');
-      expect(urls).toContain('https://apex-os.com/en/insights');
-      expect(urls).toContain('https://apex-os.com/vi/terminal');
-      expect(urls).toContain('https://apex-os.com/en/terminal');
+      expect(urls).toContain('https://apex-os.agencyos-openclaw.workers.dev/vi');
+      expect(urls).toContain('https://apex-os.agencyos-openclaw.workers.dev/en');
+      expect(urls).toContain('https://apex-os.agencyos-openclaw.workers.dev/vi/deals');
+      expect(urls).toContain('https://apex-os.agencyos-openclaw.workers.dev/en/deals');
+      expect(urls).toContain('https://apex-os.agencyos-openclaw.workers.dev/vi/insights');
+      expect(urls).toContain('https://apex-os.agencyos-openclaw.workers.dev/en/insights');
+      expect(urls).toContain('https://apex-os.agencyos-openclaw.workers.dev/vi/terminal');
+      expect(urls).toContain('https://apex-os.agencyos-openclaw.workers.dev/en/terminal');
 
       // Verifies insights dynamic slugs are present in sitemap
       for (const article of QUANT_INSIGHT_ARTICLES) {
-        expect(urls).toContain(`https://apex-os.com/vi/insights/${article.slug}`);
-        expect(urls).toContain(`https://apex-os.com/en/insights/${article.slug}`);
+        expect(urls).toContain(`https://apex-os.agencyos-openclaw.workers.dev/vi/insights/${article.slug}`);
+        expect(urls).toContain(`https://apex-os.agencyos-openclaw.workers.dev/en/insights/${article.slug}`);
       }
 
       // Verifies admin and internal paths are strictly NOT leaked in sitemap
@@ -135,7 +135,7 @@ describe('GTM & Quant Surface Integration Tests', () => {
 
     it('robots.txt disallows sensitive API and admin endpoints', () => {
       const config = robots();
-      expect(config.sitemap).toBe('https://apex-os.com/sitemap.xml');
+      expect(config.sitemap).toBe('https://apex-os.agencyos-openclaw.workers.dev/sitemap.xml');
 
       const rules = Array.isArray(config.rules) ? config.rules[0] : config.rules;
       expect(rules.userAgent).toBe('*');

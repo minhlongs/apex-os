@@ -21,7 +21,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import { secp256k1 } from '@noble/curves/secp256k1';
-import type { Hex } from 'viem';
+import { keccak256, type Hex } from 'viem';
 import type { D1Database, D1PreparedStatement, D1Result } from '@/lib/db';
 import {
   CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
@@ -160,12 +160,84 @@ function createAscendancyDb(): { sqlite: Database.Database; db: D1Database } {
     CREATE TABLE profiles (id TEXT PRIMARY KEY, email TEXT);
     CREATE TABLE deals (id TEXT PRIMARY KEY);
   `);
-  const migrationPath = path.resolve(
-    process.cwd(),
-    'src/database/migrations/028_ascendancy_audit_core.sql'
-  );
-  sqlite.exec(fs.readFileSync(migrationPath, 'utf8'));
+  for (const migFile of [
+    '028_ascendancy_audit_core.sql',
+    '033_cold_settlement_claims.sql',
+    '034_withdrawal_freeze_at_write.sql',
+    '035_payout_effect_grants.sql',
+    '036_durable_hot_exposure.sql',
+  ]) {
+    const migrationPath = path.resolve(
+      process.cwd(),
+      `src/database/migrations/${migFile}`
+    );
+    sqlite.exec(fs.readFileSync(migrationPath, 'utf8'));
+  }
   return { sqlite, db: createSqliteD1(sqlite) };
+}
+
+function ensureTestWithdrawalLock(
+  sqlite: Database.Database,
+  payoutId: string,
+  ownerId = 'trader_g7',
+  amountUnits1e8: bigint = BigInt(0),
+  chain?: string
+): string {
+  const lockId = `lock_${payoutId}`;
+  const existing = sqlite
+    .prepare(
+      `SELECT id FROM ledger_journal_batches WHERE payout_id = ? AND journal_type = 'WITHDRAWAL_LOCK' LIMIT 1`
+    )
+    .get(payoutId) as { id: string } | undefined;
+  if (existing) return existing.id;
+  const disbursableUnits =
+    chain === 'arbitrum' || chain === 'base'
+      ? amountUnits1e8 - (amountUnits1e8 % BigInt(100))
+      : chain === 'stellar'
+        ? amountUnits1e8 - (amountUnits1e8 % BigInt(10))
+        : amountUnits1e8;
+  const amountNum = Number(disbursableUnits);
+  sqlite
+    .prepare(
+      `INSERT INTO ledger_journal_batches (
+         id, idempotency_key, payload_fingerprint, journal_type, status,
+         gross_commission_units, payout_id, metadata
+       ) VALUES (?, ?, ?, 'WITHDRAWAL_LOCK', 'INFLIGHT', ?, ?, ?)`
+    )
+    .run(
+      lockId,
+      `lock_idem_${payoutId}`,
+      `fp_${payoutId}`,
+      amountNum,
+      payoutId,
+      JSON.stringify({
+        payoutId,
+        ownerId,
+        ownerType: 'trader',
+        ...(chain ? { chain } : {}),
+        lockedAmountUnits: disbursableUnits.toString(),
+      })
+    );
+  return lockId;
+}
+
+function bindTestWithdrawalLocks(
+  machine: BroadcastRecoveryMachine,
+  sqlite: Database.Database
+): BroadcastRecoveryMachine {
+  const origExecute = machine.executeSettlement.bind(machine);
+  machine.executeSettlement = async (req) => {
+    const lockBatchId =
+      req.lockBatchId ??
+      ensureTestWithdrawalLock(sqlite, req.payoutId, req.affiliateId, req.amountUnits1e8, req.chain);
+    return origExecute({ ...req, lockBatchId });
+  };
+  const origRecover = machine.recoverUncertainBroadcast.bind(machine);
+  machine.recoverUncertainBroadcast = async (payoutId, opts) => {
+    ensureTestWithdrawalLock(sqlite, payoutId);
+    return origRecover(payoutId, opts);
+  };
+  return machine;
 }
 
 // ============================================================================
@@ -258,9 +330,8 @@ class MockL2Rpc implements EvmJsonRpcTransport {
     }
     if (method === 'eth_sendRawTransaction') {
       this.txCount += 1;
-      const rawTx = String(params[0] ?? '');
-      const fakeHash = `0x${Buffer.from(rawTx).subarray(0, 32).toString('hex').padEnd(64, 'a').slice(0, 64)}`;
-      return (fakeHash as unknown) as T;
+      const rawTx = String(params[0] ?? '') as Hex;
+      return (keccak256(rawTx) as unknown) as T;
     }
     if (method === 'eth_getTransactionReceipt') {
       return ({
@@ -397,17 +468,20 @@ describe('Gate G7: Multi-Chain Native Circle USDC Settlement Simulation', () => 
     stellarTransport = new MockStellarHorizonTransport();
     stellarTransport.authorizedTrustlines.add(STELLAR_CLEAN_RECIPIENT);
 
-    machine = new BroadcastRecoveryMachine({
-      db,
-      turnkeySigner,
-      evmAdapters: {
-        arbitrum: arbAdapter,
-        base: baseAdapter,
-      },
-      stellarTransport,
-      defaultUsdcPriceUsd: '1.0000',
-      nowUnixProvider: () => 1_794_600_000,
-    });
+    machine = bindTestWithdrawalLocks(
+      new BroadcastRecoveryMachine({
+        db,
+        turnkeySigner,
+        evmAdapters: {
+          arbitrum: arbAdapter,
+          base: baseAdapter,
+        },
+        stellarTransport,
+        defaultUsdcPriceUsd: '1.0000',
+        nowUnixProvider: () => 1_794_600_000,
+      }),
+      sqlite
+    );
   });
 
   afterEach(() => {
@@ -832,7 +906,7 @@ describe('Gate G7: Multi-Chain Native Circle USDC Settlement Simulation', () => 
           amountUnits1e8: toLedgerUnits1e8('20.00'),
           usdcReferencePriceUsd: '1.0000',
         })
-      ).rejects.toThrow(/EMERGENCY_PAUSE/);
+      ).rejects.toThrow(/EMERGENCY_PAUSE|mandatory emergency controls missing, invalid, or active/);
 
       const breakerCheck = await enforceUsdcPegCircuitBreaker(db, '0.97');
       expect(breakerCheck.allowed).toBe(false);

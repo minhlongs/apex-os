@@ -1,21 +1,21 @@
 # ApexOS — Auditable Proof-of-Rebate & B2B Crypto Fee Ledger (v1.5.0)
 
 [![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](./package.json)
-[![Tests](https://img.shields.io/badge/tests-169%20suites%20%7C%203%2C536%20passed-brightgreen.svg)](./src/__tests__/sandbox)
-[![TypeCheck](https://img.shields.io/badge/typescript-0%20errors-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-180%20suites%20%7C%203%2C643%2B%20passed-brightgreen.svg)](./src/__tests__/sandbox)
+[![TypeCheck](https://img.shields.io/badge/typescript-0%20errors-brightgreen.svg)](#testing--quality-verification)
 [![Bundle Size](https://img.shields.io/badge/mobile%20bundle-5.4%20MB%20(%3C50MB)-success.svg)](./apex-os-mobile)
-[![License](https://img.shields.io/badge/license-Private-red.svg)](#license)
+[![License](https://img.shields.io/badge/license-Private-red.svg)](#contributing--license)
 
-ApexOS is a non-custodial, cryptographically auditable Proof-of-Rebate platform (Hệ thống Đối soát Hoàn phí B2B Khả Kiểm toán) built on Cloudflare Workers, D1, and R2. It reconciles verified partner commissions (`CASH_COLLECTED`) from official **Bybit Affiliate v5**, **OKX Affiliate / FD Broker v5**, and **Bitget Broker v2** feeds (standard Binance Referral Pro auto-attribution is hard-blocked due to missing customer UIDs), holds postings in an atomic `10^-8` USD double-entry D1 ledger for **T+7 days**, distributes rebates via the **1-Tier + B2B Safe-Spread Waterfall** (`5%` clawback reserve, `47.5%` trader rebate, `14.25%` 1-tier L1 share, `0%` L2/L3), and settles `$10+` **Circle Native USDC** across **Stellar (Protocol 30, 7 decimals)**, **Arbitrum One (6 decimals)**, and **Base (6 decimals)** behind **Turnkey HSM** hot-wallet caps (`<=$250/tx`, `<=$1,500/24h`) and **Safe 2-of-3** cold reserves.
+ApexOS is a non-custodial, cryptographically auditable Proof-of-Rebate platform (Hệ thống Đối soát Hoàn phí B2B Khả Kiểm toán) built on Cloudflare Workers, D1, and R2. It reconciles verified partner commissions (`CASH_COLLECTED`) from official **Bybit Affiliate v5**, **OKX Affiliate / FD Broker v5**, and **Bitget Broker v2** feeds (`ACTIVE`), stages **KuCoin UTA v2** and **Gate.io v4** in `SHADOW_ONLY` mode behind a 30-day clean shadow gate, and hard-blocks **Binance** (`BLOCKED` due to missing customer UIDs in standard Referral Pro auto-attribution). Postings are held in an atomic `10^-8` USD double-entry D1 ledger for **T+7 days**, distributed via the **Safe-Spread Waterfall I4** (`5%` clawback reserve, `47.5%` trader rebate, `14.25%` L1 direct partner, `<=4.75%` L2 B2B agency override under executed contract only / `0%` retail, and `0%` L3+ hard-locked by product policy — legal classification and B2B L2 eligibility under current applicable law remain subject to independent external counsel approval), and settled as `$10+` **Circle Native USDC** across **Stellar (Protocol 30, 7dp)**, **Arbitrum One (6dp)**, and **Base (6dp)** (`Ethereum L1` and `Solana` are `DISABLED_PHASE1`) behind **Turnkey HSM** enclave signing (zero raw `STELLAR_SECRET_KEY` in Cloudflare Worker memory), hot-wallet caps (`<=$250/tx`, `<=$1,500/24h`), **Safe 2-of-3** cold multisig reserves, and `AUTO_SETTLE_PAYOUTS = "false"`.
 
-ApexOS combines a Next.js 16 web application running on Cloudflare Pages & D1 edge infrastructure with a cross-platform React Native / Expo 52 mobile application.
+ApexOS combines a Next.js 16 web application running on Cloudflare Workers (OpenNext), D1, KV, and R2 edge infrastructure with a cross-platform React Native / Expo mobile application.
 
-- **Production URL:** [https://apexos.app](https://apexos.app)
-- **Live Demo / Staging:** [https://apex-os.pages.dev](https://apex-os.pages.dev)
+- **Production Worker URL:** [https://apex-os.agencyos-openclaw.workers.dev](https://apex-os.agencyos-openclaw.workers.dev)
+- **Staging Worker URL:** [https://apex-os-staging.agencyos-openclaw.workers.dev](https://apex-os-staging.agencyos-openclaw.workers.dev)
 - **API Directory:** [docs/api-endpoints.md](./docs/api-endpoints.md)
 - **Mobile Guide:** [docs/mobile/README.md](./docs/mobile/README.md)
 - **Fraud Engine Guide:** [docs/fraud/README.md](./docs/fraud/README.md)
-- **Payments & Billing Guide:** [docs/payments/README.md](./docs/payments/README.md)
+- **Payments & Billing Guide (Legacy):** [docs/payments/README.md](./docs/payments/README.md)
 - **Email Lifecycle Guide:** [docs/email/README.md](./docs/email/README.md)
 
 ---
@@ -29,9 +29,9 @@ ApexOS combines a Next.js 16 web application running on Cloudflare Pages & D1 ed
 5. [Environment Configuration](#environment-configuration)
 6. [Database & Migrations](#database--migrations)
 7. [ApexOS Mobile Application](#apexos-mobile-application)
-8. [Multi-Exchange Webhook Ingestion](#multi-exchange-webhook-ingestion)
+8. [Multi-Exchange Ingestion & Attribution Matrix](#multi-exchange-ingestion--attribution-matrix)
 9. [Fraud Detection & Anomaly Engine](#fraud-detection--anomaly-engine)
-10. [Billing, NOWPayments & Tier Upgrades](#billing-nowpayments--tier-upgrades)
+10. [Legacy Billing & NOWPayments (Deprecated)](#legacy-billing--nowpayments-deprecated)
 11. [Advanced Analytics Engine](#advanced-analytics-engine)
 12. [Transactional Email Automation](#transactional-email-automation)
 13. [Testing & Quality Verification](#testing--quality-verification)
@@ -43,15 +43,19 @@ ApexOS combines a Next.js 16 web application running on Cloudflare Pages & D1 ed
 
 ## Key Features
 
-- **Multi-Exchange Trade Attribution:** Seamless trade and cashback tracking across **Binance, Bybit, OKX, and KuCoin**. Webhook endpoints feature cryptographic HMAC-SHA256 signature validation (including KuCoin Base64 encoding), 5-minute timestamp validation windows, and KV replay protection.
-- **3-Tier Referral Downline:** Automated multi-level affiliate commission engine allocating 30% (Tier 1 direct), 10% (Tier 2 sub-referral), and 5% (Tier 3 network referral) with instant ledger tracking.
-- **NOWPayments Crypto Billing:** Self-service membership tier upgrades (`BASIC`, `PREMIUM`, `ENTERPRISE`, `MASTER`) via NOWPayments crypto checkout. HMAC-SHA512 IPN webhook verification with idempotent tier activations.
-- **Non-Custodial Multi-Chain Wallet Binding:** Securely bind payout addresses for Ethereum (EIP-55 checksum), Solana (Base58), and Stellar (StrKey).
-- **Fraud Detection & Velocity Anomaly Engine:** Real-time click protection featuring dual-window rate limiting (**100 clicks/hr**, **1,000 clicks/day**), repeat offender auto-blocking (**150 clicks/hr**), velocity burst detection (<2s), conversion ratio skew (>10:1), active IP blocklist (HTTP 403), and immutable admin audit logging (`fraud_reviews`).
-- **Advanced Analytics Dashboard:** 5 materialized D1 views for daily deals, affiliates, exchanges, and lifecycle funnel. Edge cached with Cloudflare KV (5-minute TTL, `X-Cache: HIT|MISS`) and interactive Recharts visualizations.
+- **UID-Only Non-Custodial Exchange Attribution:** Zero exchange API keys required. Reconciles verified `CASH_COLLECTED` partner commissions across **Bybit, OKX, and Bitget** (`ACTIVE`), with **KuCoin UTA v2** and **Gate.io v4** gated in `SHADOW_ONLY` (30-day clean shadow gate) and **Binance** hard-blocked (`BLOCKED`). Includes HMAC-SHA256 verification, 5-minute timestamp windows, and KV replay protection.
+- **Safe-Spread Waterfall I4 & Atomic `10^-8` USD Ledger:** Signed-integer double-entry accounting with **T+7 maturity hold** and verified `CASH_COLLECTED` gating:
+  - **5%** clawback reserve
+  - **47.5%** gross trader fee rebate (`50%` of post-5%-reserve distributable commission)
+  - **14.25%** gross L1 direct partner (`30%` of platform spread)
+  - **<=4.75%** gross L2 B2B agency override (`<=10%` of platform spread, executed B2B contract only; `0%` retail)
+  - **0%** L3+ hard-locked by product policy (disabling L3 is an implemented software restriction, not a self-asserted legal classification; B2B L2 eligibility under current Vietnamese MLM regulations requires external counsel sign-off)
+- **Multi-Chain Self-Custody USDC Settlement & HSM Treasury:** Direct payouts (`$10.00` minimum) in **Circle Native USDC** on **Stellar (7dp)**, **Arbitrum One (6dp)**, and **Base (6dp)** (`Ethereum L1` and `Solana` are `DISABLED_PHASE1`). Signed exclusively inside **Turnkey HSM** enclaves (zero raw `STELLAR_SECRET_KEY` in Worker memory) with **Safe 2-of-3** cold multisig reserves, 48-hour wallet-change timelock, and `AUTO_SETTLE_PAYOUTS = "false"`.
+- **Fraud Detection & Velocity Anomaly Engine:** Real-time click protection featuring dual-window rate limiting (**100 clicks/hr**, **1,000 clicks/day**), persistent D1 rate-limit storage, repeat offender auto-blocking (**150 clicks/hr**), velocity burst detection (<2s), conversion ratio skew (>10:1), active IP blocklist (HTTP 403), edge geo-fencing (HTTP 451 + `BLOCK_VN_SIGNUPS` circuit breaker), and immutable admin audit logging (`fraud_reviews`).
+- **Advanced Analytics Dashboard:** Materialized D1 views for daily deals, affiliates, exchanges, and lifecycle funnel. Edge cached with Cloudflare KV (5-minute TTL, `X-Cache: HIT|MISS`) and interactive Recharts visualizations.
 - **Lifecycle Transactional Email Automation:** 5 responsive React Email templates (`Welcome`, `ConversionEarned`, `PayoutSent`, `WeeklySummary`, `DealExpiring`) paired with a resilient D1 queue, priority scheduling, and automated retry processor (<3 retries) via Resend.
 - **ApexOS Mobile (iOS & Android):** Built with React Native 0.86 and Expo SDK 52 (`apex-os-mobile`), Hermes AOT bytecode engine, 5.4MB production bundle (<50MB ceiling), EAS Build profiles, App Store / TestFlight readiness, root `ErrorBoundary`, safe area handling, and deep link scheme `apex-os://`.
-- **Automated Payout Engine:** Weekly batch payouts in Stellar USDC with on-chain cryptographic receipts.
+- **Legacy Billing (Deprecated):** NOWPayments checkout/IPN routes remain in the codebase for historical compatibility only; production Ascendancy v1.5.0 is 100% non-custodial fee-rebate.
 - **Internationalization & Localization:** Full English and Vietnamese localization via `next-intl`.
 
 ---
@@ -59,8 +63,8 @@ ApexOS combines a Next.js 16 web application running on Cloudflare Pages & D1 ed
 ## Architecture Overview
 
 ```
-                                  ApexOS Architecture
-  
+                                  ApexOS Ascendancy v1.5.0 Architecture
+
       Mobile Client (iOS & Android)               Web Browser (Desktop / Mobile)
      [React Native / Expo 52 / Hermes]              [Next.js 16 App Router]
                     │                                          │
@@ -68,33 +72,36 @@ ApexOS combines a Next.js 16 web application running on Cloudflare Pages & D1 ed
                     └──────────────────┬───────────────────────┘
                                        │
                                        ▼
-                       Cloudflare Edge Network / Pages
+                       Cloudflare Edge Network / Workers
                  ┌───────────────────────────────────────────┐
                  │  - OpenNext Runtime / Serverless Workers  │
                  │  - Cloudflare KV Cache (5m TTL)           │
-                 │  - IP Geolocation & Rate Limiting Gate    │
+                 │  - Edge Geo-Fence (HTTP 451) & Rate Limit │
                  └─────────────────────┬─────────────────────┘
                                        │
            ┌───────────────────────────┼───────────────────────────┐
            ▼                           ▼                           ▼
-    Exchange Webhooks          Payment & Billing             Core Application
-   Binance / Bybit / OKX      NOWPayments IPN Webhook       Auth, Deals, Tracking,
-   HMAC-SHA256 Verification   HMAC-SHA512 Verification      Analytics, Fraud Engine
+   Exchange Partner Feeds     Legacy Billing (Deprecated)   Core Application
+  Bybit / OKX / Bitget [LIVE]  NOWPayments IPN (Legacy)     Better Auth (^1.7.23),
+  KuCoin / Gate.io [SHADOW]    HMAC-SHA512 Verification     Waterfall I4, Fraud,
+  Binance [BLOCKED]                                         Proof-of-Rebate (R2)
            │                           │                           │
            └───────────────────────────┼───────────────────────────┘
                                        │
                                        ▼
                          Cloudflare D1 Database (SQLite)
-             - 22 SQL Migrations (Schema Complete)
-             - Double-entry commission & payment ledger
-             - Materialized daily analytics reporting views
+             - 47 SQL Migrations (up to 032_persistent_d1_rate_limits.sql)
+             - Atomic 10^-8 USD double-entry ledger + T+7 maturity hold
+             - CASH_COLLECTED verification & B2B agency contracts
              - Immutable fraud_reviews triggers (INSERT-only)
                                        │
                                        ▼
                            External Service Gateways
+             - Turnkey HSM Enclave + Safe 2-of-3 Cold Multisig
+               -> Circle Native USDC: Stellar (7dp), Arbitrum (6dp), Base (6dp)
+               -> Ethereum L1 & Solana: DISABLED_PHASE1 | AUTO_SETTLE_PAYOUTS="false"
+             - Cloudflare R2 (Immutable 5-year SHA-256 Proof-of-Rebate evidence)
              - Resend API (Transactional Email Queue Worker)
-             - Stellar Network (Weekly USDC Payout Engine)
-             - Apple Push Notification & Firebase Cloud Messaging
 ```
 
 ---
@@ -103,24 +110,26 @@ ApexOS combines a Next.js 16 web application running on Cloudflare Pages & D1 ed
 
 | Layer | Technology | Details |
 |---|---|---|
-| **Web Framework** | Next.js 16 (App Router) | React 18, Server Components, TypeScript 5.4 |
-| **Edge Platform** | Cloudflare Pages & Workers | OpenNext adapter, zero-cold-start edge functions |
-| **Database** | Cloudflare D1 | Distributed SQLite with SQL migrations & triggers |
+| **Web Framework** | Next.js 16 (App Router) | React 18, Server Components, TypeScript 5.x |
+| **Authentication** | Better Auth (`^1.7.23`) | Custom D1 adapter, WebAuthn ES256 passkey step-up |
+| **Edge Platform** | Cloudflare Workers & Pages | OpenNext adapter, zero-cold-start edge functions |
+| **Database** | Cloudflare D1 | Distributed SQLite with 47 SQL migrations & triggers |
+| **Evidence Storage** | Cloudflare R2 | Immutable 5-year SHA-256 Proof-of-Rebate archive |
 | **Edge Cache** | Cloudflare KV | 5-minute TTL caching layer & webhook replay nonces |
 | **Mobile Runtime** | React Native 0.86 / Expo 52 | Managed workflow, Hermes bytecode, EAS Build |
 | **Mobile State** | Zustand 5.x / SecureStore | Encrypted JWT & credentials persistence |
-| **Crypto Billing** | NOWPayments API & IPN | Multi-currency crypto checkout & HMAC-SHA512 verification |
-| **Payouts** | Stellar SDK | USDC settlement, batch transaction builder |
+| **Settlement Rails** | Turnkey HSM + Safe 2-of-3 | Circle Native USDC on Stellar (7dp), Arbitrum (6dp), Base (6dp); ETH L1 & Solana `DISABLED_PHASE1` |
+| **Legacy Billing** | NOWPayments API & IPN | Deprecated legacy routes (production Ascendancy is 100% fee-rebate) |
 | **Email** | Resend & React Email | 5 lifecycle templates, D1 priority queue, hourly cron |
 | **Styling** | Tailwind CSS 3.4 | Responsive dark-mode first design tokens |
-| **Testing** | Jest 29 + Vitest 4 | 120 total test suites, 2,893 tests passing 100% |
+| **Testing** | Jest 29 + Vitest 4 | **183 suites / 3,676 tests** passing |
 
 ---
 
 ## Quick Start
 
 ### 1. Prerequisites
-- **Node.js** 20.x (LTS recommended)
+- **Node.js** 26.x (verified on **26.7.0**, ABI 147 required for `better-sqlite3`; see `.nvmrc`)
 - **npm** or **pnpm** (v8+)
 - **Wrangler CLI** (`npm install -g wrangler`)
 - **Git**
@@ -167,22 +176,27 @@ npx expo start
 
 ## Environment Configuration
 
-Store these credentials in `.env.local` for local execution, or in Cloudflare Pages Dashboard for production:
+Store these credentials in `.env.local` for local execution, or in Cloudflare Workers Secrets for production. Never place raw signing private keys (`STELLAR_SECRET_KEY`) in Cloudflare Worker memory — production signing is delegated exclusively to **Turnkey HSM** enclaves.
 
 ```bash
-# --- Authentication (Better Auth) ---
+# --- Authentication (Better Auth ^1.7.23) ---
 BETTER_AUTH_SECRET=your-32-character-random-secret
 BETTER_AUTH_URL=http://localhost:3000
 
-# --- Exchange Webhook Secrets ---
-BINANCE_WEBHOOK_SECRET=your-binance-webhook-secret
+# --- Exchange Partner Credentials (ACTIVE: Bybit, OKX, Bitget | SHADOW_ONLY: KuCoin, Gate.io | BLOCKED: Binance) ---
 BYBIT_WEBHOOK_SECRET=your-bybit-webhook-secret
 OKX_WEBHOOK_SECRET=your-okx-webhook-secret
-KUCOIN_WEBHOOK_SECRET=your-kucoin-webhook-secret
+BITGET_WEBHOOK_SECRET=your-bitget-webhook-secret
+KUCOIN_WEBHOOK_SECRET=your-kucoin-shadow-secret
+GATEIO_WEBHOOK_SECRET=your-gateio-shadow-secret
 
-# --- Billing & Crypto Checkout (NOWPayments) ---
-NOWPAYMENTS_API_KEY=your-nowpayments-api-key
-NOWPAYMENTS_IPN_SECRET=your-nowpayments-ipn-hmac-secret
+# --- Turnkey HSM & Multi-Chain USDC Settlement (Zero Raw Keys in Worker Memory) ---
+TURNKEY_ORGANIZATION_ID=your-turnkey-org-id
+TURNKEY_API_PUBLIC_KEY=your-turnkey-public-key
+TURNKEY_API_PRIVATE_KEY=your-turnkey-private-key
+AUTO_SETTLE_PAYOUTS="false"
+STELLAR_NETWORK=public # Circle Native USDC (7dp)
+STELLAR_USDC_ISSUER=GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
 
 # --- Email Automation (Resend) ---
 RESEND_API_KEY=re_your_resend_api_key
@@ -190,39 +204,39 @@ NEXT_PUBLIC_SENDER_EMAIL=ApexOS <noreply@apexos.app>
 NEXT_PUBLIC_SUPPORT_EMAIL=support@apexos.app
 CRON_SECRET=your-internal-cron-bearer-token
 
-# --- Stellar Blockchain Payouts ---
-STELLAR_SECRET_KEY=S...your-stellar-signing-secret
-STELLAR_NETWORK=testnet # or 'public'
-STELLAR_USDC_ISSUER=GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5
+# --- Legacy Billing (Deprecated — NOWPayments routes disabled in fee-rebate production) ---
+NOWPAYMENTS_API_KEY=legacy-only
+NOWPAYMENTS_IPN_SECRET=legacy-only
 ```
 
 ---
 
 ## Database & Migrations
 
-ApexOS schema is managed via 22 forward migrations in `src/database/migrations/`:
+ApexOS schema is managed via **47 SQL migration files** in `src/database/migrations/` (latest: `032_persistent_d1_rate_limits.sql`):
 
 ```bash
-# Execute local database migration
+# Execute local database schema
 wrangler d1 execute apex-os-db --local --file=src/database/schema-complete.sql
 
-# Execute production database migration
-wrangler d1 execute apex-os-db --remote --file=src/database/migrations/022_performance_optimization_indexes.sql
+# Execute latest production database migration
+wrangler d1 execute apex-os-db --remote --file=src/database/migrations/032_persistent_d1_rate_limits.sql
 ```
 
 Key tables:
-- `deals`, `deal_clicks`: Core deals and click tracking with `is_suspicious` flags.
-- `conversions`, `earnings`, `payouts`: Double-entry accounting ledger.
-- `payments`, `tier_activations`: NOWPayments billing and subscription tier history.
-- `blocked_ips`, `fraud_reviews`: IP blocklist and immutable admin review audit trail.
+- `deals`, `deal_clicks`: Deals and click tracking with `is_suspicious` flags.
+- `conversions`, `earnings`, `payouts`: Atomic `10^-8` USD double-entry accounting ledger with `T+7` maturity holds and `CASH_COLLECTED` gating.
+- `b2b_agency_contracts`: Executed B2B L2 agency override contracts (`<=10%` of platform spread / `<=4.75%` gross, `tier3_spread_bps = 0` hard-locked).
+- `blocked_ips`, `fraud_reviews`, `d1_rate_limits`: IP blocklist, persistent D1 rate limiting, and immutable admin review audit trail.
 - `email_queue`, `email_events`: Transactional email lifecycle and delivery event logs.
+- `payments`, `tier_activations`: Legacy/deprecated NOWPayments billing history.
 - `device_tokens`, `deep_link_analytics`: Mobile client push notification and routing analytics.
 
 ---
 
 ## ApexOS Mobile Application
 
-Located in `apex-os-mobile/`, the mobile client provides non-custodial crypto cashback access for iOS and Android.
+Located in `apex-os-mobile/`, the mobile client provides non-custodial crypto fee-rebate access for iOS and Android.
 
 - **Architecture Guide:** [docs/mobile/README.md](./docs/mobile/README.md)
 - **Bundle Optimization:** Total production bundle size is **5.4 MB** (iOS Hermes bytecode: 2.6 MB, Android Hermes bytecode: 2.6 MB), well below the 50 MB budget limit (89.2% headroom).
@@ -232,7 +246,7 @@ Located in `apex-os-mobile/`, the mobile client provides non-custodial crypto ca
 ```bash
 cd apex-os-mobile
 
-# Run test suite (12 suites, 210 tests passing)
+# Run mobile test suite
 npm test
 
 # Typecheck mobile TypeScript
@@ -248,18 +262,28 @@ eas build --profile production --platform all
 
 ---
 
-## Multi-Exchange Webhook Ingestion
+## Multi-Exchange Ingestion & Attribution Matrix
 
-ApexOS supports Binance, Bybit, OKX, and KuCoin through a unified ingestion router and dedicated endpoints:
+| Exchange | Status | Feed / Gate |
+|---|---|---|
+| **Bybit** | `ACTIVE` | Official Bybit Affiliate v5 (`CASH_COLLECTED` verified) |
+| **OKX** | `ACTIVE` | Official OKX Affiliate / FD Broker v5 (`CASH_COLLECTED` verified) |
+| **Bitget** | `ACTIVE` | Official Bitget Broker v2 (`CASH_COLLECTED` verified) |
+| **KuCoin** | `SHADOW_ONLY` | KuCoin UTA v2 — gated behind 30-day clean shadow gate |
+| **Gate.io** | `SHADOW_ONLY` | Gate.io v4 — gated behind 30-day clean shadow gate |
+| **Binance** | `BLOCKED` | Hard-blocked (standard Referral Pro lacks customer UIDs for auto-attribution) |
+
+Endpoints:
 - `POST /api/webhooks/exchange` (Auto-routing unified endpoint)
 - `POST /api/webhooks/exchange/okx` (Dedicated OKX handler)
-- `POST /api/webhooks/exchange/kucoin` (Dedicated KuCoin handler)
+- `POST /api/webhooks/exchange/kucoin` (Dedicated KuCoin shadow handler)
 
 ### Verification Controls
-1. **HMAC Signatures:** Computes sha256 digests over incoming timestamp, HTTP method, request path, and raw body.
+1. **HMAC Signatures:** Computes SHA-256 digests over incoming timestamp, HTTP method, request path, and raw body.
 2. **Timestamp Window:** Enforces a strict 5-minute validity window (`DEFAULT_TIMESTAMP_WINDOW_MS = 300,000`).
 3. **KV Replay Protection:** Replay nonces cached with 24-hour TTL in Cloudflare KV.
-4. **Idempotency:** Unique index on `conversions(exchange_trade_id, exchange_name)`.
+4. **CASH_COLLECTED & T+7 Hold:** Postings require verified partner settlement (`CASH_COLLECTED`) and clear a `T+7` clawback hold before USDC disbursement eligibility.
+5. **Idempotency:** Unique index on `conversions(exchange_trade_id, exchange_name)`.
 
 ---
 
@@ -267,10 +291,11 @@ ApexOS supports Binance, Bybit, OKX, and KuCoin through a unified ingestion rout
 
 Comprehensive click protection preventing affiliate fraud:
 - **Full Guide:** [docs/fraud/README.md](./docs/fraud/README.md)
-- **Dual-Window Rate Limiting:** 100 clicks/hr and 1,000 clicks/day per IP. Exceeding limits returns RFC 6585 HTTP 429.
+- **Dual-Window Rate Limiting:** 100 clicks/hr and 1,000 clicks/day per IP backed by persistent D1 rate-limit storage (`032_persistent_d1_rate_limits.sql`). Exceeding limits returns RFC 6585 HTTP 429.
 - **Repeat Offender Auto-Block:** IPs exceeding 150 clicks in 1 hour are auto-blocked into `blocked_ips`.
 - **Velocity Burst Detection:** Rapid clicks (<2s delta) from the same IP/session trigger `BURST_CLICK` anomaly flags.
 - **Conversion Ratio Skew:** Clicks exceeding a 10:1 ratio on deals with >=10 clicks trigger `HIGH_CLICK_CONVERSION_RATIO`.
+- **Edge Geo-Fencing:** Deterministic `cf-ipcountry` HTTP 451 gate plus runtime `BLOCK_VN_SIGNUPS` circuit breaker (blocks new signups/onboarding/attribution while preserving existing user sign-in and withdrawals).
 - **IP Blocklist:** Active blocked IPs are rejected with HTTP 403 Forbidden without logging affiliate clicks.
 - **Admin Dashboard & Audit:** Inspect suspicious clicks at `/admin/fraud` and record immutable review decisions in `fraud_reviews`.
 
@@ -282,13 +307,14 @@ npm run rate-limit:cleanup
 
 ---
 
-## Billing, NOWPayments & Tier Upgrades
+## Legacy Billing & NOWPayments (Deprecated)
 
-- **Full Guide:** [docs/payments/README.md](./docs/payments/README.md)
-- **Hosted Checkout:** `POST /api/payments` creates invoices for `BASIC` ($9), `PREMIUM` ($29), `ENTERPRISE` ($99), and `MASTER` ($299).
-- **IPN Webhook:** `POST /api/webhooks/ipn` verifies HMAC-SHA512 signatures with canonical payload key sorting.
-- **Idempotent Activations:** Upgrades user profile tiers upon payment confirmation, logs to `tier_activations`, and enqueues receipt emails.
-- **Wallet Binding:** `POST /api/profile/wallet` binds EVM, Solana, and Stellar addresses with checksum validation.
+> **Deprecation Notice:** Production ApexOS Ascendancy v1.5.0 is **100% non-custodial fee-rebate**. Subscription billing and NOWPayments checkout/IPN routes are retained solely as legacy/deprecated paths for historical data continuity.
+
+- **Legacy Guide:** [docs/payments/README.md](./docs/payments/README.md)
+- **Legacy Checkout (Deprecated):** `POST /api/payments`
+- **Legacy IPN Webhook (Deprecated):** `POST /api/webhooks/ipn` (HMAC-SHA512 verification)
+- **Active Wallet Binding:** `POST /api/profile/wallet` binds self-custody payout addresses for **Stellar (7dp)**, **Arbitrum One (6dp)**, and **Base (6dp)** with checksum validation and a mandatory 48-hour wallet-change timelock (`Ethereum L1` and `Solana` are `DISABLED_PHASE1`).
 
 ---
 
@@ -312,17 +338,17 @@ npm run rate-limit:cleanup
 
 ## Testing & Quality Verification
 
-ApexOS maintains a comprehensive automated testing pipeline with 100% pass rate:
+ApexOS maintains a comprehensive automated testing pipeline (**183 suites / 3,676 tests** verified on Node 26.7.0):
 
 ```bash
-# 1. Run all Web application tests (Jest: 108 suites, 2,683 passed, 0 failed)
+# 1. Run all Web application tests (Jest: 183 suites / 3,676 tests)
 npm test
 
-# 2. Run all Mobile application tests (Vitest: 12 suites, 210 passed, 0 failed)
+# 2. Run all Mobile application tests (Vitest)
 cd apex-os-mobile && npm test && cd ..
 
 # 3. Typecheck entire web repository (0 errors)
-npx tsc --noEmit
+npm run typecheck
 
 # 4. Typecheck entire mobile repository (0 errors)
 cd apex-os-mobile && npm run type-check && cd ..
@@ -338,13 +364,14 @@ cd apex-os-mobile && npx expo export && cd ..
 
 ## Deployment Runbook
 
-### Deploy Web to Cloudflare Pages
+### Deploy Web to Cloudflare Workers (OpenNext)
 ```bash
-# Build OpenNext distribution
-npm run build
+# Build OpenNext Worker distribution
+npm run build:worker
 
-# Deploy to Cloudflare Pages via Wrangler
-wrangler pages deploy .open-next --project-name apex-os
+# Deploy Staging or Production Worker via Wrangler
+npx wrangler deploy --config wrangler.staging.jsonc
+npx wrangler deploy --config wrangler.jsonc
 ```
 
 ### Deploy Mobile to App Store & Google Play
@@ -373,36 +400,39 @@ apex-os/
 ├── src/
 │   ├── app/
 │   │   ├── [locale]/               # Next.js localized app router
-│   │   │   ├── admin/              # Deals, Analytics, and Fraud dashboards
-│   │   │   ├── affiliate/          # Affiliate portal & referral tools
+│   │   │   ├── admin/              # Deals, Analytics, Fraud, Treasury dashboards
+│   │   │   ├── dashboard/          # Trader & Partner rebate portal
+│   │   │   ├── legal/              # Terms, Non-Custodial Disclosure, Geo-Restriction
 │   │   │   └── ...
-│   │   └── api/                    # 67 API route handlers
-│   │       ├── admin/fraud/        # Fraud review actions, stats, blocked IPs
+│   │   └── api/                    # API route handlers
+│   │       ├── admin/              # Fraud, B2B contracts, analytics, health
 │   │       ├── analytics/          # Deals, affiliates, exchanges, funnel
-│   │       ├── payments/           # NOWPayments checkout & history
-│   │       ├── profile/wallet/     # Multi-chain crypto wallet binding
-│   │       ├── tracking/click/     # Click tracking with inline fraud gate
-│   │       ├── webhooks/           # Multi-exchange, IPN, and Resend webhooks
-│   │       └── cron/               # Scheduled workers (emails, analytics)
+│   │       ├── payments/           # Legacy/deprecated NOWPayments routes
+│   │       ├── profile/wallet/     # Self-custody USDC wallet binding (48h timelock)
+│   │       ├── tracking/click/     # Click tracking with inline fraud & geo gate
+│   │       ├── webhooks/           # Multi-exchange, legacy IPN, and Resend webhooks
+│   │       └── cron/               # Scheduled workers (emails, analytics, reconciliation)
 │   ├── components/                 # React UI components & admin widgets
-│   ├── database/                   # 22 SQL migrations & baseline schema
+│   ├── database/                   # 47 SQL migrations (up to 032_persistent_d1_rate_limits.sql)
 │   ├── emails/                     # React Email component templates
 │   ├── lib/
 │   │   ├── analytics/              # Query builder & view materializer
+│   │   ├── compliance/             # Edge geo-fencing (HTTP 451) & sanctions checks
 │   │   ├── emails/                 # Queue service & retry scheduler
 │   │   ├── fraud/                  # Rate limiter, velocity engine, IP blocker
-│   │   ├── payouts/                # Stellar USDC settlement engine
+│   │   ├── ledger/                 # Atomic 10^-8 USD double-entry & Safe-Spread Waterfall I4
+│   │   ├── payouts/                # Turnkey HSM & Circle Native USDC settlement
 │   │   └── webhooks/               # Replay protection & HMAC verifiers
 │   └── types/                      # TypeScript type declarations
 ├── docs/                           # Architecture guides & documentation
 │   ├── api-endpoints.md            # Comprehensive API directory
 │   ├── mobile/README.md            # Mobile architecture & EAS release guide
 │   ├── fraud/README.md             # Fraud engine & rate limiting guide
-│   ├── payments/README.md          # NOWPayments & IPN webhook guide
+│   ├── payments/README.md          # Legacy NOWPayments & IPN webhook guide
 │   ├── email/README.md             # Transactional email & queue guide
 │   └── deployment-runbook.md       # Operational deployment runbook
-├── plans/                          # Q3 2026 roadmap & sprint plan archives
-├── package.json                    # Root version 1.1.0 & npm scripts
+├── plans/                          # Roadmap & sprint plan archives
+├── package.json                    # Root version 1.5.0 & npm scripts
 └── README.md                       # This documentation
 ```
 

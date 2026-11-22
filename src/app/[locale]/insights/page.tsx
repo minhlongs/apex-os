@@ -16,13 +16,18 @@ const CATEGORY_ICONS = {
 
 export async function generateMetadata({ params }: Props) {
   const { locale } = await params;
+  const { CANONICAL_PRODUCTION_ORIGIN, resolveCanonicalAppOrigin } = await import(
+    '@/config/canonical-origin'
+  );
+  const baseUrl =
+    resolveCanonicalAppOrigin({ appEnv: 'production' }) || CANONICAL_PRODUCTION_ORIGIN;
   const t = await getTranslations({ locale, namespace: 'insights' });
 
   return {
     title: `${t('title')} — ApexOS`,
     description: t('subtitle'),
     alternates: {
-      canonical: `https://apex-os.com/${locale}/insights`,
+      canonical: `${baseUrl}/${locale}/insights`,
       languages: {
         'vi-VN': '/vi/insights',
         'en-US': '/en/insights',

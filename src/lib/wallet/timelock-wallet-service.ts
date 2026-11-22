@@ -10,8 +10,38 @@
  * - Enforces strict owner-scoped IDOR boundaries (`WHERE profile_id = authenticatedUserId`)
  */
 
+import type * as StellarSdkTypes from '@stellar/stellar-sdk';
+import { getAddress } from 'viem';
 import type { D1Database } from '@/lib/db';
 import { SanctionsScreeningService } from '@/lib/compliance/sanctions-service';
+
+function resolveStellarSdkModule(): typeof StellarSdkTypes {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('@stellar/stellar-sdk') as typeof StellarSdkTypes;
+  } catch (err) {
+    const isEsmSyntaxError =
+      err !== null &&
+      typeof err === 'object' &&
+      (err as { name?: string }).name === 'SyntaxError';
+    if (isEsmSyntaxError && typeof process !== 'undefined' && process.versions?.node) {
+      const getBuiltin = (
+        process as unknown as { getBuiltinModule?: (id: string) => unknown }
+      ).getBuiltinModule;
+      if (typeof getBuiltin === 'function') {
+        const nodeMod = getBuiltin('node:module') as {
+          createRequire: (origin: string) => NodeRequire;
+        };
+        return nodeMod.createRequire(__filename)(
+          '@stellar/stellar-sdk'
+        ) as typeof StellarSdkTypes;
+      }
+    }
+    throw err;
+  }
+}
+
+const StellarSdk = resolveStellarSdkModule();
 
 export const PHASE1_PAYOUT_CHAINS = ['stellar', 'arbitrum', 'base'] as const;
 export type Phase1PayoutChain = (typeof PHASE1_PAYOUT_CHAINS)[number];
@@ -111,8 +141,15 @@ export function isPhase1PayoutChain(chain: string): chain is Phase1PayoutChain {
 
 /**
  * Validates and canonicalizes a payout wallet address for Phase 1 chains:
- * - EVM (`arbitrum`, `base`): lowercase `0x` + 40 hex chars (case-insensitive canonical form)
- * - Stellar (`stellar`): exact `G` + 55 uppercase base32 chars
+ * - EVM (`arbitrum`, `base`): `0x` + 40 hex chars. Any mixed-case claim MUST be a
+ *   valid EIP-55 checksum (verified via `viem.getAddress`); all-lowercase and
+ *   all-uppercase forms are accepted per EIP-55. Valid input canonicalizes to
+ *   lowercase so every downstream comparison is checksum-agnostic.
+ * - Stellar (`stellar`): `G` + 55 uppercase base32 chars AND a valid
+ *   ed25519 StrKey CRC16-XModem checksum (`StrKey.isValidEd25519PublicKey`).
+ *
+ * Returns `null` for any structurally valid-looking address whose checksum is
+ * corrupted, so callers answer `400 INVALID_WALLET_ADDRESS`.
  */
 export function normalizePhase1WalletAddress(
   address: string,
@@ -123,10 +160,29 @@ export function normalizePhase1WalletAddress(
     if (!EVM_ADDRESS_REGEX.test(trimmed)) {
       return null;
     }
+    const hexBody = trimmed.slice(2);
+    const isAllLower = hexBody === hexBody.toLowerCase();
+    const isAllUpper = hexBody === hexBody.toUpperCase();
+    if (!isAllLower && !isAllUpper) {
+      try {
+        if (getAddress(trimmed) !== trimmed) {
+          return null;
+        }
+      } catch {
+        return null;
+      }
+    }
     return trimmed.toLowerCase();
   }
   if (chain === 'stellar') {
     if (!STELLAR_ADDRESS_REGEX.test(trimmed)) {
+      return null;
+    }
+    try {
+      if (!StellarSdk.StrKey.isValidEd25519PublicKey(trimmed)) {
+        return null;
+      }
+    } catch {
       return null;
     }
     return trimmed;

@@ -202,7 +202,7 @@ async function verifyAdminAccess(
     admin: {
       id: userId,
       userId,
-      email: userEmail || 'admin@apexos.app',
+      email: (userEmail || '').trim(),
       role,
     },
   };

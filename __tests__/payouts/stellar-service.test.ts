@@ -707,11 +707,27 @@ describe('StellarService', () => {
       expect(health.errors).toHaveLength(0);
     });
 
-    it('should report unhealthy when no secret key', async () => {
+    it('should report unhealthy when neither Turnkey public key nor secret key is configured', async () => {
       service = new StellarService({ network: StellarNetwork.TESTNET });
       const health = await service.healthCheck();
       expect(health.healthy).toBe(false);
-      expect(health.errors[0]).toContain('STELLAR_SECRET_KEY');
+      expect(health.errors[0]).toContain('TURNKEY_STELLAR_HOT_WALLET_ADDRESS');
+    });
+
+    it('should report healthy status using read-only senderPublicKey (Turnkey HSM hot wallet) without STELLAR_SECRET_KEY', async () => {
+      const validTurnkeyPub = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+      mocks.server.loadAccount.mockResolvedValue(mocks.account);
+      service = new StellarService({
+        network: StellarNetwork.TESTNET,
+        senderPublicKey: validTurnkeyPub,
+      });
+      expect(service.hasSenderAccount()).toBe(false);
+      expect(service.getSenderAccountId()).toBe(validTurnkeyPub);
+      const health = await service.healthCheck();
+      expect(health.healthy).toBe(true);
+      expect(health.horizonConnected).toBe(true);
+      expect(health.senderAccount).toBe(validTurnkeyPub);
+      expect(health.errors).toHaveLength(0);
     });
 
     it('should report Horizon connection errors', async () => {

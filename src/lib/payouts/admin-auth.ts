@@ -180,12 +180,13 @@ export async function verifyAdminPayoutAccess(
     };
   }
 
+  const verifiedEmail = (profile.email || user.email || '').trim();
   return {
     authorized: true,
     admin: {
       id: profile.id,
       userId: profile.id,
-      email: profile.email || user.email || 'admin@apexos.app',
+      email: verifiedEmail,
       role: profile.role || 'admin',
     },
     db,

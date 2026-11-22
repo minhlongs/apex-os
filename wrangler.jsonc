@@ -48,11 +48,14 @@
 	],
 	"vars": {
 		"APP_ENV": "production",
+		"NEXT_PUBLIC_APP_URL": "https://apex-os.agencyos-openclaw.workers.dev",
+		"WEBAUTHN_RP_ID": "apex-os.agencyos-openclaw.workers.dev",
+		"WEBAUTHN_ORIGIN": "https://apex-os.agencyos-openclaw.workers.dev",
 		"STELLAR_NETWORK": "mainnet",
 		"AUTO_SETTLE_PAYOUTS": "false",
 		"V1_STELLAR_ONLY_PAYOUTS": "true"
 	},
 	"triggers": {
-		"crons": ["0 0 * * SUN", "*/30 * * * *", "*/5 * * * *"]
+		"crons": ["0 0 * * SUN", "0 2 * * *", "*/30 * * * *", "*/5 * * * *", "15 * * * *"]
 	}
 }

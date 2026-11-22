@@ -160,9 +160,14 @@ describe('deploy workflow secret names', () => {
         ],
       },
       {
-        name: 'rollback',
-        start: workflow.indexOf('rollback:'),
-        spends: ['Install dependencies', 'Execute rollback'],
+        name: 'rollback-staging',
+        start: workflow.indexOf('rollback-staging:'),
+        spends: ['Install dependencies', 'Execute staging rollback'],
+      },
+      {
+        name: 'rollback-production',
+        start: workflow.indexOf('rollback-production:'),
+        spends: ['Install dependencies', 'Execute production rollback'],
       },
     ];
 

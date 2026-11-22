@@ -295,7 +295,7 @@ export default function StellarClient({
               </h3>
               <p className="text-sm text-yellow-800">
                 {t('secretKeyWarningDesc') ||
-                  'STELLAR_SECRET_KEY phải được set trong environment variables. Không bao giờ chia sẻ secret key. Nó cho phép system rút USDC từ wallet.'}
+                  'Ký giao dịch Stellar được thực hiện qua Turnkey HSM (TURNKEY_STELLAR_HOT_WALLET_ADDRESS) kết hợp Safe 2-of-3 cold multisig — không lưu raw private key trong Worker runtime.'}
               </p>
             </div>
           </div>

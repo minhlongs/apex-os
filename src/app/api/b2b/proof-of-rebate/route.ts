@@ -10,7 +10,10 @@
  * `settled_tx_hash`.
  */
 
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { checkSlidingWindowRateLimit } from '@/lib/auth/passkey-step-up';
+import { extractIpAddress } from '@/lib/ratelimit/rate-limiter';
 import type { D1Database as AuthD1Database } from '@/lib/auth/adapters/d1-adapter';
 import { getAuthenticatedUser } from '@/lib/auth/session-helper';
 import { redactPiiForReadOnlyAi } from '@/lib/compliance/pii-redactor';
@@ -37,13 +40,18 @@ function resolveBindings(): RuntimeBindings {
   };
 }
 
-function timingSafeStringEqual(a: string, b: string): boolean {
-  if (a.length !== b.length || a.length === 0) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
+/**
+ * Compare two secrets without leaking either one's length.
+ *
+ * Hashing both sides to a fixed 32-byte SHA-256 digest makes the subsequent
+ * `timingSafeEqual` call constant-time regardless of input length, so an
+ * attacker cannot learn the configured key's byte length by timing guesses.
+ */
+function timingSafeStringEqual(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  const digestA = createHash('sha256').update(a, 'utf8').digest();
+  const digestB = createHash('sha256').update(b, 'utf8').digest();
+  return timingSafeEqual(digestA, digestB);
 }
 
 async function authorizeB2bProofCaller(
@@ -182,6 +190,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
       limit = parsedLimit;
     }
+    if (verifyR2) {
+      limit = Math.min(limit, 25);
+    }
 
     const { DB: db, STORAGE: r2 } = resolveBindings();
     if (!db) {
@@ -198,6 +209,31 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const authz = await authorizeB2bProofCaller(request, db);
     if (!authz.authorized) {
       return authz.response;
+    }
+
+    // Bound total proof reads per caller identity and source address. Without
+    // this a single caller can drive unlimited D1 scans plus, when verifyR2 is
+    // set, up to `limit` sequential R2 object reads and SHA-256 hashes per call.
+    const clientIp = extractIpAddress(request.headers);
+    const rateCheck = checkSlidingWindowRateLimit(
+      `b2b_proof:${authz.isServiceKey ? 'svc' : authz.userId}:${clientIp}`,
+      { maxRequests: 60, windowMs: 60_000 }
+    );
+    if (!rateCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'RATE_LIMITED',
+          message: 'Too many Proof-of-Rebate requests. Please retry shortly.',
+        },
+        {
+          status: 429,
+          headers: {
+            'Cache-Control': 'no-store',
+            'Retry-After': String(Math.max(1, rateCheck.retryAfterSeconds)),
+          },
+        }
+      );
     }
 
     if (rawBatchId !== null) {

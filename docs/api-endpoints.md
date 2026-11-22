@@ -320,6 +320,17 @@ FIDO2 / WebAuthn Passkey registration and single-use 5-minute challenge verifica
 ### POST `/api/admin/reconciliation/ingest` & POST `/api/admin/settlement/dispatch`
 Admin + WebAuthn Passkey step-up protected pipelines for official partner ingestion (`Bybit v5`, `OKX v5`, `Bitget v2`; `Binance Standard Referral Pro` returns `403 BINANCE_REFERRAL_PRO_UID_UNAVAILABLE`), `CASH_COLLECTED` R2 reconciliation, and Turnkey HSM (`<=$250/tx`, `<=$1,500/24h`) + `BROADCAST_PENDING` recovery settlement.
 
+**Xác nhận chi trả Safe / Safe payout confirmation**
+
+- **VI:** Gửi `action: "resolve_cold_safe"`, `payoutId`, `coldResolution: "CONFIRMED"` và `txHash`. Nếu có nhiều khoản chuyển khớp trong cùng giao dịch, phải thêm `operationId`: chuỗi số thập phân của chỉ số log EVM hoặc ID operation Stellar, không phải số JSON.
+  **EN:** Send `action: "resolve_cold_safe"`, `payoutId`, `coldResolution: "CONFIRMED"`, and `txHash`. Multiple matching transfers in one transaction require `operationId`: the EVM log index or Stellar operation ID as a decimal string, not a JSON number.
+- **VI:** Chỉ xác nhận sau khi đối chiếu chứng cứ đã chốt trên đúng mạng, tài sản USDC, ví nguồn Safe, người nhận và số đơn vị token; giữ chứng cứ cho riêng khoản chi trả trước khi ghi sổ. Cần migration `033_cold_settlement_claims.sql`. Một operation không được dùng cho hai khoản chi trả.
+  **EN:** Confirmation requires finalized evidence matching the network, USDC asset, Safe source, recipient, and exact token units. Evidence is reserved for the payout before ledger posting. Migration `033_cold_settlement_claims.sql` is required; one operation cannot settle two payouts.
+- **VI:** Nếu ghi sổ bị khóa hoặc lỗi, chứng cứ đã giữ không được giải phóng. Gửi lại cùng thông tin; tác vụ đối soát cũng có thể tiếp tục chứng cứ đã lưu mà không ký hay gửi giao dịch mới. Chỉ trả thành công sau khi kiểm tra ghi sổ. `coldResolution: "CANCELLED"` bị từ chối và tiền vẫn khóa vì chưa có chứng cứ đề xuất Safe không thực thi.
+  **EN:** A ledger freeze or write failure does not release reserved evidence. Retry the same payment details; reconciliation can also resume the stored claim without signing or broadcasting. Success is returned only after ledger verification. `coldResolution: "CANCELLED"` is rejected and funds remain locked because Safe proposal nonexecution has not been proven.
+- **VI:** Stellar mainnet chỉ chấp nhận issuer USDC Circle chuẩn. Testnet cần `STELLAR_USDC_ISSUER` được cấu hình từ nguồn tin cậy với địa chỉ hợp lệ; không dùng issuer mainnet làm mặc định. Checksum hợp lệ không chứng minh token do Circle phát hành.
+  **EN:** Stellar mainnet accepts only the canonical Circle USDC issuer. Testnet requires a trusted, explicitly configured valid `STELLAR_USDC_ISSUER`, with no mainnet issuer fallback. A valid checksum does not establish Circle issuance.
+
 ### POST `/api/kyc/initiate` (Disabled — `410 Gone`)
 Returns `410 KYC_DOCUMENT_COLLECTION_DISABLED` under Vietnam Personal Data Protection Law `91/2025/QH15` data-minimization rules; compliance relies on edge Geo-Fencing (`451`), OFAC sanctions, and Circle `isBlacklisted` checks.
 

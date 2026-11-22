@@ -1,4 +1,6 @@
-export function generateOrganizationJsonLd(baseUrl = 'https://apex-os.com') {
+import { CANONICAL_PRODUCTION_ORIGIN } from '@/config/canonical-origin';
+
+export function generateOrganizationJsonLd(baseUrl = CANONICAL_PRODUCTION_ORIGIN) {
   return {
     '@context': 'https://schema.org',
     '@type': 'Organization',
@@ -6,12 +8,12 @@ export function generateOrganizationJsonLd(baseUrl = 'https://apex-os.com') {
     url: baseUrl,
     logo: `${baseUrl}/assets/icons/icon-192.png`,
     description:
-      'Global institutional crypto basis-point fee recovery hub & multi-tier liquidity attribution engine.',
-    sameAs: ['https://twitter.com/apexos_app'],
+      'Non-custodial crypto trading fee rebate and cryptographic B2B Proof-of-Rebate infrastructure with 2-tier partner attribution.',
+    sameAs: [],
   };
 }
 
-export function generateSoftwareApplicationJsonLd(baseUrl = 'https://apex-os.com') {
+export function generateSoftwareApplicationJsonLd(baseUrl = CANONICAL_PRODUCTION_ORIGIN) {
   return {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
@@ -23,7 +25,7 @@ export function generateSoftwareApplicationJsonLd(baseUrl = 'https://apex-os.com
       '@type': 'Offer',
       price: '0',
       priceCurrency: 'USD',
-      description: 'Zero-Secret API Key ID fee rebate matching & 3-tier liquidity desk attribution.',
+      description: 'UID-only non-custodial trading fee rebate attribution & 2-tier Safe-Spread partner waterfall.',
     },
   };
 }
@@ -36,7 +38,7 @@ export function generateTechArticleJsonLd(opts: {
   locale: string;
   baseUrl?: string;
 }) {
-  const base = opts.baseUrl || 'https://apex-os.com';
+  const base = opts.baseUrl || CANONICAL_PRODUCTION_ORIGIN;
   return {
     '@context': 'https://schema.org',
     '@type': 'TechArticle',

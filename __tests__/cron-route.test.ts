@@ -148,4 +148,54 @@ describe('cron route authorization', () => {
     const payoutQueries = fake.executed.filter((s) => /FROM earnings/i.test(s.sql));
     expect(payoutQueries.length).toBeGreaterThan(0);
   });
+
+  it('reports the T+7 hold release job as a clean no-op when the ledger table is absent', async () => {
+    // A deployment that has not yet applied the audited-ledger migration must
+    // not fail the cron tick: the sentinel check turns a missing table into a
+    // successful zero-release run rather than an exception on every hour.
+    const fake = createFakeDb({ rows: [] });
+    (globalThis as { DB?: unknown }).DB = fake.db;
+
+    const response = await readResponse(
+      await GET(buildRequest('https://x.test/api/cron?job=t7_release', `Bearer ${CRON_SECRET}`))
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.results?.[0]?.job).toBe('t7_release');
+    expect(response.body.results?.[0]?.success).toBe(true);
+    expect(response.body.results?.[0]?.details).toBe('Audited ledger table not initialized');
+    const sentinelQueries = fake.executed.filter((s) => /sqlite_master/i.test(s.sql));
+    expect(sentinelQueries.length).toBeGreaterThan(0);
+  });
+
+  it('executes the monitoring job alias cleanly via D1 metrics collection', async () => {
+    const fake = createFakeDb({ rows: [] });
+    (globalThis as { DB?: unknown }).DB = fake.db;
+
+    const response = await readResponse(
+      await GET(buildRequest('https://x.test/api/cron?job=monitoring', `Bearer ${CRON_SECRET}`))
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.results?.[0]?.job).toBe('monitoring');
+    expect(response.body.results?.[0]?.success).toBe(true);
+  });
+
+  it('executes passive settlement broadcast reconciliation cleanly as a no-op when schema is absent or empty', async () => {
+    const fake = createFakeDb({ rows: [] });
+    (globalThis as { DB?: unknown }).DB = fake.db;
+
+    const response = await readResponse(
+      await GET(
+        buildRequest('https://x.test/api/cron?job=settlement_reconcile', `Bearer ${CRON_SECRET}`)
+      )
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.results?.[0]?.job).toBe('settlement_reconcile');
+    expect(response.body.results?.[0]?.success).toBe(true);
+  });
 });

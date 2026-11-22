@@ -19,8 +19,8 @@ import {
   requireAdminWithPasskeyStepUp,
   sanitizeApiErrorResponse,
 } from '@/lib/auth/passkey-step-up';
-import { SanctionsScreeningService } from '@/lib/compliance/sanctions-service';
 import type { D1Database as LegacyD1Database } from '@/lib/db';
+import { loadWithdrawalFraudTelemetry } from '@/lib/fraud/d1-fraud-telemetry';
 import { M2SybilGraphEngine } from '@/lib/fraud/m2-sybil-graph-engine';
 import {
   DoubleEntryLedgerService,
@@ -28,25 +28,21 @@ import {
   InsufficientSettledBalanceError,
   LedgerFrozenError,
   LedgerStateTransitionError,
+  MIN_WITHDRAWAL_UNITS_1E8,
+  ledgerUnitsToChainUnits,
   parseUsdToLedgerUnits,
 } from '@/lib/ledger';
 import {
-  ArbitrumBaseUsdcAdapter,
   assertPhase1ChainEnabled,
-  BroadcastRecoveryMachine,
-  HorizonStellarBroadcastTransport,
-  TurnkeySigner,
+  resolveLockBatchIdForPayout,
+  resolveSettlementMachine,
   type Phase1SettlementChain,
+  type WorkerBindings,
 } from '@/lib/payouts';
 import {
   isWalletUnlockedForPayout,
   normalizePhase1WalletAddress,
 } from '@/lib/wallet/timelock-wallet-service';
-
-interface WorkerBindings {
-  DB?: AuthD1Database;
-  SETTLEMENT_MACHINE?: BroadcastRecoveryMachine;
-}
 
 interface SettlementDispatchBody {
   action?: 'dispatch' | 'recover' | 'resolve_cold_safe';
@@ -63,104 +59,98 @@ interface SettlementDispatchBody {
   nowUnix?: number;
   coldResolution?: 'CONFIRMED' | 'CANCELLED';
   txHash?: string;
+  operationId?: string;
   reason?: string;
 }
 
-/**
- * Lazily constructs a production `BroadcastRecoveryMachine` from Turnkey HSM + RPC/Horizon
- * environment configuration when `bindings.SETTLEMENT_MACHINE` is not explicitly injected.
- * Never reads or holds raw `STELLAR_SECRET_KEY` or EVM private keys in Worker memory.
- */
-function resolveSettlementMachine(
-  bindings: WorkerBindings,
-  db: LegacyD1Database
-): BroadcastRecoveryMachine | null {
-  if (bindings.SETTLEMENT_MACHINE) {
-    return bindings.SETTLEMENT_MACHINE;
-  }
+type UsdcOracleResolution =
+  | { ok: true; priceUsd: string }
+  | { ok: false; status: number; code: string; error: string };
 
-  const turnkeyOrgId = process.env.TURNKEY_ORGANIZATION_ID?.trim();
-  const turnkeyPubKey = process.env.TURNKEY_API_PUBLIC_KEY?.trim();
-  const turnkeyPrivKey = process.env.TURNKEY_API_PRIVATE_KEY?.trim();
-  const evmHotAddr = process.env.TURNKEY_EVM_HOT_WALLET_ADDRESS?.trim();
-  const stellarHotAddr = process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS?.trim();
-
-  if (
-    !turnkeyOrgId ||
-    !turnkeyPubKey ||
-    !turnkeyPrivKey ||
-    !evmHotAddr ||
-    !stellarHotAddr
-  ) {
+function parseD1TimestampMs(raw: string | null | undefined): number | null {
+  if (typeof raw !== 'string') {
     return null;
   }
-
-  const networkMode: 'mainnet' | 'testnet' =
-    process.env.SETTLEMENT_NETWORK_MODE === 'testnet' ||
-    process.env.STELLAR_NETWORK === 'testnet'
-      ? 'testnet'
-      : 'mainnet';
-
-  const signer = new TurnkeySigner({
-    turnkeyCredentials: {
-      apiBaseUrl: process.env.TURNKEY_API_BASE_URL?.trim() || 'https://api.turnkey.com',
-      apiPublicKey: turnkeyPubKey,
-      apiPrivateKey: turnkeyPrivKey,
-      organizationId: turnkeyOrgId,
-    },
-    evmHotWalletAddress: evmHotAddr,
-    stellarHotWalletAddress: stellarHotAddr,
-    safeColdMultisigAddresses: {
-      arbitrum: process.env.SAFE_COLD_ARBITRUM_ADDRESS?.trim(),
-      base: process.env.SAFE_COLD_BASE_ADDRESS?.trim(),
-      stellar: process.env.SAFE_COLD_STELLAR_ADDRESS?.trim(),
-    },
-  });
-
-  const arbitrumAdapter = new ArbitrumBaseUsdcAdapter({
-    chain: 'arbitrum',
-    networkMode,
-    hotWalletAddress: evmHotAddr,
-    primaryRpcUrl: process.env.ARBITRUM_RPC_URL?.trim(),
-    fallbackRpcUrl: process.env.ARBITRUM_FALLBACK_RPC_URL?.trim(),
-  });
-
-  const baseAdapter = new ArbitrumBaseUsdcAdapter({
-    chain: 'base',
-    networkMode,
-    hotWalletAddress: evmHotAddr,
-    primaryRpcUrl: process.env.BASE_RPC_URL?.trim(),
-    fallbackRpcUrl: process.env.BASE_FALLBACK_RPC_URL?.trim(),
-  });
-
-  const stellarTransport = new HorizonStellarBroadcastTransport({
-    horizonUrl: process.env.STELLAR_HORIZON_URL?.trim(),
-    usdcIssuer: process.env.STELLAR_USDC_ISSUER?.trim(),
-  });
-
-  return new BroadcastRecoveryMachine({
-    db,
-    turnkeySigner: signer,
-    evmAdapters: {
-      arbitrum: arbitrumAdapter,
-      base: baseAdapter,
-    },
-    stellarTransport,
-    sanctionsService: new SanctionsScreeningService(),
-  });
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  // SQLite `datetime('now')` formats UTC without timezone suffix (`YYYY-MM-DD HH:MM:SS`).
+  const isoCandidate = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(trimmed)
+    ? `${trimmed.replace(' ', 'T')}Z`
+    : trimmed;
+  const parsed = Date.parse(isoCandidate);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function resolveLockBatchIdForPayout(
-  ledger: DoubleEntryLedgerService,
-  machine: BroadcastRecoveryMachine,
-  payoutId: string
-): Promise<string | null> {
-  const record = await machine.getSettlementRecord(payoutId);
-  if (record?.lock_batch_id) {
-    return record.lock_batch_id;
+/**
+ * Resolves the server-authoritative USDC/USD reference price for peg circuit-breaker checks.
+ *
+ * Caller-supplied `body.usdcReferencePriceUsd` is honored ONLY when `allowTestOverrides` is true
+ * (`NODE_ENV === 'test'`). In every non-test runtime, reads `USDC_REFERENCE_PRICE_USD` from
+ * `system_runtime_flags`, enforces optional freshness (`USDC_ORACLE_MAX_AGE_SECONDS`) and
+ * mandatory-feed (`USDC_ORACLE_REQUIRED === 'true'`) fail-closed policies, and falls back to
+ * `process.env.USDC_REFERENCE_PRICE_USD` or `'1.0000'`.
+ */
+async function resolveServerUsdcReferencePriceUsd(
+  db: AuthD1Database,
+  bodyPrice: string | undefined,
+  allowTestOverrides: boolean
+): Promise<UsdcOracleResolution> {
+  if (allowTestOverrides && typeof bodyPrice === 'string' && bodyPrice.trim().length > 0) {
+    return { ok: true, priceUsd: bodyPrice.trim() };
   }
-  const activeLock = await ledger.getActiveWithdrawalLockByPayoutId(payoutId);
-  return activeLock?.id ?? null;
+
+  let flagRow: { flag_value?: string | null; updated_at?: string | null } | null | undefined = null;
+  try {
+    flagRow = await db
+      .prepare(
+        `SELECT flag_value, updated_at
+         FROM system_runtime_flags
+         WHERE flag_key = 'USDC_REFERENCE_PRICE_USD'
+         LIMIT 1`
+      )
+      .first<{ flag_value?: string | null; updated_at?: string | null }>();
+  } catch {
+    flagRow = null;
+  }
+
+  const d1Price = typeof flagRow?.flag_value === 'string' ? flagRow.flag_value.trim() : '';
+  if (d1Price.length > 0) {
+    const maxAgeRaw = process.env.USDC_ORACLE_MAX_AGE_SECONDS?.trim();
+    if (maxAgeRaw && maxAgeRaw.length > 0) {
+      const maxAgeSeconds = Number(maxAgeRaw);
+      const updatedAtMs = parseD1TimestampMs(flagRow?.updated_at);
+      if (
+        !Number.isFinite(maxAgeSeconds) ||
+        maxAgeSeconds <= 0 ||
+        updatedAtMs === null ||
+        Date.now() - updatedAtMs > maxAgeSeconds * 1000
+      ) {
+        return {
+          ok: false,
+          status: 503,
+          code: 'USDC_ORACLE_STALE',
+          error: 'Server USDC reference price oracle feed is stale',
+        };
+      }
+    }
+    return { ok: true, priceUsd: d1Price };
+  }
+
+  if (process.env.USDC_ORACLE_REQUIRED?.trim().toLowerCase() === 'true') {
+    return {
+      ok: false,
+      status: 503,
+      code: 'USDC_ORACLE_UNAVAILABLE',
+      error: 'Server USDC reference price oracle feed is unavailable',
+    };
+  }
+
+  return {
+    ok: true,
+    priceUsd: process.env.USDC_REFERENCE_PRICE_USD?.trim() || '1.0000',
+  };
 }
 
 export async function POST(request: NextRequest): Promise<Response> {
@@ -190,6 +180,15 @@ export async function POST(request: NextRequest): Promise<Response> {
     const action = body.action ?? 'dispatch';
     const machine = resolveSettlementMachine(bindings, db as unknown as LegacyD1Database);
     const ledger = new DoubleEntryLedgerService(db);
+    // Clock and USDC peg overrides are a test-transport affordance only. Production/staging
+    // runtimes (including `CF_PAGES='1'` / `ENVIRONMENT='production'|'staging'`) must never be
+    // able to move the settlement clock or spoof the peg feed.
+    const envTier = (process.env.ENVIRONMENT ?? '').trim().toLowerCase();
+    const isHostedRuntime =
+      process.env.CF_PAGES === '1' ||
+      envTier === 'production' ||
+      envTier === 'staging';
+    const allowTestOverrides = process.env.NODE_ENV === 'test' && !isHostedRuntime;
 
     // ========================================================================
     // Action 1: Recover Uncertain `BROADCAST_PENDING` Payout & Settle Ledger Lock
@@ -214,11 +213,25 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
 
       const lockBatchId = await resolveLockBatchIdForPayout(ledger, machine, payoutId);
+      // Only re-execution signs a new transaction, so only it needs the peg price.
+      const recoverUsdcPrice = body.reexecuteExpired
+        ? await resolveServerUsdcReferencePriceUsd(
+            db,
+            body.usdcReferencePriceUsd,
+            allowTestOverrides
+          )
+        : null;
+      if (recoverUsdcPrice && !recoverUsdcPrice.ok) {
+        return NextResponse.json(
+          { success: false, code: recoverUsdcPrice.code, error: recoverUsdcPrice.error },
+          { status: recoverUsdcPrice.status }
+        );
+      }
       const recovered = await machine.recoverUncertainBroadcast(payoutId, {
-        nowUnix: body.nowUnix,
+        nowUnix: allowTestOverrides ? body.nowUnix : undefined,
         bumpGasRbf: body.bumpGasRbf,
         reexecuteExpired: body.reexecuteExpired,
-        usdcReferencePriceUsd: body.usdcReferencePriceUsd,
+        usdcReferencePriceUsd: recoverUsdcPrice?.ok ? recoverUsdcPrice.priceUsd : undefined,
       });
 
       if (lockBatchId) {
@@ -281,38 +294,18 @@ export async function POST(request: NextRequest): Promise<Response> {
         );
       }
 
-      const lockBatchId = await resolveLockBatchIdForPayout(ledger, machine, payoutId);
       const updatedRecord = await machine.resolveColdSafeBroadcast({
         payoutId,
         resolution: body.coldResolution,
         txHash: body.txHash,
+        operationId: body.operationId,
         reason: body.reason,
       });
-
-      if (lockBatchId) {
-        const lockBatch = await ledger.getBatchById(lockBatchId);
-        if (lockBatch && lockBatch.status === 'INFLIGHT') {
-          if (updatedRecord.state === 'CONFIRMED' && updatedRecord.tx_hash) {
-            await ledger.finalizeWithdrawal({
-              idempotencyKey: `wd_cold_fin:${payoutId}`,
-              lockBatchId,
-              txHash: updatedRecord.tx_hash,
-            });
-          } else if (updatedRecord.state === 'FAILED_ABORTED') {
-            await ledger.revertWithdrawal({
-              idempotencyKey: `wd_cold_rev:${payoutId}`,
-              lockBatchId,
-              reason:
-                updatedRecord.error_reason ?? 'Safe 2-of-3 cold multisig proposal cancelled',
-            });
-          }
-        }
-      }
 
       return NextResponse.json(
         {
           success: true,
-          lockBatchId,
+          lockBatchId: updatedRecord.lock_batch_id ?? null,
           settlement: updatedRecord,
         },
         { status: 200 }
@@ -374,6 +367,13 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
+    if (existingSettlement?.safe_multisig_tx_hash && existingSettlement.state !== 'QUEUED_COLD_SAFE') {
+      return NextResponse.json(
+        { success: false, code: 'COLD_SAFE_RESOLUTION_REQUIRED', error: 'Use cold Safe resolution for this payout' },
+        { status: 409 }
+      );
+    }
+
     // Verify target profile exists AND enforce 48h timelock + exact bound (walletAddress, chain) match!
     // Prevents dispatching to an arbitrary attacker address or cross-chain EVM mismatch (`arbitrum` vs `base`).
     const targetProfile = await db
@@ -412,7 +412,9 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const evalNowIso =
-      typeof body.nowUnix === 'number' && Number.isFinite(body.nowUnix)
+      allowTestOverrides &&
+      typeof body.nowUnix === 'number' &&
+      Number.isFinite(body.nowUnix)
         ? new Date(body.nowUnix * 1000).toISOString()
         : new Date().toISOString();
     const unlockStatus = await isWalletUnlockedForPayout(
@@ -462,11 +464,29 @@ export async function POST(request: NextRequest): Promise<Response> {
       `wd_lock:${idempotencyKey}`
     );
     const fraudEngine = new M2SybilGraphEngine();
+    // The request carries the ADMIN OPERATOR's IP and User-Agent, never the payout recipient's.
+    // Feeding them into affiliate Sybil evaluation would make every payout from one operator
+    // dashboard collide on a single device/IP fingerprint and trip false duplicate-account rules.
+    const withdrawalTelemetry = await loadWithdrawalFraudTelemetry(db, {
+      traderId: affiliateId,
+      requestIp: null,
+      userAgent: null,
+    });
     const fraudCheck = await fraudEngine.evaluate(
       db as unknown as LegacyD1Database,
       {
         eventType: 'payout_withdrawal',
         traderId: affiliateId,
+        referrerId: withdrawalTelemetry.referrerId,
+        traderEmail: withdrawalTelemetry.traderEmail,
+        referrerEmail: withdrawalTelemetry.referrerEmail,
+        traderIpHash: withdrawalTelemetry.traderIpHash,
+        referrerIpHash: withdrawalTelemetry.referrerIpHash,
+        traderDeviceHash: withdrawalTelemetry.traderDeviceHash,
+        referrerDeviceHash: withdrawalTelemetry.referrerDeviceHash,
+        signupDeltaMinutes: withdrawalTelemetry.signupDeltaMinutes,
+        sameDeviceRecentSignups10m: withdrawalTelemetry.sameDeviceRecentSignups10m,
+        subSecondClickBurstCount: withdrawalTelemetry.subSecondClickBurstCount,
         payoutWalletAddress: recipientAddress,
         // Skip duplicate replay rule when re-entering an already-created withdrawal lock for the SAME idempotencyKey
         idempotencyKey: existingLockForIdem ? undefined : `wd_fraud:${idempotencyKey}`,
@@ -485,13 +505,43 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
-    const amountUnits1e8 = parseUsdToLedgerUnits(body.amountUsd);
+    const usdcPrice = await resolveServerUsdcReferencePriceUsd(
+      db,
+      body.usdcReferencePriceUsd,
+      allowTestOverrides
+    );
+    if (!usdcPrice.ok) {
+      return NextResponse.json(
+        { success: false, code: usdcPrice.code, error: usdcPrice.error },
+        { status: usdcPrice.status }
+      );
+    }
+
+    const requestedAmountUnits1e8 = parseUsdToLedgerUnits(body.amountUsd);
+    const chainConversion = ledgerUnitsToChainUnits(requestedAmountUnits1e8, chain);
+    const disbursableUnits1e8 = requestedAmountUnits1e8 - chainConversion.residualDust1e8;
+
+    if (disbursableUnits1e8 < MIN_WITHDRAWAL_UNITS_1E8) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'BELOW_MIN_WITHDRAWAL_FLOOR',
+          error:
+            'Disbursable settlement amount after chain decimal alignment is below the $10.00 USDC minimum withdrawal floor',
+          disbursableUnits1e8: disbursableUnits1e8.toString(),
+          residualDustUnits1e8: chainConversion.residualDust1e8.toString(),
+        },
+        { status: 422 }
+      );
+    }
+
     const lockResult = await ledger.lockSettledForWithdrawal({
       idempotencyKey: `wd_lock:${idempotencyKey}`,
       ownerType: body.ownerType ?? 'affiliate',
       ownerId: affiliateId,
-      amountUnits: amountUnits1e8,
+      amountUnits: disbursableUnits1e8,
       payoutId,
+      chain,
     });
 
     // Reverted Withdrawal Lock Double-Spend Guard:
@@ -519,6 +569,8 @@ export async function POST(request: NextRequest): Promise<Response> {
           success: true,
           isReplay: true,
           lockBatchId: lockResult.batch.id,
+          disbursableUnits1e8: disbursableUnits1e8.toString(),
+          residualDustUnits1e8: chainConversion.residualDust1e8.toString(),
           settlement: existingSettlement ?? {
             payoutId,
             chain,
@@ -538,15 +590,16 @@ export async function POST(request: NextRequest): Promise<Response> {
         affiliateId,
         chain,
         recipientAddress,
-        amountUnits1e8,
+        amountUnits1e8: disbursableUnits1e8,
         lockBatchId: lockResult.batch.id,
-        usdcReferencePriceUsd: body.usdcReferencePriceUsd ?? '1.0000',
-        nowUnix: body.nowUnix,
+        usdcReferencePriceUsd: usdcPrice.priceUsd,
+        nowUnix: allowTestOverrides ? body.nowUnix : undefined,
       });
     } catch (execErr) {
       // Only revert the withdrawal lock if `machine` NEVER persisted an in-flight/committed
       // broadcast record (`SIGNING`, `BROADCAST_PENDING`, `CONFIRMED`, `QUEUED_COLD_SAFE`)!
-      const persistedAfterErr = await machine.getSettlementRecord(payoutId).catch(() => null);
+      // A failed read cannot establish absence and must never authorize a refund.
+      const persistedAfterErr = await machine.getSettlementRecord(payoutId);
       const unsafeToRevert =
         persistedAfterErr !== null &&
         (persistedAfterErr.state === 'SIGNING' ||
@@ -592,6 +645,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       {
         success: dispatchResult.state !== 'FAILED_ABORTED',
         lockBatchId: lockResult.batch.id,
+        disbursableUnits1e8: disbursableUnits1e8.toString(),
+        residualDustUnits1e8: chainConversion.residualDust1e8.toString(),
         settlement: dispatchResult,
       },
       { status: dispatchResult.state === 'FAILED_ABORTED' ? 422 : 200 }

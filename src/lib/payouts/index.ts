@@ -122,6 +122,17 @@ export {
 } from './turnkey-signer';
 export { HorizonStellarBroadcastTransport } from './stellar-horizon-transport';
 export { BroadcastRecoveryMachine } from './broadcast-recovery-machine';
+export {
+  resolveSettlementMachine,
+  resolveLockBatchIdForPayout,
+  reconcilePendingSettlementBroadcasts,
+  buildSettlementMachineConfigFingerprint,
+  resetSettlementMachineCacheForTests,
+} from './settlement-reconciler';
+export type {
+  WorkerBindings,
+  PendingBroadcastReconcileSummary,
+} from './settlement-reconciler';
 export type {
   SettlementBroadcastState,
   SettlementBroadcastRow,

@@ -34,7 +34,7 @@ import * as path from 'node:path';
 import Database from 'better-sqlite3';
 import { secp256k1 } from '@noble/curves/secp256k1';
 import { NextRequest } from 'next/server';
-import { keccak256, type Hex } from 'viem';
+import { keccak256, stringToHex, type Hex } from 'viem';
 import type * as StellarSdkTypes from '@stellar/stellar-sdk';
 import { POST as batchPayoutPost } from '@/app/api/admin/payouts/batch/route';
 import { POST as retryPayoutPost } from '@/app/api/admin/payouts/retry/route';
@@ -66,6 +66,7 @@ import {
 import {
   ArbitrumBaseUsdcAdapter,
   BroadcastRecoveryMachine,
+  CANONICAL_ARBITRUM_NATIVE_USDC,
   CIRCLE_IS_BLACKLISTED_SELECTOR,
   HorizonStellarBroadcastTransport,
   TurnkeyServerHsmTransport,
@@ -77,6 +78,7 @@ import {
   type StellarEnvelopeSignature,
   type TurnkeySigningTransport,
 } from '@/lib/payouts';
+import { ARBITRUM_ONE_CHAIN_ID } from '@/lib/payouts/adapters/arbitrum-base-usdc-adapter';
 import { StellarNetwork, StellarService } from '@/lib/payouts/stellar-service';
 import { signTelegramInitData } from '@/lib/telegram/crypto';
 
@@ -93,6 +95,7 @@ const STELLAR_HOT_ADDR = STELLAR_HSM_ENCLAVE_KEYPAIR.publicKey();
 const STELLAR_RECIPIENT_ADDR = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
 const EVM_HOT_ADDR = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266';
 const EVM_RECIPIENT_ADDR = '0x70997970C51812dc3A010C7d01b50e0d17dc79C8';
+const EVM_COLD_ADDR = '0x0000000000000000000000000000000000000202';
 const EVM_WHALE_RECIPIENT_ADDR = '0x90F8bf6A479f320ead074411a4B0e7944Ea8c9C1';
 
 class DeterministicHsmTransport implements TurnkeySigningTransport {
@@ -152,8 +155,22 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
       '020_billing_mobile_enhancements.sql',
       '024_kyc_compliance_schema.sql',
       '028_ascendancy_audit_core.sql',
+      '031_ascendancy_phase2_ui_and_poller.sql',
     ]) {
       sqlite.exec(fs.readFileSync(path.join(migDir, file), 'utf8'));
+    }
+
+    const snapshot = new Database(sqlite.serialize());
+    try {
+      for (const file of [
+        '033_cold_settlement_claims.sql',
+        '034_withdrawal_freeze_at_write.sql',
+        '035_payout_effect_grants.sql', '036_durable_hot_exposure.sql',
+      ]) {
+        sqlite.exec(fs.readFileSync(path.join(migDir, file), 'utf8'));
+      }
+    } finally {
+      snapshot.close();
     }
 
     const futureExp = new Date(Date.now() + 3600_000).toISOString();
@@ -264,6 +281,9 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
     let sendShould504 = false;
     let minedTxHash: string | null = null;
     let broadcastCalls = 0;
+    const coldTxHash = `0x${'ab'.repeat(32)}`;
+    const coldBlockHash = `0x${'cd'.repeat(32)}`;
+    const indexedAddress = (address: string) => `0x${address.slice(2).padStart(64, '0')}`;
 
     const rpcTransport: EvmJsonRpcTransport = {
       async call<T>(method: string, params?: unknown[]): Promise<T> {
@@ -276,6 +296,7 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
           }
           return '0x0000000000000000000000000000000000000000000000000000000000000001' as T;
         }
+        if (method === 'eth_chainId') return `0x${ARBITRUM_ONE_CHAIN_ID.toString(16)}` as T;
         if (method === 'eth_getTransactionCount') {
           return (minedTxHash ? '0x1' : '0x0') as T;
         }
@@ -286,7 +307,7 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
           return '0x5f5e100' as T;
         }
         if (method === 'eth_getBlockByNumber') {
-          return { baseFeePerGas: '0x5f5e100' } as T;
+          return { baseFeePerGas: '0x5f5e100', number: '0x10', hash: coldBlockHash } as T;
         }
         if (method === 'eth_sendRawTransaction') {
           broadcastCalls += 1;
@@ -300,6 +321,18 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
         }
         if (method === 'eth_getTransactionReceipt') {
           const queriedHash = String(params?.[0] ?? '');
+          if (queriedHash === coldTxHash) {
+            return {
+              status: '0x1', blockNumber: '0x10', blockHash: coldBlockHash, transactionHash: coldTxHash,
+              from: EVM_HOT_ADDR, to: EVM_COLD_ADDR,
+              logs: [{ address: CANONICAL_ARBITRUM_NATIVE_USDC,
+                topics: [keccak256(stringToHex('Transfer(address,address,uint256)')),
+                  indexedAddress(EVM_COLD_ADDR), indexedAddress(EVM_WHALE_RECIPIENT_ADDR)],
+                data: `0x${(300_000_000).toString(16).padStart(64, '0')}`, logIndex: '0x7',
+                blockNumber: '0x10', blockHash: coldBlockHash, transactionHash: coldTxHash, removed: false,
+              }],
+            } as T;
+          }
           if (minedTxHash && queriedHash === minedTxHash) {
             return {
               status: '0x1',
@@ -328,6 +361,7 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
         transport: new DeterministicHsmTransport(),
         evmHotWalletAddress: EVM_HOT_ADDR,
         stellarHotWalletAddress: STELLAR_HOT_ADDR,
+        safeColdMultisigAddresses: { arbitrum: EVM_COLD_ADDR },
       }),
       evmAdapters: { arbitrum: arbAdapter },
     });
@@ -457,7 +491,7 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
     const finalizedLock = await ledger.getBatchById(pendingBody.lockBatchId);
     expect(finalizedLock?.status).toBe('SETTLED');
 
-    // 6. Cold-Safe payout (`>$250` -> `QUEUED_COLD_SAFE`) + `action: 'resolve_cold_safe'` (`CANCELLED` refunds user!)
+    // 6. A manual cold payout remains locked until authoritative transfer proof settles it.
     const coldDispatchRes = await dispatchRoutePost(
       new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
         method: 'POST',
@@ -483,7 +517,7 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
     };
     expect(coldBody.settlement.state).toBe('QUEUED_COLD_SAFE');
 
-    const resolveColdRes = await dispatchRoutePost(
+    const resolveCold = (body: Record<string, unknown>) => dispatchRoutePost(
       new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
         method: 'POST',
         headers: {
@@ -491,19 +525,26 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
           [PASSKEY_STEPUP_HEADER]: adminStepUpToken,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          action: 'resolve_cold_safe',
-          payoutId: 'po_cold_whale_1',
-          coldResolution: 'CANCELLED',
-          reason: 'Safe signers declined test payout',
-        }),
+        body: JSON.stringify({ action: 'resolve_cold_safe', payoutId: 'po_cold_whale_1', ...body }),
       })
     );
-    expect(resolveColdRes.status).toBe(200);
-    const coldLockAfterCancel = await ledger.getBatchById(coldBody.lockBatchId);
-    expect(coldLockAfterCancel?.status).toBe('VOIDED');
-    const whaleAfterRefund = await ledger.getAccountByOwner('affiliate', 'aff_whale');
-    expect(whaleAfterRefund?.settledBalanceUnits.toString()).toBe('42750000000'); // full $427.50 refunded!
+    const cancelRes = await resolveCold({ coldResolution: 'CANCELLED', reason: 'Signers did not report execution' });
+    expect(cancelRes.status).toBe(400);
+    expect(await ledger.getBatchById(coldBody.lockBatchId)).toMatchObject({ status: 'INFLIGHT' });
+    expect((await ledger.getAccountByOwner('affiliate', 'aff_whale'))?.settledBalanceUnits.toString()).toBe('12750000000');
+
+    // The same authenticated request can be repeated after a lost response without another posting.
+    const confirm = { coldResolution: 'CONFIRMED', txHash: coldTxHash, operationId: '7' };
+    const resolveColdRes = await resolveCold(confirm);
+    const resolved = await resolveColdRes.json();
+    expect({ status: resolveColdRes.status, body: resolved }).toMatchObject({ status: 200,
+      body: { success: true, lockBatchId: coldBody.lockBatchId,
+        settlement: { state: 'CONFIRMED', tx_hash: coldTxHash } } });
+    expect((await resolveCold(confirm)).status).toBe(200);
+    expect(await ledger.getBatchById(coldBody.lockBatchId)).toMatchObject({ status: 'SETTLED', settledTxHash: coldTxHash });
+    const coldBatch = await ledger.getBatchByIdempotencyKey('wd_cold_fin:po_cold_whale_1');
+    expect(coldBatch).not.toBeNull();
+    expect(await ledger.getPostingsForBatch(coldBatch!.id)).toHaveLength(2);
 
     const inv = await verifyLedgerInvariants(db);
     expect(inv.valid).toBe(true);
@@ -554,8 +595,13 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
       stellarTransport: interceptingTransport,
     });
 
+    const lock = await new DoubleEntryLedgerService(db).lockSettledForWithdrawal({
+      idempotencyKey: 'lock:po_xlm_64bit_1', ownerType: 'affiliate', ownerId: 'aff_l1',
+      payoutId: 'po_xlm_64bit_1', chain: 'stellar', amountUnits: parseUsdToLedgerUnits('25.00'),
+    });
     const outcome = await machine.executeSettlement({
       payoutId: 'po_xlm_64bit_1',
+      lockBatchId: lock.batch.id,
       idempotencyKey: 'idem_xlm_64bit_1',
       affiliateId: 'aff_l1',
       chain: 'stellar',
@@ -846,7 +892,7 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
     expect(unmappedBody.unmappedUids).toEqual(['unmapped_uid_999']);
   });
 
-  it('requires confirmed on-chain receipts before CONFIRMED, reclaims pre-broadcast nonces on HSM failure, tracks multi-RBF candidate hashes, and enforces bound wallet + USD stablecoin asset guards', async () => {
+  it('requires confirmed on-chain receipts before CONFIRMED, retains nonces after unknown signer results, tracks multi-RBF candidate hashes, and enforces bound wallet + USD stablecoin asset guards', async () => {
     const ledger = new DoubleEntryLedgerService(db);
 
     // 1. Reject non-USD token commissions (e.g. PEPE) with 422 UNSUPPORTED_COMMISSION_ASSET
@@ -1084,7 +1130,7 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
     expect(patchChainRes.status).toBe(409);
     fetchSpy.mockRestore();
 
-    // 4. Pre-broadcast HSM failure reclaims EVM nonce 0, marks FAILED_ABORTED (NOT stranded SIGNING!), and refunds WITHDRAWAL_LOCK
+    // 4. Transport failure after HSM admission retains the signing reservation.
     hsmShouldFailOnce = true;
     const hsmFailRes = await dispatchRoutePost(
       new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
@@ -1106,10 +1152,10 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
     );
     expect(hsmFailRes.status).toBe(400);
     const failedRow = await machine.getSettlementRecord('po_hsm_fail_1');
-    expect(failedRow?.state).toBe('FAILED_ABORTED');
-    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_ADDR)).toBe(0);
+    expect(failedRow).toMatchObject({ state: 'SIGNING', assigned_nonce: 0 });
+    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_ADDR)).toBe(1);
     const voidedAfterHsmFail = await ledger.getBatchByIdempotencyKey('wd_lock:idem_hsm_fail_1');
-    expect(voidedAfterHsmFail?.status).toBe('VOIDED');
+    expect(voidedAfterHsmFail?.status).toBe('INFLIGHT');
 
     // 5. Mempool-only broadcast stays `BROADCAST_PENDING` (keeping WITHDRAWAL_LOCK `INFLIGHT`) + multi-RBF candidate tracking!
     const mempoolDispatchRes = await dispatchRoutePost(
@@ -1136,7 +1182,7 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
       settlement: { state: string; assignedNonce: number; txHash: string };
     };
     expect(mempoolBody.settlement.state).toBe('BROADCAST_PENDING');
-    expect(mempoolBody.settlement.assignedNonce).toBe(0); // Reclaimed nonce 0 reused cleanly without gap!
+    expect(mempoolBody.settlement.assignedNonce).toBe(1); // The unknown signer result retains nonce 0.
     const inflightLock = await ledger.getBatchById(mempoolBody.lockBatchId);
     expect(inflightLock?.status).toBe('INFLIGHT'); // NOT prematurely settled!
 
@@ -1145,7 +1191,7 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
     expect(rbf1.state).toBe('BROADCAST_PENDING');
     const rbf2 = await machine.recoverUncertainBroadcast('po_mempool_rbf', { bumpGasRbf: true });
     expect(rbf2.state).toBe('BROADCAST_PENDING');
-    expect(broadcastHashes.length).toBe(3); // H0 (orig), H1 (RBF #1), H2 (RBF #2)
+    expect(broadcastHashes.length).toBe(2); // Original and one admitted same-nonce replacement.
 
     // H1 mines on-chain (even though rbf_candidate_tx_hash now points to H2!)
     minedHashOnChain = broadcastHashes[1]!;
@@ -1215,5 +1261,601 @@ describe('Settlement Lock Lifecycle, 64-Bit Stellar Sequences & Legacy Boundary 
 
     const invariants = await verifyLedgerInvariants(db);
     expect(invariants.valid).toBe(true);
+  });
+
+  it('hydrates D1 fraud telemetry across reconciliation ingest (including upline B2B agency resolution + blocking) and settlement dispatch', async () => {
+    const ledger = new DoubleEntryLedgerService(db);
+    const futureExp = new Date(Date.now() + 3600_000).toISOString();
+    const clickIso = '2026-11-05T09:50:00.000Z';
+    const signupIso = '2026-11-05T10:00:00.000Z';
+    const colludingWallet = '0x9965507D1a55bcC2695C58ba16FB37d819B0A4dc';
+
+    // 1. Seed a provisioned B2B agency (`agency_clean`, backed by `ledger_accounts.owner_type = 'agency'`),
+    //    an L1 affiliate (`aff_under_clean_agency`, `referred_by = 'agency_clean'`),
+    //    a clean trader (`trader_clean_b2b`), a self-referred B2B agency (`agency_collude` sharing
+    //    canonical Gmail root with `trader_b2b_collude`), and a colluding affiliate (`aff_sybil_wd`)
+    //    whose upline referrer (`aff_upline_ref`) shares IP + device fingerprint within a 10m signup window.
+    sqlite
+      .prepare(
+        `INSERT INTO profiles (
+           id, email, full_name, role, referral_code, referred_by, wallet_address, preferred_chain, created_at
+         ) VALUES
+           ('agency_clean', 'desk@cleanb2b.io', 'Clean B2B Agency', 'affiliate', 'AGCLEAN', NULL, NULL, NULL, ?),
+           ('aff_under_clean_agency', 'l1@cleanpartner.io', 'Clean L1', 'affiliate', 'L1CLEAN', 'agency_clean', NULL, NULL, ?),
+           ('trader_clean_b2b', 'bob.trader@independent.org', 'Bob Trader', 'shopper', 'TRDB2B1', 'aff_under_clean_agency', NULL, NULL, ?),
+           ('agency_collude', 'sybilroot@gmail.com', 'Colluding Agency', 'affiliate', 'AGCOL', NULL, NULL, NULL, ?),
+           ('aff_honest_l1', 'honest.l1@partner.org', 'Honest L1', 'affiliate', 'HONL1', 'agency_collude', NULL, NULL, ?),
+           ('trader_b2b_collude', 'sybil.root+agency@gmail.com', 'Colluding Trader', 'shopper', 'TRDCOL1', 'aff_honest_l1', NULL, NULL, ?),
+           ('aff_upline_ref', 'upline.ring@partner.net', 'Upline Ring', 'affiliate', 'UPRING', NULL, NULL, NULL, ?),
+           ('aff_sybil_wd', 'withdrawer.ring@partner.net', 'Sybil Withdrawer', 'affiliate', 'SYBWD1', 'UPRING', ?, 'arbitrum', ?)`
+      )
+      .run(
+        signupIso,
+        signupIso,
+        signupIso,
+        signupIso,
+        signupIso,
+        signupIso,
+        clickIso,
+        colludingWallet,
+        signupIso
+      );
+
+    // Provision `agency_clean` and `agency_collude` as verified B2B agencies in `ledger_accounts`
+    sqlite
+      .prepare(
+        `INSERT INTO ledger_accounts (
+           id, owner_type, owner_id, account_code, currency, settled_balance_units, inflight_balance_units, allow_negative
+         ) VALUES
+           ('acct_agency_agency_clean', 'agency', 'agency_clean', 'agency:agency_clean', 'USDC', 0, 0, 0),
+           ('acct_agency_agency_collude', 'agency', 'agency_collude', 'agency:agency_collude', 'USDC', 0, 0, 0)`
+      )
+      .run();
+
+    // Seed matching IP + device fingerprint in `sessions` for `aff_upline_ref` and `aff_sybil_wd`,
+    // plus a deal click 10 minutes prior to `aff_sybil_wd`'s signup so `signupDeltaMinutes = 10` (<= 60).
+    sqlite
+      .prepare(
+        `INSERT INTO sessions (id, user_id, token, expires_at, ip_address, user_agent, created_at)
+         VALUES
+           ('sess_upline_ring', 'aff_upline_ref', 'tok_upline_ring', ?, '198.51.100.77', 'SybilFarmBot/2.1 (X11; Linux x86_64)', ?),
+           ('sess_sybil_wd', 'aff_sybil_wd', 'tok_sybil_wd', ?, '198.51.100.77', 'SybilFarmBot/2.1 (X11; Linux x86_64)', ?)`
+      )
+      .run(futureExp, clickIso, futureExp, signupIso);
+
+    sqlite
+      .prepare(
+        `INSERT INTO deals (
+           id, name, description, url, default_commission_rate, is_active
+         ) VALUES ('deal_bybit_telemetry', 'Bybit Pro Rebate', 'Rebate', 'https://bybit.com', 0.30, 1)`
+      )
+      .run();
+
+    sqlite
+      .prepare(
+        `INSERT INTO deal_clicks (
+           id, deal_id, affiliate_id, session_id, ip_address, user_agent, created_at
+         ) VALUES ('dc_ring_1', 'deal_bybit_telemetry', 'aff_upline_ref', 'sess_click_1', '198.51.100.77', 'SybilFarmBot/2.1 (X11; Linux x86_64)', ?)`
+      )
+      .run(clickIso);
+
+    // 2. Reconcile two $100 commissions via `POST /api/admin/reconciliation/ingest` WITHOUT explicit `b2bAgencyId`:
+    //    - Row A (`uid_b2b_clean_1`): `aff_under_clean_agency` resolves upline `agency_clean` from D1 and credits L2 ($9.50).
+    //    - Row B (`uid_b2b_collude_1`): `aff_honest_l1` resolves upline `agency_collude` from D1; L1 passes fraud check,
+    //      but B2B agency leg triggers `SELF_REFERRAL_EMAIL_ALIAS` against `trader_b2b_collude`, zeroing `b2bAgencyId`
+    //      and incrementing `blockedByFraud` by 1 while keeping L1's commission intact.
+    const ingestPayload = JSON.stringify({
+      retCode: 0,
+      retMsg: 'OK',
+      result: {
+        list: [
+          {
+            userId: 'uid_b2b_clean_1',
+            coin: 'USDC',
+            netCommission: '100.00',
+            tradeVol: '100000.00',
+            recordId: 'bybit_b2b_clean_1',
+            timestamp: '1763164800000',
+          },
+          {
+            userId: 'uid_b2b_collude_1',
+            coin: 'USDC',
+            netCommission: '100.00',
+            tradeVol: '100000.00',
+            recordId: 'bybit_b2b_collude_1',
+            timestamp: '1763164801000',
+          },
+        ],
+      },
+    });
+
+    const ingestRes = await ingestRoutePost(
+      new NextRequest('https://apexos.app/api/admin/reconciliation/ingest', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer adm_tok_123',
+          [PASSKEY_STEPUP_HEADER]: adminStepUpToken,
+          'CF-Connecting-IP': '203.0.113.10',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          exchange: 'bybit',
+          statementPeriodStart: '2026-11-05T00:00:00Z',
+          statementPeriodEnd: '2026-11-05T23:59:59Z',
+          rawPartnerPayload: ingestPayload,
+          rawWalletStatementPayload: '{"cash":"200.00"}',
+          walletCashCollectedUsd: '200.00',
+          uidToProfileMap: {
+            uid_b2b_clean_1: {
+              traderProfileId: 'trader_clean_b2b',
+              l1AffiliateId: 'aff_under_clean_agency',
+            },
+            uid_b2b_collude_1: {
+              traderProfileId: 'trader_b2b_collude',
+              l1AffiliateId: 'aff_honest_l1',
+            },
+          },
+        }),
+      })
+    );
+    expect(ingestRes.status).toBe(200);
+    const ingestJson = (await ingestRes.json()) as {
+      mintedBatches: number;
+      blockedByFraud: number;
+    };
+    expect(ingestJson.mintedBatches).toBe(2);
+    expect(ingestJson.blockedByFraud).toBe(1);
+
+    const cleanAgencyAccount = await ledger.getAccountByOwner('agency', 'agency_clean');
+    const colludeAgencyAccount = await ledger.getAccountByOwner('agency', 'agency_collude');
+    const honestL1Account = await ledger.getAccountByOwner('affiliate', 'aff_honest_l1');
+    // $100 gross * 95% distributable = $95; trader gets 50% ($47.50); spread = $47.50; L2 10% of spread = $4.75 (475_000_000 units)
+    expect(cleanAgencyAccount?.inflightBalanceUnits > BigInt(0)).toBe(true);
+    expect(colludeAgencyAccount?.inflightBalanceUnits).toBe(BigInt(0));
+    expect(honestL1Account && honestL1Account.inflightBalanceUnits > BigInt(0)).toBe(true);
+
+    // 3. Dispatch payout for `aff_sybil_wd`: `loadWithdrawalFraudTelemetry` resolves `referred_by = 'UPRING'` ->
+    //    `aff_upline_ref`, hashes matching session IP + device fingerprint within the 10-minute click-to-signup
+    //    window, and blocks the withdrawal with `403 FRAUD_OR_TIMELOCK_BLOCKED` (`SELF_REFERRAL_DEVICE_IP_COLLISION`)
+    //    BEFORE locking any ledger balance or touching the HSM!
+    let hsmSignAttempts = 0;
+    const guardHsmTransport: TurnkeySigningTransport = {
+      async signEvmDigest(p) {
+        hsmSignAttempts += 1;
+        return new DeterministicHsmTransport().signEvmDigest(p);
+      },
+      async signStellarEnvelope(p) {
+        hsmSignAttempts += 1;
+        return new DeterministicHsmTransport().signStellarEnvelope(p);
+      },
+    };
+    const guardArbAdapter = new ArbitrumBaseUsdcAdapter({
+      chain: 'arbitrum',
+      networkMode: 'mainnet',
+      hotWalletAddress: EVM_HOT_ADDR,
+      primaryRpc: {
+        async call<T>(): Promise<T> {
+          throw new Error('RPC must never be reached when fraud telemetry blocks dispatch');
+        },
+      },
+    });
+    (globalThis as unknown as { SETTLEMENT_MACHINE?: unknown }).SETTLEMENT_MACHINE =
+      new BroadcastRecoveryMachine({
+        db: db as unknown as LegacyD1Database,
+        turnkeySigner: new TurnkeySigner({
+          transport: guardHsmTransport,
+          evmHotWalletAddress: EVM_HOT_ADDR,
+          stellarHotWalletAddress: STELLAR_HOT_ADDR,
+        }),
+        evmAdapters: { arbitrum: guardArbAdapter },
+      });
+
+    const sybilDispatchRes = await dispatchRoutePost(
+      new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer adm_tok_123',
+          [PASSKEY_STEPUP_HEADER]: adminStepUpToken,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          payoutId: 'po_sybil_wd_block_1',
+          idempotencyKey: 'idem_sybil_wd_block_1',
+          affiliateId: 'aff_sybil_wd',
+          chain: 'arbitrum',
+          recipientAddress: colludingWallet,
+          amountUsd: '25.00',
+        }),
+      })
+    );
+    expect(sybilDispatchRes.status).toBe(403);
+    const sybilDispatchJson = (await sybilDispatchRes.json()) as {
+      code: string;
+      triggeredRules: string[];
+    };
+    expect(sybilDispatchJson.code).toBe('FRAUD_OR_TIMELOCK_BLOCKED');
+    expect(sybilDispatchJson.triggeredRules).toContain('SELF_REFERRAL_DEVICE_IP_COLLISION');
+    expect(hsmSignAttempts).toBe(0);
+
+    const lockAfterBlock = await ledger.getBatchByIdempotencyKey('wd_lock:idem_sybil_wd_block_1');
+    expect(lockAfterBlock).toBeNull();
+
+    const finalInvariants = await verifyLedgerInvariants(db);
+    expect(finalInvariants.valid).toBe(true);
+  });
+
+  it('enforces server-side USDC oracle fail-closed staleness/availability, rejects production body usdcReferencePriceUsd overrides, and fails closed when SETTLEMENT_MACHINE lacks Turnkey credentials', async () => {
+    const prevNodeEnv = process.env.NODE_ENV;
+    const prevCfPages = process.env.CF_PAGES;
+    const prevOracleRequired = process.env.USDC_ORACLE_REQUIRED;
+    const prevOracleMaxAge = process.env.USDC_ORACLE_MAX_AGE_SECONDS;
+    const prevTurnkeyOrg = process.env.TURNKEY_ORGANIZATION_ID;
+    const prevTurnkeyPub = process.env.TURNKEY_API_PUBLIC_KEY;
+    const prevTurnkeyPriv = process.env.TURNKEY_API_PRIVATE_KEY;
+
+    try {
+      let broadcastCount = 0;
+      const rpcTransport: EvmJsonRpcTransport = {
+        async call<T>(method: string, params?: unknown[]): Promise<T> {
+          if (method === 'eth_call') {
+            const callObj = (params?.[0] ?? {}) as { data?: string };
+            if (callObj.data?.toLowerCase().startsWith(CIRCLE_IS_BLACKLISTED_SELECTOR.toLowerCase())) {
+              return '0x0000000000000000000000000000000000000000000000000000000000000000' as T;
+            }
+            return '0x0000000000000000000000000000000000000000000000000000000000000001' as T;
+          }
+          if (method === 'eth_getTransactionCount') return '0x0' as T;
+          if (method === 'eth_estimateGas') return '0xfde8' as T;
+          if (method === 'eth_feeHistory') {
+            return {
+              baseFeePerGas: ['0x5f5e100'],
+              reward: [['0x989680']],
+            } as T;
+          }
+          if (method === 'eth_sendRawTransaction') {
+            broadcastCount += 1;
+            const rawHex = String(params?.[0] ?? '0x00') as Hex;
+            return keccak256(rawHex) as T;
+          }
+          if (method === 'eth_getTransactionReceipt') {
+            return { status: '0x1', blockNumber: '0x100' } as T;
+          }
+          throw new Error(`Unexpected RPC method ${method}`);
+        },
+      };
+
+      const arbAdapter = new ArbitrumBaseUsdcAdapter({
+        chain: 'arbitrum',
+        networkMode: 'mainnet',
+        hotWalletAddress: EVM_HOT_ADDR,
+        primaryRpc: rpcTransport,
+      });
+      (globalThis as unknown as { SETTLEMENT_MACHINE?: unknown }).SETTLEMENT_MACHINE =
+        new BroadcastRecoveryMachine({
+          db: db as unknown as LegacyD1Database,
+          turnkeySigner: new TurnkeySigner({
+            transport: new DeterministicHsmTransport(),
+            evmHotWalletAddress: EVM_HOT_ADDR,
+            stellarHotWalletAddress: STELLAR_HOT_ADDR,
+          }),
+          evmAdapters: { arbitrum: arbAdapter },
+        });
+
+      const ledger = new DoubleEntryLedgerService(db);
+
+      // 1. USDC_ORACLE_REQUIRED=true with no D1 row -> 503 USDC_ORACLE_UNAVAILABLE (zero locks, zero broadcasts)
+      process.env.USDC_ORACLE_REQUIRED = 'true';
+      const unavailRes = await dispatchRoutePost(
+        new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer adm_tok_123',
+            [PASSKEY_STEPUP_HEADER]: adminStepUpToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            payoutId: 'po_oracle_unavail_1',
+            idempotencyKey: 'idem_oracle_unavail_1',
+            affiliateId: 'aff_l1',
+            chain: 'arbitrum',
+            recipientAddress: EVM_RECIPIENT_ADDR,
+            amountUsd: '20.00',
+          }),
+        })
+      );
+      expect(unavailRes.status).toBe(503);
+      const unavailJson = (await unavailRes.json()) as { code: string };
+      expect(unavailJson.code).toBe('USDC_ORACLE_UNAVAILABLE');
+      expect(broadcastCount).toBe(0);
+      expect(await ledger.getBatchByIdempotencyKey('wd_lock:idem_oracle_unavail_1')).toBeNull();
+
+      // 2. Stale D1 oracle row with USDC_ORACLE_MAX_AGE_SECONDS=60 -> 503 USDC_ORACLE_STALE
+      process.env.USDC_ORACLE_MAX_AGE_SECONDS = '60';
+      const staleIso = new Date(Date.now() - 600_000).toISOString().replace('T', ' ').slice(0, 19);
+      sqlite
+        .prepare(
+          `INSERT OR REPLACE INTO system_runtime_flags (flag_key, flag_value, updated_by, updated_at)
+           VALUES ('USDC_REFERENCE_PRICE_USD', '1.0000', 'oracle_cron', ?)`
+        )
+        .run(staleIso);
+
+      const staleRes = await dispatchRoutePost(
+        new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer adm_tok_123',
+            [PASSKEY_STEPUP_HEADER]: adminStepUpToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            payoutId: 'po_oracle_stale_1',
+            idempotencyKey: 'idem_oracle_stale_1',
+            affiliateId: 'aff_l1',
+            chain: 'arbitrum',
+            recipientAddress: EVM_RECIPIENT_ADDR,
+            amountUsd: '20.00',
+          }),
+        })
+      );
+      expect(staleRes.status).toBe(503);
+      const staleJson = (await staleRes.json()) as { code: string };
+      expect(staleJson.code).toBe('USDC_ORACLE_STALE');
+      expect(broadcastCount).toBe(0);
+
+      // 3. In production runtime (`CF_PAGES='1'`), caller-supplied `usdcReferencePriceUsd: '1.0000'`
+      //    cannot bypass a server-side depeg row (`0.9700` < $0.985 band in `system_runtime_flags`) -> 400
+      const freshIso = new Date().toISOString();
+      sqlite
+        .prepare(
+          `INSERT OR REPLACE INTO system_runtime_flags (flag_key, flag_value, updated_by, updated_at)
+           VALUES ('USDC_REFERENCE_PRICE_USD', '0.9700', 'oracle_cron', ?)`
+        )
+        .run(freshIso);
+      process.env.CF_PAGES = '1';
+
+      const spoofedOracleRes = await dispatchRoutePost(
+        new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer adm_tok_123',
+            [PASSKEY_STEPUP_HEADER]: adminStepUpToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            payoutId: 'po_oracle_spoof_1',
+            idempotencyKey: 'idem_oracle_spoof_1',
+            affiliateId: 'aff_l1',
+            chain: 'arbitrum',
+            recipientAddress: EVM_RECIPIENT_ADDR,
+            amountUsd: '20.00',
+            usdcReferencePriceUsd: '1.0000',
+          }),
+        })
+      );
+      expect(spoofedOracleRes.status).toBe(400);
+      const spoofedJson = (await spoofedOracleRes.json()) as {
+        code?: string;
+        outcome?: { errorReason?: string };
+      };
+      expect(broadcastCount).toBe(0);
+      expect(JSON.stringify(spoofedJson)).toMatch(/peg|0\.9700/i);
+
+      // Clear EMERGENCY_PAUSE tripped by the depeg circuit breaker before testing runtime configuration check
+      sqlite
+        .prepare(
+          `UPDATE system_runtime_flags
+           SET flag_value = 'false', updated_at = ?
+           WHERE flag_key = 'EMERGENCY_PAUSE'`
+        )
+        .run(freshIso);
+
+      // 4. Delete globalThis.SETTLEMENT_MACHINE and verify missing Turnkey credentials fail closed with 503 SETTLEMENT_RUNTIME_UNCONFIGURED
+      sqlite
+        .prepare(
+          `UPDATE system_runtime_flags
+           SET flag_value = '1.0000', updated_at = ?
+           WHERE flag_key = 'USDC_REFERENCE_PRICE_USD'`
+        )
+        .run(freshIso);
+      delete (globalThis as unknown as { SETTLEMENT_MACHINE?: unknown }).SETTLEMENT_MACHINE;
+      delete process.env.TURNKEY_ORGANIZATION_ID;
+      delete process.env.TURNKEY_API_PUBLIC_KEY;
+      delete process.env.TURNKEY_API_PRIVATE_KEY;
+
+      const unconfiguredRes = await dispatchRoutePost(
+        new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer adm_tok_123',
+            [PASSKEY_STEPUP_HEADER]: adminStepUpToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            payoutId: 'po_runtime_unconf_1',
+            idempotencyKey: 'idem_runtime_unconf_1',
+            affiliateId: 'aff_l1',
+            chain: 'arbitrum',
+            recipientAddress: EVM_RECIPIENT_ADDR,
+            amountUsd: '20.00',
+          }),
+        })
+      );
+      expect(unconfiguredRes.status).toBe(503);
+      const unconfiguredJson = (await unconfiguredRes.json()) as { code: string };
+      expect(unconfiguredJson.code).toBe('SETTLEMENT_TRANSPORT_UNCONFIGURED');
+
+      const finalInvariants = await verifyLedgerInvariants(db);
+      expect(finalInvariants.valid).toBe(true);
+    } finally {
+      if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = prevNodeEnv;
+      if (prevCfPages === undefined) delete process.env.CF_PAGES;
+      else process.env.CF_PAGES = prevCfPages;
+      if (prevOracleRequired === undefined) delete process.env.USDC_ORACLE_REQUIRED;
+      else process.env.USDC_ORACLE_REQUIRED = prevOracleRequired;
+      if (prevOracleMaxAge === undefined) delete process.env.USDC_ORACLE_MAX_AGE_SECONDS;
+      else process.env.USDC_ORACLE_MAX_AGE_SECONDS = prevOracleMaxAge;
+      if (prevTurnkeyOrg === undefined) delete process.env.TURNKEY_ORGANIZATION_ID;
+      else process.env.TURNKEY_ORGANIZATION_ID = prevTurnkeyOrg;
+      if (prevTurnkeyPub === undefined) delete process.env.TURNKEY_API_PUBLIC_KEY;
+      else process.env.TURNKEY_API_PUBLIC_KEY = prevTurnkeyPub;
+      if (prevTurnkeyPriv === undefined) delete process.env.TURNKEY_API_PRIVATE_KEY;
+      else process.env.TURNKEY_API_PRIVATE_KEY = prevTurnkeyPriv;
+    }
+  });
+
+  it('keeps withdrawal lock INFLIGHT and recovers once when post-broadcast write and read both fail', async () => {
+    let minedTxHash: string | null = null;
+    let broadcastCalls = 0;
+
+    const rpcTransport: EvmJsonRpcTransport = {
+      async call<T>(method: string, params?: unknown[]): Promise<T> {
+        if (method === 'eth_call') {
+          const callObj = (params?.[0] ?? {}) as { data?: string };
+          if (callObj.data?.toLowerCase().startsWith(CIRCLE_IS_BLACKLISTED_SELECTOR.toLowerCase())) {
+            return '0x0000000000000000000000000000000000000000000000000000000000000000' as T;
+          }
+          return '0x0000000000000000000000000000000000000000000000000000000000000001' as T;
+        }
+        if (method === 'eth_chainId') return `0x${ARBITRUM_ONE_CHAIN_ID.toString(16)}` as T;
+        if (method === 'eth_getTransactionCount') return (minedTxHash ? '0x1' : '0x0') as T;
+        if (method === 'eth_estimateGas') return '0xfde8' as T;
+        if (method === 'eth_gasPrice' || method === 'eth_maxPriorityFeePerGas') return '0x5f5e100' as T;
+        if (method === 'eth_getBlockByNumber') return { baseFeePerGas: '0x5f5e100' } as T;
+        if (method === 'eth_sendRawTransaction') {
+          broadcastCalls += 1;
+          minedTxHash = keccak256(String(params?.[0] ?? '') as Hex);
+          throw new Error('504 Gateway Timeout from Arbitrum RPC');
+        }
+        if (method === 'eth_getTransactionReceipt') {
+          const queriedHash = String(params?.[0] ?? '');
+          if (minedTxHash && queriedHash === minedTxHash) {
+            return {
+              status: '0x1',
+              blockNumber: '0x10',
+              gasUsed: '0xc350',
+              effectiveGasPrice: '0x5f5e100',
+              transactionHash: minedTxHash,
+            } as T;
+          }
+          return null as T;
+        }
+        throw new Error(`Unexpected RPC method: ${method}`);
+      },
+    };
+
+    const arbAdapter = new ArbitrumBaseUsdcAdapter({
+      chain: 'arbitrum',
+      networkMode: 'mainnet',
+      hotWalletAddress: EVM_HOT_ADDR,
+      primaryRpc: rpcTransport,
+    });
+    const machine = new BroadcastRecoveryMachine({
+      db: db as unknown as LegacyD1Database,
+      turnkeySigner: new TurnkeySigner({
+        transport: new DeterministicHsmTransport(),
+        evmHotWalletAddress: EVM_HOT_ADDR,
+        stellarHotWalletAddress: STELLAR_HOT_ADDR,
+      }),
+      evmAdapters: { arbitrum: arbAdapter },
+    });
+    (globalThis as unknown as { SETTLEMENT_MACHINE?: unknown }).SETTLEMENT_MACHINE = machine;
+    const ledger = new DoubleEntryLedgerService(db);
+
+    const prepareBeforeFault = db.prepare.bind(db);
+    let writeFailureInjected = false;
+    let readFailureInjected = false;
+    const databaseFault = jest.spyOn(db, 'prepare').mockImplementation((sql) => {
+      if (
+        broadcastCalls > 0 &&
+        !writeFailureInjected &&
+        /UPDATE settlement_broadcasts\s+SET state = 'BROADCAST_PENDING',\s+error_reason = \?/.test(sql)
+      ) {
+        writeFailureInjected = true;
+        throw new Error('injected post-send settlement write failure');
+      }
+      if (
+        writeFailureInjected &&
+        !readFailureInjected &&
+        sql === 'SELECT * FROM settlement_broadcasts WHERE payout_id = ?'
+      ) {
+        readFailureInjected = true;
+        throw new Error('injected post-send settlement read failure');
+      }
+      return prepareBeforeFault(sql);
+    });
+
+    let failedDispatchRes: Response;
+    try {
+      failedDispatchRes = await dispatchRoutePost(
+        new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer adm_tok_123',
+            [PASSKEY_STEPUP_HEADER]: adminStepUpToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            payoutId: 'po_uncertain_read_1',
+            idempotencyKey: 'idem_uncertain_read_1',
+            affiliateId: 'aff_l1',
+            chain: 'arbitrum',
+            recipientAddress: EVM_RECIPIENT_ADDR,
+            amountUsd: '50.00',
+          }),
+        })
+      );
+    } finally {
+      databaseFault.mockRestore();
+    }
+
+    expect(writeFailureInjected).toBe(true);
+    expect(readFailureInjected).toBe(true);
+    expect(failedDispatchRes.status).toBe(400);
+    expect(broadcastCalls).toBe(1);
+
+    const uncertainRecord = await machine.getSettlementRecord('po_uncertain_read_1');
+    expect(uncertainRecord).toMatchObject({
+      state: 'BROADCAST_PENDING',
+      tx_hash: minedTxHash,
+    });
+    expect(uncertainRecord?.signed_raw_tx).toMatch(/^0x/);
+
+    const pendingLock = await ledger.getBatchByIdempotencyKey('wd_lock:idem_uncertain_read_1');
+    expect(pendingLock?.status).toBe('INFLIGHT');
+    expect((await ledger.getAccountByOwner('affiliate', 'aff_l1'))?.settledBalanceUnits.toString()).toBe('9250000000');
+    expect(await ledger.getBatchByIdempotencyKey('wd_rev_err:idem_uncertain_read_1')).toBeNull();
+
+    const recoverRequest = () =>
+      dispatchRoutePost(
+        new NextRequest('https://apexos.app/api/admin/settlement/dispatch', {
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer adm_tok_123',
+            [PASSKEY_STEPUP_HEADER]: adminStepUpToken,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            action: 'recover',
+            payoutId: 'po_uncertain_read_1',
+          }),
+        })
+      );
+
+    const recoverRes1 = await recoverRequest();
+    expect(recoverRes1.status).toBe(200);
+    const recoverRes2 = await recoverRequest();
+    expect(recoverRes2.status).toBe(200);
+
+    expect(broadcastCalls).toBe(1);
+    expect(await ledger.getBatchById(pendingLock!.id)).toMatchObject({
+      status: 'SETTLED',
+      settledTxHash: minedTxHash,
+    });
+    const finBatch = await ledger.getBatchByIdempotencyKey('wd_rec_fin:po_uncertain_read_1');
+    expect(finBatch).not.toBeNull();
+    expect(await ledger.getPostingsForBatch(finBatch!.id)).toHaveLength(2);
+    expect((await ledger.getAccountByOwner('affiliate', 'aff_l1'))?.settledBalanceUnits.toString()).toBe('9250000000');
+    expect((await verifyLedgerInvariants(db)).valid).toBe(true);
   });
 });

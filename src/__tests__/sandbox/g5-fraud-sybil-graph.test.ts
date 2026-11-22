@@ -10,8 +10,11 @@
  */
 
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import type * as StellarSdkTypes from '@stellar/stellar-sdk';
+import { getAddress } from 'viem';
 import type { D1Database, D1PreparedStatement, D1Result } from '@/lib/db';
 import {
   M2SybilGraphEngine,
@@ -23,8 +26,18 @@ import {
   activateMaturedWalletChange,
   cancelWalletChangeByOwner,
   isWalletUnlockedForPayout,
+  normalizePhase1WalletAddress,
   WALLET_TIMELOCK_DURATION_MS,
 } from '@/lib/wallet/timelock-wallet-service';
+
+const nativeNodeModule = (
+  process as unknown as {
+    getBuiltinModule: (id: string) => { createRequire: (origin: string) => NodeRequire };
+  }
+).getBuiltinModule('node:module');
+const { StrKey } = nativeNodeModule.createRequire(__filename)(
+  '@stellar/stellar-sdk'
+) as typeof StellarSdkTypes;
 
 interface InternalStatement extends D1PreparedStatement {
   _runSync: () => D1Result<unknown>;
@@ -106,15 +119,13 @@ function makeEvmAddress(index: number): string {
   return `0x${index.toString(16).padStart(40, 'a')}`;
 }
 
+/**
+ * Deterministic, checksum-valid Stellar Ed25519 public key (`G...`, 56 chars,
+ * CRC16-XModem check bytes) so the address passes production StrKey validation.
+ */
 function makeStellarAddress(index: number): string {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
-  let suffix = '';
-  let n = index + 1;
-  for (let i = 0; i < 55; i += 1) {
-    suffix += alphabet[(n + i * 7) % 32];
-    n = Math.floor(n / 2) + i + 3;
-  }
-  return `G${suffix}`;
+  const seed = createHash('sha256').update(`stellar_test_pk_${index}`).digest();
+  return StrKey.encodeEd25519PublicKey(seed);
 }
 
 function bootstrapSchema(sqlite: Database.Database): void {
@@ -289,6 +300,109 @@ describe('Gate G5: Deterministic M2 Anti-Fraud Engine, D1 Sybil Graph & 48h Wall
     );
     expect(restoredCheck.unlocked).toBe(true);
     expect(restoredCheck.walletAddress).toBe(makeEvmAddress(10));
+  });
+
+  it('enforces EIP-55 mixed-case checksum and Stellar StrKey CRC16 validation before binding a payout wallet', async () => {
+    sqlite
+      .prepare(
+        `INSERT INTO profiles (id, email, wallet_address, preferred_chain)
+         VALUES ('u_checksum_evm', 'checksum_evm@apexos.app', ?, 'arbitrum'),
+                ('u_checksum_xlm', 'checksum_xlm@apexos.app', ?, 'stellar')`
+      )
+      .run(makeEvmAddress(40), makeStellarAddress(40));
+
+    // 1. Valid mixed-case EIP-55 address is accepted and canonicalized to lowercase
+    const validMixedEvm = getAddress('0x70997970c51812dc3a010c7d01b50e0d17dc79c8');
+    expect(validMixedEvm).not.toBe(validMixedEvm.toLowerCase());
+    expect(normalizePhase1WalletAddress(validMixedEvm, 'arbitrum')).toBe(
+      validMixedEvm.toLowerCase()
+    );
+
+    const acceptedEvm = await proposeTimelockedWalletChange(db, {
+      authenticatedUserId: 'u_checksum_evm',
+      proposedAddress: validMixedEvm,
+      proposedChain: 'arbitrum',
+      nowIso: '2026-11-14T00:00:00.000Z',
+    });
+    expect(acceptedEvm.success).toBe(true);
+    expect(acceptedEvm.status).toBe(201);
+    expect(acceptedEvm.request?.proposed_address).toBe(validMixedEvm.toLowerCase());
+
+    await cancelWalletChangeByOwner(
+      db,
+      'u_checksum_evm',
+      acceptedEvm.request!.id,
+      '2026-11-14T00:05:00.000Z'
+    );
+
+    // 2. Case-corrupted mixed-case EIP-55 address is rejected with 400 INVALID_WALLET_ADDRESS
+    const firstAlphaIndex = validMixedEvm
+      .slice(2)
+      .split('')
+      .findIndex((ch) => /[a-fA-F]/.test(ch));
+    expect(firstAlphaIndex).toBeGreaterThanOrEqual(0);
+    const pos = 2 + firstAlphaIndex;
+    const origChar = validMixedEvm[pos];
+    const flippedChar =
+      origChar === origChar.toUpperCase() ? origChar.toLowerCase() : origChar.toUpperCase();
+    const corruptedEvm = `${validMixedEvm.slice(0, pos)}${flippedChar}${validMixedEvm.slice(pos + 1)}`;
+    // Ensure the corrupted string is still mixed-case so EIP-55 applies
+    const corruptedHex = corruptedEvm.slice(2);
+    expect(corruptedHex).not.toBe(corruptedHex.toLowerCase());
+    expect(corruptedHex).not.toBe(corruptedHex.toUpperCase());
+    expect(normalizePhase1WalletAddress(corruptedEvm, 'base')).toBeNull();
+
+    const rejectedEvm = await proposeTimelockedWalletChange(db, {
+      authenticatedUserId: 'u_checksum_evm',
+      proposedAddress: corruptedEvm,
+      proposedChain: 'base',
+      nowIso: '2026-11-14T00:10:00.000Z',
+    });
+    expect(rejectedEvm.success).toBe(false);
+    expect(rejectedEvm.status).toBe(400);
+    expect(rejectedEvm.code).toBe('INVALID_WALLET_ADDRESS');
+
+    // 3. Valid CRC16-XModem Stellar Ed25519 StrKey is accepted verbatim
+    const validStellar = makeStellarAddress(41);
+    expect(StrKey.isValidEd25519PublicKey(validStellar)).toBe(true);
+    expect(normalizePhase1WalletAddress(validStellar, 'stellar')).toBe(validStellar);
+
+    const acceptedStellar = await proposeTimelockedWalletChange(db, {
+      authenticatedUserId: 'u_checksum_xlm',
+      proposedAddress: validStellar,
+      proposedChain: 'stellar',
+      nowIso: '2026-11-14T00:00:00.000Z',
+    });
+    expect(acceptedStellar.success).toBe(true);
+    expect(acceptedStellar.status).toBe(201);
+    expect(acceptedStellar.request?.proposed_address).toBe(validStellar);
+
+    await cancelWalletChangeByOwner(
+      db,
+      'u_checksum_xlm',
+      acceptedStellar.request!.id,
+      '2026-11-14T00:05:00.000Z'
+    );
+
+    // 4. One-character base32 mutation breaks the CRC16 checksum -> 400 INVALID_WALLET_ADDRESS
+    const base32Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    const mutateIdx = 10;
+    const origBase32 = validStellar[mutateIdx];
+    const altBase32 = base32Alphabet[(base32Alphabet.indexOf(origBase32) + 1) % 32];
+    const corruptedStellar = `${validStellar.slice(0, mutateIdx)}${altBase32}${validStellar.slice(mutateIdx + 1)}`;
+    expect(corruptedStellar).toMatch(/^G[A-Z2-7]{55}$/);
+    expect(StrKey.isValidEd25519PublicKey(corruptedStellar)).toBe(false);
+    expect(normalizePhase1WalletAddress(corruptedStellar, 'stellar')).toBeNull();
+
+    const rejectedStellar = await proposeTimelockedWalletChange(db, {
+      authenticatedUserId: 'u_checksum_xlm',
+      proposedAddress: corruptedStellar,
+      proposedChain: 'stellar',
+      nowIso: '2026-11-14T00:10:00.000Z',
+    });
+    expect(rejectedStellar.success).toBe(false);
+    expect(rejectedStellar.status).toBe(400);
+    expect(rejectedStellar.code).toBe('INVALID_WALLET_ADDRESS');
   });
 
   it('blocks 100/100 adversarial attacks (100%) and achieves <= 1.5% false positives across 200 legitimate cases', async () => {

@@ -24,7 +24,15 @@ import {
   sanitizeApiErrorResponse,
 } from '@/lib/auth/passkey-step-up';
 import type { D1Database as LegacyD1Database } from '@/lib/db';
-import { M2SybilGraphEngine } from '@/lib/fraud/m2-sybil-graph-engine';
+import {
+  createFraudTelemetryBatchCache,
+  loadAttributionFraudTelemetry,
+  resolveUplineB2bAgencyOverride,
+} from '@/lib/fraud/d1-fraud-telemetry';
+import {
+  M2SybilGraphEngine,
+  type M2FraudEvaluationVerdict,
+} from '@/lib/fraud/m2-sybil-graph-engine';
 import {
   DoubleEntryLedgerService,
   IdempotencyConflictError,
@@ -38,10 +46,16 @@ import {
   type WaterfallConfig,
 } from '@/lib/ledger';
 import {
+  findExistingLedgerIdempotencyKeys,
   getPartnerAdapter,
   PartnerIntegrationBlockedError,
   PartnerPayloadValidationError,
+  resolveD1UidAttributions,
+  resolveExchangeExecutionMode,
+  runSingleExchangePoll,
+  type ActivePartnerExchangeId,
   type PartnerExchangeId,
+  type ResolvedUidAttribution,
 } from '@/lib/partners';
 
 interface WorkerBindings {
@@ -68,12 +82,15 @@ interface IngestRequestPayload {
   uidToProfileMap?: Record<string, UidProfileMapping>;
   clawbackOriginalBatchMap?: Record<string, string>;
   recoverClawbackFromFutureInflight?: boolean;
+  shadowMode?: boolean;
 }
 
 const VALID_EXCHANGES: readonly PartnerExchangeId[] = [
   'bybit',
   'okx',
   'bitget',
+  'kucoin',
+  'gateio',
   'binance_referral_pro',
 ];
 
@@ -146,15 +163,125 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
+    const activeExchange = rawExchange as ActivePartnerExchangeId;
+    const explicitResolvedUidMap: Record<string, ResolvedUidAttribution> = {};
+    // UIDs whose B2B agency partner was pinned by the operator; these bypass the
+    // D1 upline-agency override so a deliberate override is never silently replaced.
+    const explicitB2bAgencyUids = new Set<string>();
+    if (body.uidToProfileMap) {
+      for (const [uid, m] of Object.entries(body.uidToProfileMap)) {
+        if (m && m.traderProfileId && m.traderProfileId.trim() !== '') {
+          explicitResolvedUidMap[uid] = {
+            traderProfileId: m.traderProfileId,
+            l1AffiliateId: m.l1AffiliateId ?? null,
+            b2bAgencyId: m.b2bAgencyId ?? null,
+            waterfallConfig: m.waterfallConfig,
+            traderEmail: m.traderEmail,
+            referrerEmail: m.referrerEmail,
+          };
+          if (m.b2bAgencyId && m.b2bAgencyId.trim() !== '') {
+            explicitB2bAgencyUids.add(uid);
+          }
+        }
+      }
+    }
+
+    // Enforce 30-day shadow gate for KuCoin & Gate.io (and explicit `shadowMode: true` dry runs)
+    if (body.shadowMode === true) {
+      const shadowRun = await runSingleExchangePoll({
+        db,
+        r2: r2Bucket,
+        envBag: {},
+        triggerSource: 'admin_manual',
+        exchange: activeExchange,
+        forceShadow: true,
+        nowMs: Date.parse(body.statementPeriodEnd) || Date.now(),
+        lookbackMs: Math.max(
+          0,
+          (Date.parse(body.statementPeriodEnd) || Date.now()) -
+            (Date.parse(body.statementPeriodStart) || Date.now())
+        ),
+        override: {
+          rawPartnerPayload: body.rawPartnerPayload,
+          walletStatement: {
+            rawWalletStatementPayload: body.rawWalletStatementPayload,
+            walletCashCollectedUsd: body.walletCashCollectedUsd,
+          },
+          uidToProfileMap: explicitResolvedUidMap,
+          startTimeMs: Date.parse(body.statementPeriodStart),
+          endTimeMs: Date.parse(body.statementPeriodEnd),
+        },
+      });
+      return NextResponse.json(
+        {
+          success: true,
+          mode: 'SHADOW_ONLY',
+          shadowReconciliationId: shadowRun.shadowReconciliationId,
+          partnerEvidenceId: shadowRun.evidenceId,
+          walletEvidenceId: shadowRun.walletEvidenceId,
+          mintedBatches: 0,
+          clawbackBatches: 0,
+          blockedByFraud: 0,
+          status: shadowRun.status,
+        },
+        { status: 200 }
+      );
+    }
+
+    if (adapter.status === 'SHADOW_ONLY') {
+      const modeDecision = await resolveExchangeExecutionMode(db, activeExchange);
+      if (modeDecision.mode === 'SHADOW_ONLY') {
+        return NextResponse.json(
+          {
+            success: false,
+            code: 'SHADOW_MODE_PROMOTION_REQUIRED',
+            exchange: activeExchange,
+            error: `Partner exchange '${activeExchange}' is in mandatory 30-day shadow reconciliation mode; promote PARTNER_${activeExchange.toUpperCase()}_LIVE to 'true' after clean shadow audit or pass shadowMode: true`,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const parsedBatch = await adapter.parsePayload(body.rawPartnerPayload, {
       periodEndIso: body.statementPeriodEnd,
     });
 
-    // Pre-validate BOTH `uidToProfileMap` AND all clawback target batches BEFORE storing R2 evidence
-    // or burning a unique `MATCHED` reconciliation row!
-    const uidMap = body.uidToProfileMap ?? {};
+    // Pre-validate BOTH `uidToProfileMap` (merged with D1 `trader_exchange_uids`) AND all clawback
+    // target batches BEFORE storing R2 evidence or burning a unique `MATCHED` reconciliation row!
+    const resolvedUidMap = await resolveD1UidAttributions(
+      db,
+      parsedBatch.exchange,
+      parsedBatch.rows,
+      explicitResolvedUidMap
+    );
     const clawbackMap = body.clawbackOriginalBatchMap ?? {};
     const ledger = new DoubleEntryLedgerService(db);
+
+    const ledgerKeysByExternalRecord = new Map<string, string[]>();
+    for (const row of parsedBatch.rows) {
+      if (!row.isClawbackOrAdjustment && row.signedUnits1e8 > BigInt(0)) {
+        ledgerKeysByExternalRecord.set(row.externalRecordId, [
+          `ingest:${row.externalRecordId}`,
+        ]);
+      } else if (row.isClawbackOrAdjustment && row.signedUnits1e8 < BigInt(0)) {
+        ledgerKeysByExternalRecord.set(row.externalRecordId, [
+          `ingest_clawback:${row.externalRecordId}`,
+          `poller_void:${row.externalRecordId}`,
+          `poller_post:${row.externalRecordId}`,
+          `ingest_void:${row.externalRecordId}`,
+          `ingest_post:${row.externalRecordId}`,
+        ]);
+      }
+    }
+    const existingLedgerKeys = await findExistingLedgerIdempotencyKeys(
+      db,
+      Array.from(ledgerKeysByExternalRecord.values()).flat()
+    );
+    const isRowAlreadyApplied = (externalRecordId: string): boolean =>
+      (ledgerKeysByExternalRecord.get(externalRecordId) ?? []).some((key) =>
+        existingLedgerKeys.has(key)
+      );
 
     const unmappedTraderUids = new Set<string>();
     const resolvedClawbacks = new Map<string, string>();
@@ -164,17 +291,22 @@ export async function POST(request: NextRequest): Promise<Response> {
 
     for (const row of parsedBatch.rows) {
       if (!row.isClawbackOrAdjustment && row.signedUnits1e8 > BigInt(0)) {
-        positiveAllocatedSum += row.signedUnits1e8;
-        const mapped = uidMap[row.traderUid];
+        const mapped = resolvedUidMap.get(row.traderUid);
         if (!mapped || !mapped.traderProfileId || mapped.traderProfileId.trim() === '') {
           unmappedTraderUids.add(row.traderUid);
+        }
+        if (!isRowAlreadyApplied(row.externalRecordId)) {
+          positiveAllocatedSum += row.signedUnits1e8;
         }
         continue;
       }
 
       if (row.isClawbackOrAdjustment && row.signedUnits1e8 < BigInt(0)) {
+        const alreadyApplied = isRowAlreadyApplied(row.externalRecordId);
         const clawbackUnits = -row.signedUnits1e8;
-        totalClawbackUnits += clawbackUnits;
+        if (!alreadyApplied) {
+          totalClawbackUnits += clawbackUnits;
+        }
 
         let targetBatchId: string | undefined =
           clawbackMap[row.externalRecordId] ?? clawbackMap[row.traderUid];
@@ -192,6 +324,13 @@ export async function POST(request: NextRequest): Promise<Response> {
             .bind(parsedBatch.exchange, row.traderUid)
             .first<{ id: string }>();
           targetBatchId = latestBatchRow?.id ?? undefined;
+        }
+
+        if (alreadyApplied) {
+          if (targetBatchId) {
+            resolvedClawbacks.set(row.externalRecordId, targetBatchId);
+          }
+          continue;
         }
 
         if (!targetBatchId) {
@@ -280,21 +419,28 @@ export async function POST(request: NextRequest): Promise<Response> {
       statementPeriodEnd: body.statementPeriodEnd,
     });
 
+    const allRowsAlreadyApplied =
+      parsedBatch.rows.length > 0 &&
+      positiveAllocatedSum === BigInt(0) &&
+      totalClawbackUnits === BigInt(0);
+
     // Reconcile full gross positive commissions (`positiveAllocatedSum`) against net cash collected
     // (`walletCashUnits`) plus verified batch clawback deductions (`totalClawbackUnits`), so mixed
     // batches both verify `walletCashUnits + totalClawbackUnits ≈ positiveAllocatedSum` (< $0.01)
     // AND allow minting all `positiveAllocatedSum` commissions up to the atomic cap!
-    const reconciliation = await reconcilePartnerCashBatch(db, {
-      exchange: parsedBatch.exchange,
-      evidenceId: partnerEvidence.id,
-      walletEvidenceId: walletEvidence.id,
-      uidAllocatedUnits: positiveAllocatedSum,
-      walletCashCollectedUnits: walletCashUnits,
-      clawbackOffsetUnits: totalClawbackUnits,
-      r2: r2Bucket,
-    });
+    const reconciliation = allRowsAlreadyApplied
+      ? null
+      : await reconcilePartnerCashBatch(db, {
+          exchange: parsedBatch.exchange,
+          evidenceId: partnerEvidence.id,
+          walletEvidenceId: walletEvidence.id,
+          uidAllocatedUnits: positiveAllocatedSum,
+          walletCashCollectedUnits: walletCashUnits,
+          clawbackOffsetUnits: totalClawbackUnits,
+          r2: r2Bucket,
+        });
 
-    if (reconciliation.status !== 'MATCHED') {
+    if (reconciliation && reconciliation.status !== 'MATCHED') {
       return NextResponse.json(
         {
           success: false,
@@ -308,23 +454,47 @@ export async function POST(request: NextRequest): Promise<Response> {
     }
 
     const fraudEngine = new M2SybilGraphEngine();
+    const telemetryCache = createFraudTelemetryBatchCache();
+    const fraudVerdicts = new Map<string, Promise<M2FraudEvaluationVerdict>>();
+    const evaluateAttribution = (
+      traderId: string,
+      referrerId: string,
+      evaluate: () => Promise<M2FraudEvaluationVerdict>
+    ): Promise<M2FraudEvaluationVerdict> => {
+      const key = `${traderId.trim()}\u0000${referrerId.trim()}`;
+      const existing = fraudVerdicts.get(key);
+      if (existing) return existing;
+      const pending = evaluate();
+      fraudVerdicts.set(key, pending);
+      void pending.catch(() => fraudVerdicts.delete(key));
+      return pending;
+    };
+    // The request carries the ADMIN OPERATOR's IP, never the trader's or referrer's.
+    // Pass requestIp: null into attribution fraud telemetry so operator IP never pollutes Sybil checks.
     let mintedBatches = 0;
     let clawbackBatches = 0;
     let blockedByFraud = 0;
+    let replayReconciliationId: string | null = null;
 
     for (const row of parsedBatch.rows) {
+      const alreadyApplied = isRowAlreadyApplied(row.externalRecordId);
       if (row.isClawbackOrAdjustment && row.signedUnits1e8 < BigInt(0)) {
         const clawbackUnits = -row.signedUnits1e8;
-        const resolvedOriginalBatchId = resolvedClawbacks.get(row.externalRecordId)!;
+        const resolvedOriginalBatchId = resolvedClawbacks.get(row.externalRecordId);
+        if (!resolvedOriginalBatchId) {
+          continue;
+        }
 
-        await ledger.applyClawback({
+        const clawbackResult = await ledger.applyClawback({
           idempotencyKey: `ingest_clawback:${row.externalRecordId}`,
           originalBatchId: resolvedOriginalBatchId,
           clawbackUnits,
           reason: `Partner adjustment ${parsedBatch.exchange}:${row.externalRecordId}`,
           recoverFromFutureInflight: Boolean(body.recoverClawbackFromFutureInflight),
         });
-        clawbackBatches += 1;
+        if (!clawbackResult.isReplay && !alreadyApplied) {
+          clawbackBatches += 1;
+        }
         continue;
       }
 
@@ -332,45 +502,166 @@ export async function POST(request: NextRequest): Promise<Response> {
         continue;
       }
 
-      const mapped = uidMap[row.traderUid]!;
+      const mapped = resolvedUidMap.get(row.traderUid)!;
+      const explicitB2bAgencyId = explicitB2bAgencyUids.has(row.traderUid)
+        ? (mapped.b2bAgencyId ?? null)
+        : null;
       let effectiveL1AffiliateId = mapped.l1AffiliateId ?? null;
+      let waterfallConfig = mapped.waterfallConfig;
+
+      // Resolve the provisioned upline B2B agency override when the operator did not pin
+      // one explicitly, so the L2 spread leg is only paid to a real agency partner.
+      let effectiveB2bAgencyId = explicitB2bAgencyId;
+      if (!effectiveB2bAgencyId && effectiveL1AffiliateId) {
+        const agencyOverride = await resolveUplineB2bAgencyOverride(
+          db,
+          effectiveL1AffiliateId,
+          telemetryCache
+        );
+        if (agencyOverride) {
+          effectiveB2bAgencyId = agencyOverride.b2bAgencyId;
+          waterfallConfig = {
+            ...waterfallConfig,
+            tier2ShareOfSpread:
+              waterfallConfig?.tier2ShareOfSpread ??
+              agencyOverride.defaultTier2ShareOfSpread,
+          };
+        }
+      }
+
       if (effectiveL1AffiliateId) {
-        const fraudVerdict = await fraudEngine.evaluate(
-          db as unknown as LegacyD1Database,
-          {
-            eventType: 'referral_attribution',
-            traderId: mapped.traderProfileId,
-            referrerId: effectiveL1AffiliateId,
-            traderEmail: mapped.traderEmail,
-            referrerEmail: mapped.referrerEmail,
+        const l1AffiliateId = effectiveL1AffiliateId;
+        const fraudVerdict = await evaluateAttribution(
+          mapped.traderProfileId,
+          l1AffiliateId,
+          async () => {
+            const telemetry = await loadAttributionFraudTelemetry(
+              db,
+              {
+                traderId: mapped.traderProfileId,
+                referrerId: l1AffiliateId,
+                traderEmail: mapped.traderEmail,
+                referrerEmail: mapped.referrerEmail,
+                requestIp: null,
+              },
+              telemetryCache
+            );
+            return fraudEngine.evaluate(
+              db as unknown as LegacyD1Database,
+              {
+                eventType: 'referral_attribution',
+                traderId: mapped.traderProfileId,
+                referrerId: l1AffiliateId,
+                traderEmail: telemetry.traderEmail,
+                referrerEmail: telemetry.referrerEmail,
+                traderIpHash: telemetry.traderIpHash,
+                referrerIpHash: telemetry.referrerIpHash,
+                traderDeviceHash: telemetry.traderDeviceHash,
+                referrerDeviceHash: telemetry.referrerDeviceHash,
+                signupDeltaMinutes: telemetry.signupDeltaMinutes,
+                sameDeviceRecentSignups10m: telemetry.sameDeviceRecentSignups10m,
+                subSecondClickBurstCount: telemetry.subSecondClickBurstCount,
+              }
+            );
           }
         );
         if (!fraudVerdict.allowed) {
           effectiveL1AffiliateId = null;
-          blockedByFraud += 1;
+          // The L2 leg is paid through the L1 upline chain; a blocked L1 cannot
+          // pass an override through to its own upstream agency.
+          effectiveB2bAgencyId = null;
+          if (!alreadyApplied) {
+            blockedByFraud += 1;
+          }
         }
       }
 
-      await ledger.recordVerifiedCommissionInflight({
+      if (effectiveB2bAgencyId) {
+        const b2bAgencyId = effectiveB2bAgencyId;
+        const agencyVerdict = await evaluateAttribution(
+          mapped.traderProfileId,
+          b2bAgencyId,
+          async () => {
+            const agencyTelemetry = await loadAttributionFraudTelemetry(
+              db,
+              {
+                traderId: mapped.traderProfileId,
+                referrerId: b2bAgencyId,
+                traderEmail: mapped.traderEmail,
+                referrerEmail: undefined,
+                requestIp: null,
+              },
+              telemetryCache
+            );
+            return fraudEngine.evaluate(
+              db as unknown as LegacyD1Database,
+              {
+                eventType: 'referral_attribution',
+                traderId: mapped.traderProfileId,
+                referrerId: b2bAgencyId,
+                traderEmail: agencyTelemetry.traderEmail,
+                referrerEmail: agencyTelemetry.referrerEmail,
+                traderIpHash: agencyTelemetry.traderIpHash,
+                referrerIpHash: agencyTelemetry.referrerIpHash,
+                traderDeviceHash: agencyTelemetry.traderDeviceHash,
+                referrerDeviceHash: agencyTelemetry.referrerDeviceHash,
+                signupDeltaMinutes: agencyTelemetry.signupDeltaMinutes,
+                sameDeviceRecentSignups10m: agencyTelemetry.sameDeviceRecentSignups10m,
+                subSecondClickBurstCount: agencyTelemetry.subSecondClickBurstCount,
+              }
+            );
+          }
+        );
+        if (!agencyVerdict.allowed) {
+          effectiveB2bAgencyId = null;
+          if (!alreadyApplied) {
+            blockedByFraud += 1;
+          }
+        }
+      }
+
+      const mintResult = await ledger.recordVerifiedCommissionInflight({
         idempotencyKey: `ingest:${row.externalRecordId}`,
         exchange: parsedBatch.exchange,
         traderUid: row.traderUid,
         traderId: mapped.traderProfileId,
         l1AffiliateId: effectiveL1AffiliateId,
-        b2bAgencyId: mapped.b2bAgencyId ?? null,
-        waterfallConfig: mapped.waterfallConfig,
-        reconciliationId: reconciliation.id,
+        b2bAgencyId: effectiveB2bAgencyId,
+        waterfallConfig,
+        reconciliationId: reconciliation?.id ?? `recon_replay_${row.externalRecordId}`,
         evidenceId: partnerEvidence.id,
         grossCommissionUnits: row.signedUnits1e8,
         r2: r2Bucket,
       });
-      mintedBatches += 1;
+      if (!mintResult.isReplay && !alreadyApplied) {
+        mintedBatches += 1;
+      } else if (!replayReconciliationId) {
+        replayReconciliationId = mintResult.batch.reconciliationId;
+      }
+
+      if (mapped.uidRecordId && mapped.verificationStatus === 'PENDING_FIRST_TRADE') {
+        const verifiedIso = new Date().toISOString();
+        try {
+          await db
+            .prepare(
+              `UPDATE trader_exchange_uids
+               SET verification_status = 'VERIFIED_BY_PARTNER',
+                   verified_at = COALESCE(verified_at, ?),
+                   updated_at = ?
+               WHERE id = ? AND verification_status = 'PENDING_FIRST_TRADE'`
+            )
+            .bind(verifiedIso, verifiedIso, mapped.uidRecordId)
+            .run();
+        } catch {
+          // Non-fatal metadata promotion
+        }
+      }
     }
 
     return NextResponse.json(
       {
         success: true,
-        reconciliationId: reconciliation.id,
+        reconciliationId: reconciliation?.id ?? replayReconciliationId,
         partnerEvidenceSha256: partnerEvidence.payloadSha256,
         walletEvidenceSha256: walletEvidence.payloadSha256,
         mintedBatches,

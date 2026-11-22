@@ -82,12 +82,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (su?.user?.id) {
         const { getEmailQueueService } = await import('@/lib/emails/email-queue')
         const { welcomeTemplate } = await import('@/lib/emails/templates')
+        const { resolveCanonicalAppOrigin } = await import('@/config/canonical-origin')
         const html = welcomeTemplate({
           userName: fullName,
           userEmail: email,
           locale: 'en',
-          baseUrl: process.env.NEXT_PUBLIC_BASE_URL || 'https://apex-os.com',
- role: (su.user.role as 'shopper' | 'affiliate' | 'admin') || 'shopper',
+          baseUrl: resolveCanonicalAppOrigin({ appEnv: 'production' }),
+          role: (su.user.role as 'shopper' | 'affiliate' | 'admin') || 'shopper',
         })
         void getEmailQueueService().enqueue({
           userId: su.user.id,

@@ -1,0 +1,13 @@
+# Review E — Rà soát điều kiện phát hành / Release-controls review
+
+**Trạng thái / Status: HOLD.** Rà soát độc lập lần đầu trên mã cục bộ; chưa rà soát bản tích hợp cuối hoặc cài đặt GitHub từ xa. / Initial independent source-only review, not final integration or remote GitHub attestation.
+
+| Hạng mục / Item | Kết quả / Disposition |
+|---|---|
+| Trigger GitHub | Push nhánh `feat/**` chạy CI; `deploy.yml` chỉ chạy khi kích hoạt thủ công. Quy trình deploy production không ràng buộc nhánh nguồn trong điều kiện cục bộ. / Ordinary push/PR events do not deploy in the checked-in workflows. Manual production dispatch is not source-branch restricted in the workflow. See `.github/workflows/ci.yml:3–16`, `.github/workflows/deploy.yml:3–15,70–79,120–131`. |
+| Điều kiện nâng hạng shadow / Shadow promotion | Có kiểm tra ngày của batch cũ nhất và lịch sử sai lệch, nhưng không kiểm tra độ mới hoặc độ phủ liên tục. / Oldest-batch age and discrepancy checks do not prove fresh or continuous coverage. See `src/lib/partners/shadow-promotion-gate.ts:115–168`. |
+| Nhật ký đổi cờ / Runtime-flag audit | Hai route ghi cờ trước rồi ghi audit riêng; lỗi audit được bắt và không hoàn tác cờ. Đường promotion trong poller không ghi audit ở nhánh được xem. / Flag writes and audit records are not atomic in the reviewed paths. See `src/app/api/admin/runtime-flags/route.ts:359–396`, `src/app/api/admin/passkey/route.ts:219–256`, `src/app/api/admin/reconciliation/poller/route.ts:193–204`. |
+| Điều kiện kinh tế / Economic gate | Quy trình production gọi kiểm tra trước khi build/deploy; bằng chứng thiếu hoặc không hợp lệ bị từ chối. Chưa xác thực nguồn dữ liệu hoặc kết luận GO hiện tại. / The gate is wired and rejects missing or invalid inputs. Evidence provenance and a current GO verdict are unverified. See `.github/workflows/deploy.yml:110–118`, `scripts/verify-paper-economic-gate.cjs:55–62,153–180`; prior `NO_GO` is in report 18. |
+| Điều kiện pháp lý / Legal release | Chưa có bằng chứng phê duyệt; quy trình deploy được đọc không có bước xác nhận pháp lý. / No legal approval was verified and the reviewed workflow has no legal-attestation step. See `.github/workflows/deploy.yml:70–137`. |
+
+**Còn mở / Open:** Kiểm tra tương thích route sau bản tích hợp cuối; cài đặt bảo vệ nhánh/môi trường và tích hợp deploy bên ngoài; độ phủ shadow; nguồn chứng cứ kinh tế; phê duyệt pháp lý. Không thay đổi cấu hình, không gọi môi trường live và không thay kết luận G15.3. / Final route compatibility, remote protections and integrations, shadow coverage, economic evidence provenance, and legal clearance remain open. No live operation or G15.3 clearance.

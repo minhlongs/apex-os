@@ -6,23 +6,25 @@ import Link from 'next/link';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   ArrowRight,
-  TrendingUp,
-  Shield,
-  BarChart3,
-  Users,
-  Zap,
   BookOpen,
+  Database,
+  FileCheck2,
+  Fingerprint,
+  KeyRound,
+  Shield,
   Terminal,
-  Percent,
+  Users,
+  Wallet,
 } from 'lucide-react';
+import { RebateCalculator } from '@/components/landing/rebate-calculator';
 
-const FEATURE_KEYS = [
-  { icon: Zap, key: 'aiSignals' as const },
-  { icon: Percent, key: 'copyTrading' as const },
-  { icon: Shield, key: 'riskManage' as const },
-  { icon: BarChart3, key: 'paperTrade' as const },
-  { icon: Users, key: 'referral' as const },
-  { icon: TrendingUp, key: 'multiExchange' as const },
+const ASCENDANCY_PILLARS = [
+  { icon: KeyRound, key: 'uidOnlyAttribution' as const },
+  { icon: Database, key: 'atomicLedger' as const },
+  { icon: FileCheck2, key: 'proofOfRebate' as const },
+  { icon: Wallet, key: 'multiChainUsdc' as const },
+  { icon: Users, key: 'twoTierPartner' as const },
+  { icon: Fingerprint, key: 'hsmTreasury' as const },
 ] as const;
 
 export default function LandingPage() {
@@ -31,7 +33,7 @@ export default function LandingPage() {
   const locale = useLocale();
 
   return (
-    <div className="min-h-screen bg-stitch-canvas text-stitch-primary">
+    <div className="min-h-screen bg-stitch-canvas text-stitch-primary flex flex-col">
       <nav className="border-b border-stitch-divider bg-stitch-surface/80 backdrop-blur">
         <div className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
           <div className="flex items-center gap-6">
@@ -82,8 +84,9 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-6 py-16 md:py-24">
-        <section className="text-center mb-20">
+      <main className="flex-1 max-w-7xl mx-auto w-full px-6 py-16 md:py-24 space-y-20">
+        {/* Hero Section */}
+        <section className="text-center">
           <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-stitch-surface border border-stitch-divider text-stitch-emerald text-xs font-mono uppercase tracking-wider mb-6">
             <Shield className="w-3.5 h-3.5" />
             <span>{t('heroBadge')}</span>
@@ -117,54 +120,62 @@ export default function LandingPage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-3xl mx-auto mt-14">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-4xl mx-auto mt-14">
             <div className="stitch-obsidian-card p-5 text-center">
               <div className="text-2xl md:text-3xl font-bold font-mono text-stitch-emerald stitch-tabular-nums">
-                2.7 – 12.0 bps
+                47.5% / 14.25% / ≤4.75%
               </div>
               <div className="text-xs text-stitch-muted uppercase tracking-wider mt-1">
-                {t('stats.volume')}
+                {t('stats.waterfall')}
               </div>
             </div>
             <div className="stitch-obsidian-card p-5 text-center">
               <div className="text-2xl md:text-3xl font-bold font-mono text-stitch-primary stitch-tabular-nums">
-                30% / 10% / 5%
+                10^-8 USD · T+7
               </div>
               <div className="text-xs text-stitch-muted uppercase tracking-wider mt-1">
-                {t('stats.users')}
+                {t('stats.ledger')}
               </div>
             </div>
             <div className="stitch-obsidian-card p-5 text-center">
-              <div className="text-2xl md:text-3xl font-bold font-mono text-stitch-cyan stitch-tabular-nums">
-                Binance · Bybit · OKX · KuCoin
+              <div className="text-xl md:text-2xl font-bold font-mono text-stitch-cyan stitch-tabular-nums">
+                Stellar · Arbitrum · Base
               </div>
               <div className="text-xs text-stitch-muted uppercase tracking-wider mt-1">
-                {t('stats.masters')}
+                {t('stats.rails')}
               </div>
             </div>
           </div>
         </section>
 
-        <section>
-          <h2 className="text-2xl md:text-3xl font-bold text-center text-stitch-primary mb-12">
+        {/* Safe-Spread Waterfall Rebate Calculator */}
+        <RebateCalculator locale={locale} />
+
+        {/* 6 Ascendancy Non-Custodial Infrastructure Pillars */}
+        <section aria-labelledby="ascendancy-pillars-heading">
+          <h2
+            id="ascendancy-pillars-heading"
+            className="text-2xl md:text-3xl font-bold text-center text-stitch-primary mb-12"
+          >
             {t('features.title')}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {FEATURE_KEYS.map((f) => {
-              const Icon = f.icon;
+            {ASCENDANCY_PILLARS.map((pillar) => {
+              const Icon = pillar.icon;
               return (
                 <div
-                  key={f.key}
+                  key={pillar.key}
+                  data-testid={`pillar-${pillar.key}`}
                   className="stitch-obsidian-card p-6 hover:border-stitch-emerald/60 transition-colors"
                 >
                   <div className="w-10 h-10 rounded-lg bg-stitch-well border border-stitch-divider flex items-center justify-center mb-4">
                     <Icon className="w-5 h-5 text-stitch-emerald" />
                   </div>
                   <h3 className="text-lg font-semibold text-stitch-primary mb-2">
-                    {t(`features.${f.key}.title`)}
+                    {t(`features.${pillar.key}.title`)}
                   </h3>
                   <p className="text-sm text-stitch-muted leading-relaxed">
-                    {t(`features.${f.key}.desc`)}
+                    {t(`features.${pillar.key}.desc`)}
                   </p>
                 </div>
               );
@@ -173,8 +184,44 @@ export default function LandingPage() {
         </section>
       </main>
 
-      <footer className="border-t border-stitch-divider py-8 text-center text-stitch-muted text-sm">
-        <p>{t('footer.rights')}</p>
+      <footer className="border-t border-stitch-divider bg-stitch-surface/40 py-10 px-6 text-stitch-muted text-sm">
+        <div className="max-w-7xl mx-auto flex flex-col gap-6">
+          <p className="text-xs text-stitch-muted max-w-4xl leading-relaxed">
+            {t('footer.disclaimer')}
+          </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-stitch-divider/60">
+            <p>{t('footer.rights')}</p>
+            <nav
+              aria-label="Legal and regulatory compliance"
+              className="flex flex-wrap items-center gap-6 text-xs font-medium"
+            >
+              <Link
+                href={`/${locale}/b2b/proof-of-rebate`}
+                className="hover:text-stitch-emerald transition-colors"
+              >
+                {locale === 'vi' ? 'Xác minh Proof-of-Rebate (B2B)' : 'B2B Proof-of-Rebate'}
+              </Link>
+              <Link
+                href={`/${locale}/legal/terms`}
+                className="hover:text-stitch-emerald transition-colors"
+              >
+                {t('footer.terms')}
+              </Link>
+              <Link
+                href={`/${locale}/legal/non-custodial-disclosure`}
+                className="hover:text-stitch-emerald transition-colors"
+              >
+                {t('footer.nonCustodialDisclosure')}
+              </Link>
+              <Link
+                href={`/${locale}/legal/geo-restriction`}
+                className="hover:text-stitch-emerald transition-colors"
+              >
+                {t('footer.geoRestriction')}
+              </Link>
+            </nav>
+          </div>
+        </div>
       </footer>
     </div>
   );

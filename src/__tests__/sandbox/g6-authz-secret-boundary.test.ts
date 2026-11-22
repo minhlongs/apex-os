@@ -275,6 +275,16 @@ function initializeG6Database(sqlite: Database.Database): void {
       added_at TEXT DEFAULT (datetime('now')),
       PRIMARY KEY (chain, address)
     );
+
+    CREATE TABLE compliance_audit_logs (
+      id TEXT PRIMARY KEY,
+      action TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      actor_id TEXT,
+      target_id TEXT,
+      details TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   const migration028 = fs.readFileSync(

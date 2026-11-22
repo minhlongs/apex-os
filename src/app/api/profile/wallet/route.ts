@@ -13,8 +13,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB, type D1Database } from '@/lib/db';
 import { getAuthenticatedUser, resolveDatabase } from '@/lib/auth/session-helper';
+import { sanitizeApiErrorResponse } from '@/lib/auth/passkey-step-up';
 import { isAscendancyGuardActive } from '@/lib/compliance/legacy-route-guards';
 import { error as logError, warn as logWarn } from '@/lib/logger';
+import {
+  buildD1RateLimitResponse,
+  enforcePersistentD1RateLimit,
+} from '@/lib/security/d1-rate-limiter';
+import {
+  buildCsrfForbiddenResponse,
+  verifyTrustedMutationOrigin,
+} from '@/lib/security/http-hardening';
 import {
   isPhase1PayoutChain,
   proposeTimelockedWalletChange,
@@ -48,6 +57,11 @@ function getDatabase(): D1Database | null {
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
+    const csrfDecision = verifyTrustedMutationOrigin(request);
+    if (!csrfDecision.allowed) {
+      return buildCsrfForbiddenResponse(csrfDecision);
+    }
+
     // 1. Authenticate user
     const user = await getAuthenticatedUser(request);
     if (!user || !user.id) {
@@ -87,8 +101,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     const normalizedInputChain = rawChain.trim().toLowerCase();
 
-    // 3. Acquire database early so Phase 1 48h Timelock & Chain Gate can run before legacy checks
+    // 3. Acquire database early so rate limiting and Phase 1 48h Timelock & Chain Gate can run before legacy checks
     const db = getDatabase();
+    if (db) {
+      const rateCheck = await enforcePersistentD1RateLimit(db, {
+        endpointType: 'profile_wallet_post_user',
+        identifier: user.id,
+        maxRequests: 100,
+        windowSeconds: 60,
+      });
+      if (!rateCheck.allowed) {
+        return buildD1RateLimitResponse(rateCheck);
+      }
+    }
     if (await isAscendancyGuardActive(db, 'wallet_change_requests')) {
       if (!db) {
         return NextResponse.json(
@@ -222,10 +247,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   } catch (error) {
     logError('[Profile:Wallet] Unexpected error:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Internal Server Error' },
-      { status: 500 }
-    );
+    return sanitizeApiErrorResponse(error, 500);
   }
 }
 
@@ -268,10 +290,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   } catch (error) {
     logError('[Profile:Wallet:GET] Unexpected error:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Internal Server Error' },
-      { status: 500 }
-    );
+    return sanitizeApiErrorResponse(error, 500);
   }
 }
 
@@ -281,6 +300,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
  */
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
   try {
+    const csrfDecision = verifyTrustedMutationOrigin(request);
+    if (!csrfDecision.allowed) {
+      return buildCsrfForbiddenResponse(csrfDecision);
+    }
+
     const user = await getAuthenticatedUser(request);
     if (!user || !user.id) {
       return NextResponse.json(
@@ -295,6 +319,16 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
         { success: false, error: 'Database service unavailable' },
         { status: 503 }
       );
+    }
+
+    const rateCheck = await enforcePersistentD1RateLimit(db, {
+      endpointType: 'profile_wallet_delete_user',
+      identifier: user.id,
+      maxRequests: 30,
+      windowSeconds: 60,
+    });
+    if (!rateCheck.allowed) {
+      return buildD1RateLimitResponse(rateCheck);
     }
 
     if (await isAscendancyGuardActive(db, 'wallet_change_requests')) {
@@ -336,9 +370,6 @@ export async function DELETE(request: NextRequest): Promise<NextResponse> {
     );
   } catch (error) {
     logError('[Profile:Wallet:DELETE] Unexpected error:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Internal Server Error' },
-      { status: 500 }
-    );
+    return sanitizeApiErrorResponse(error, 500);
   }
 }

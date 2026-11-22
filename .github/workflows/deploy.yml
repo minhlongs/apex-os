@@ -73,10 +73,11 @@ jobs:
     needs: [deploy-staging]
     if: |
       needs.deploy-staging.result == 'success' &&
-      github.event.inputs.action == 'deploy-production'
+      github.event.inputs.action == 'deploy-production' &&
+      github.ref == 'refs/heads/master'
     environment:
       name: production
-      url: https://apex-os.com
+      url: ${{ vars.PRODUCTION_URL || 'https://apex-os.agencyos-openclaw.workers.dev' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -133,12 +134,16 @@ jobs:
       - name: Verify production deployment
         env:
           EXPECTED_SHA: ${{ github.sha }}
-        run: bash scripts/verify-deployment.sh https://apex-os.com "${EXPECTED_SHA}"
+          PRODUCTION_TARGET_URL: ${{ vars.PRODUCTION_URL || 'https://apex-os.agencyos-openclaw.workers.dev' }}
+        run: bash scripts/verify-deployment.sh "${PRODUCTION_TARGET_URL}" "${EXPECTED_SHA}"
 
-  rollback:
-    name: Rollback Deployment
+  rollback-staging:
+    name: Rollback Staging (apex-os-staging)
     runs-on: ubuntu-latest
-    if: github.event.inputs.action == 'rollback-staging' || github.event.inputs.action == 'rollback-production'
+    if: github.event.inputs.action == 'rollback-staging'
+    environment:
+      name: staging
+      url: https://apex-os-staging.agencyos-openclaw.workers.dev
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -153,18 +158,47 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '26.7.0'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Execute rollback
+      - name: Execute staging rollback
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          ACTION: ${{ github.event.inputs.action }}
-        run: |
-          if [ "$ACTION" = "rollback-staging" ]; then
-            ./node_modules/.bin/wrangler rollback --config wrangler.staging.jsonc -y
-          else
-            ./node_modules/.bin/wrangler rollback --config wrangler.jsonc -y
-          fi
+        run: ./node_modules/.bin/wrangler rollback --config wrangler.staging.jsonc -y
+
+  rollback-production:
+    name: Rollback Production (apex-os)
+    runs-on: ubuntu-latest
+    if: |
+      github.event.inputs.action == 'rollback-production' &&
+      github.ref == 'refs/heads/master'
+    environment:
+      name: production
+      url: ${{ vars.PRODUCTION_URL || 'https://apex-os.agencyos-openclaw.workers.dev' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Assert Cloudflare credentials are configured
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: bash scripts/assert-cloudflare-credentials.sh
+
+      - name: Setup Node.js 26.7.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26.7.0'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Execute production rollback
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: ./node_modules/.bin/wrangler rollback --config wrangler.jsonc -y
