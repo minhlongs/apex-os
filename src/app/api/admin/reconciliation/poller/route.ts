@@ -37,6 +37,11 @@ import {
   type ActivePartnerExchangeId,
   type ExchangePollerOverride,
 } from '@/lib/partners';
+import {
+  persistRuntimeFlagWithAudit,
+  RuntimeFlagAuditPersistenceError,
+  type AtomicFlagAuditDatabase,
+} from '@/lib/admin/runtime-flag-audit';
 
 interface WorkerBindings {
   DB?: AuthD1Database;
@@ -162,7 +167,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       }
 
       const flagKey = SHADOW_PROMOTION_FLAG_KEYS[targetExchange];
-      const allowTestClockOverride = process.env.NODE_ENV === 'test';
+      const allowTestClockOverride =
+        process.env.NODE_ENV === 'test' && !isProductionOrStagingRuntime();
       const evalNowMs =
         allowTestClockOverride && typeof body.nowMs === 'number' && Number.isFinite(body.nowMs)
           ? body.nowMs
@@ -190,22 +196,42 @@ export async function POST(request: NextRequest): Promise<Response> {
             ? `Promoted ${targetExchange} to live after >=30d clean shadow audit`
             : `Demoted ${targetExchange} to shadow-only mode`;
 
-      await db
-        .prepare(
-          `INSERT INTO system_runtime_flags (flag_key, flag_value, reason, updated_by, updated_at)
-           VALUES (?, ?, ?, ?, ?)
-           ON CONFLICT(flag_key) DO UPDATE SET
-             flag_value = excluded.flag_value,
-             reason = excluded.reason,
-             updated_by = excluded.updated_by,
-             updated_at = excluded.updated_at`
-        )
-        .bind(flagKey, body.liveEnabled ? 'true' : 'false', reason, authz.adminId, nowIso)
-        .run();
+      let auditId: string;
+      try {
+        const persisted = await persistRuntimeFlagWithAudit(
+          db as unknown as AtomicFlagAuditDatabase,
+          {
+            flagKey,
+            flagValue: body.liveEnabled ? 'true' : 'false',
+            reason,
+            updatedBy: authz.adminId ?? 'admin',
+            source: '/api/admin/reconciliation/poller',
+            updatedAtIso: nowIso,
+            extraDetails: {
+              exchange: targetExchange,
+              action: 'promote_shadow',
+            },
+          }
+        );
+        auditId = persisted.auditId;
+      } catch (err: unknown) {
+        if (err instanceof RuntimeFlagAuditPersistenceError) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: err.code,
+              error: 'Shadow promotion flag update aborted because compliance audit persistence failed',
+            },
+            { status: 500 }
+          );
+        }
+        throw err;
+      }
 
       return NextResponse.json(
         {
           success: true,
+          auditId,
           exchange: targetExchange,
           flagKey,
           liveEnabled: body.liveEnabled,
@@ -258,7 +284,8 @@ export async function POST(request: NextRequest): Promise<Response> {
       );
     }
 
-    const isTestEnv = process.env.NODE_ENV === 'test';
+    const isTestEnv =
+      process.env.NODE_ENV === 'test' && !isProductionOrStagingRuntime();
     if (hasOverrides && !isTestEnv && !body.forceShadow) {
       return NextResponse.json(
         {

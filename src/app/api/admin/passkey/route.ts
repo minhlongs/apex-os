@@ -38,6 +38,11 @@ import {
   resolveShadowPromotionExchange,
   validateShadowPromotionGate,
 } from '@/lib/partners/shadow-promotion-gate';
+import {
+  persistRuntimeFlagWithAudit,
+  RuntimeFlagAuditPersistenceError,
+  type AtomicFlagAuditDatabase,
+} from '@/lib/admin/runtime-flag-audit';
 
 const ALLOWED_RUNTIME_FLAGS = new Set<string>([
   'EMERGENCY_LEDGER_FREEZE',
@@ -217,48 +222,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
 
       const updatedBy = stepUpGuard.adminId ?? 'admin';
-      await db
-        .prepare(
-          `INSERT INTO system_runtime_flags (flag_key, flag_value, reason, updated_by, updated_at)
-           VALUES (?, ?, ?, ?, datetime('now'))
-           ON CONFLICT(flag_key) DO UPDATE SET
-             flag_value = excluded.flag_value,
-             reason = excluded.reason,
-             updated_by = excluded.updated_by,
-             updated_at = datetime('now')`
-        )
-        .bind(flagKey, flagValue, reason, updatedBy)
-        .run();
-
+      let auditId: string;
       try {
-        await db
-          .prepare(
-            `INSERT INTO compliance_audit_logs (
-               id, action, severity, actor_id, target_id, details, created_at
-             ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
-          )
-          .bind(
-            crypto.randomUUID(),
-            'runtime_flag_updated',
-            'high',
-            updatedBy,
+        const persisted = await persistRuntimeFlagWithAudit(
+          db as unknown as AtomicFlagAuditDatabase,
+          {
             flagKey,
-            JSON.stringify({
-              flagKey,
-              flagValue,
-              reason,
-              source: '/api/admin/passkey',
-            })
-          )
-          .run();
-      } catch {
-        // compliance_audit_logs may be absent in minimal unit test fixtures
+            flagValue,
+            reason,
+            updatedBy,
+            source: '/api/admin/passkey',
+          }
+        );
+        auditId = persisted.auditId;
+      } catch (err: unknown) {
+        if (err instanceof RuntimeFlagAuditPersistenceError) {
+          return NextResponse.json(
+            {
+              success: false,
+              code: err.code,
+              error: 'Runtime flag update aborted because compliance audit persistence failed',
+            },
+            { status: 500 }
+          );
+        }
+        throw err;
       }
 
       return NextResponse.json(
         {
           success: true,
           code: 'RUNTIME_FLAG_UPDATED',
+          auditId,
           flagKey,
           flagValue,
           updatedBy: stepUpGuard.adminId,

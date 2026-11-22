@@ -591,10 +591,31 @@ describe('Phase 2 Workstream A: 5-Exchange HTTP Poller + KuCoin/Gate.io Shadow A
       const prematureJson = await prematurePromoteRes.json();
       expect(prematureJson.code).toBe('SHADOW_WINDOW_UNDER_30_DAYS');
 
-      // 4. Backdate earliest clean shadow batch to 31 days ago -> promotion succeeds!
+      // 4. Seed a full 31-day continuous daily clean shadow window -> promotion succeeds!
       sqlite
         .prepare(`UPDATE partner_shadow_reconciliations SET created_at = ? WHERE id = 'sh_kc_recent'`)
         .run(new Date(Date.now() - 31 * 24 * 3600_000).toISOString());
+      for (let dayOffset = 30; dayOffset >= 0; dayOffset--) {
+        const tsIso = new Date(Date.now() - dayOffset * 24 * 3600_000).toISOString();
+        const evId = `ev_kc_d${dayOffset}`;
+        sqlite
+          .prepare(
+            `INSERT INTO r2_evidence_objects
+               (id, exchange, source_kind, r2_object_key, payload_sha256, byte_length,
+                statement_period_start, statement_period_end, retention_until)
+             VALUES (?, 'kucoin', 'rest_poll', ?, ?, 256, ?, ?, '2031-10-01T00:00:00Z')`
+          )
+          .run(evId, `kucoin/shadow/d${dayOffset}.json`, 'f'.repeat(64), tsIso, tsIso);
+        sqlite
+          .prepare(
+            `INSERT INTO partner_shadow_reconciliations
+               (id, exchange, evidence_id, wallet_evidence_id, row_count, mapped_uid_count,
+                unmapped_uid_count, simulated_gross_units, wallet_cash_collected_units, discrepancy_units,
+                status, created_at)
+             VALUES (?, 'kucoin', ?, NULL, 1, 1, 0, 1000000000, 1000000000, 0, 'PROMOTED_READY', ?)`
+          )
+          .run(`sh_kc_d${dayOffset}`, evId, tsIso);
+      }
 
       const okPromoteRes = await pollerAdminPost(
         new NextRequest('https://apexos.app/api/admin/reconciliation/poller', {

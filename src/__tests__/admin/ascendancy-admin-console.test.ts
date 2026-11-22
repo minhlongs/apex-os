@@ -312,6 +312,16 @@ function initializeAdminConsoleDb(sqlite: Database.Database): void {
       name TEXT NOT NULL,
       url TEXT NOT NULL
     );
+
+    CREATE TABLE compliance_audit_logs (
+      id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      action TEXT NOT NULL,
+      severity TEXT NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+      actor_id TEXT,
+      target_id TEXT,
+      details TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   const migration028Path = path.join(
@@ -864,19 +874,29 @@ describe('Ascendancy Admin Console — WebAuthn Browser Bridge & Runtime Flags A
         shadowWindowStart
       );
 
-    sqlite
-      .prepare(
-        `INSERT INTO partner_shadow_reconciliations (
-           id, exchange, evidence_id, row_count, mapped_uid_count, unmapped_uid_count,
-           simulated_gross_units, wallet_cash_collected_units, discrepancy_units,
-           status, notes, created_at
-         ) VALUES
-           ('sh_kucoin_promoted', 'kucoin', 'ev_shadow_kucoin_window', 30, 30, 0,
-            5400000000, 5400000000, 0, 'PROMOTED_READY', '31-day clean window', ?),
-           ('sh_gateio_promoted', 'gateio', 'ev_shadow_gateio_window', 30, 30, 0,
-            5400000000, 5400000000, 0, 'PROMOTED_READY', '31-day clean window', ?)`
-      )
-      .run(shadowWindowStart, shadowWindowStart);
+    for (const ex of ['kucoin', 'gateio'] as const) {
+      for (let dayOffset = 31; dayOffset >= 0; dayOffset--) {
+        const tsIso = new Date(Date.now() - dayOffset * 24 * 60 * 60 * 1000).toISOString();
+        const evId = `ev_shadow_${ex}_d${dayOffset}`;
+        sqlite
+          .prepare(
+            `INSERT OR IGNORE INTO r2_evidence_objects (
+               id, exchange, source_kind, r2_object_key, payload_sha256, byte_length,
+               statement_period_start, statement_period_end, retention_until
+             ) VALUES (?, ?, 'rest_poll', ?, ?, 512, ?, ?, '2031-10-01T00:00:00Z')`
+          )
+          .run(evId, ex, `${ex}/window/day-${dayOffset}.json`, 'c'.repeat(64), tsIso, tsIso);
+        sqlite
+          .prepare(
+            `INSERT INTO partner_shadow_reconciliations (
+               id, exchange, evidence_id, row_count, mapped_uid_count, unmapped_uid_count,
+               simulated_gross_units, wallet_cash_collected_units, discrepancy_units,
+               status, notes, created_at
+             ) VALUES (?, ?, ?, 10, 10, 0, 1800000000, 1800000000, 0, 'PROMOTED_READY', 'Daily clean shadow run', ?)`
+          )
+          .run(`sh_${ex}_d${dayOffset}`, ex, evId, tsIso);
+      }
+    }
 
     for (const promoFlag of promotionFlags) {
       const promoteViaRuntimeFlags = await runtimeFlagsPost(
@@ -945,19 +965,35 @@ describe('Ascendancy Admin Console — WebAuthn Browser Bridge & Runtime Flags A
       )
       .run('a'.repeat(64), 'b'.repeat(64), 'e'.repeat(64));
 
-    sqlite
-      .prepare(
-        `INSERT INTO partner_shadow_reconciliations (
-           id, exchange, evidence_id, row_count, mapped_uid_count, unmapped_uid_count,
-           simulated_gross_units, wallet_cash_collected_units, discrepancy_units,
-           status, notes, created_at
-         ) VALUES (
-           'sh_utc_kucoin_bare', 'kucoin', 'ev_utc_kucoin', 5, 5, 0,
-           1000000000, 1000000000, 0, 'PROMOTED_READY', 'Bare SQLite UTC timestamp',
-           '2026-10-01 00:00:00'
-         )`
-      )
-      .run();
+    // Seed continuous daily bare SQLite UTC rows from 2026-10-01 00:00:00 through 2026-10-30 00:00:00
+    for (let day = 0; day < 30; day++) {
+      const ts = new Date(Date.parse('2026-10-01T00:00:00.000Z') + day * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .replace('T', ' ')
+        .slice(0, 19);
+      const evId = day === 0 ? 'ev_utc_kucoin' : `ev_utc_kucoin_${day}`;
+      if (day > 0) {
+        sqlite
+          .prepare(
+            `INSERT INTO r2_evidence_objects (
+               id, exchange, source_kind, r2_object_key, payload_sha256, byte_length,
+               statement_period_start, statement_period_end, retention_until
+             ) VALUES (?, 'kucoin', 'rest_poll', ?, ?, 512,
+              '2026-10-01T00:00:00Z', '2026-10-01T01:00:00Z', '2031-10-01T00:00:00Z')`
+          )
+          .run(evId, `kucoin/2026-10/utc-${day}.json`, 'a'.repeat(64));
+      }
+      sqlite
+        .prepare(
+          `INSERT INTO partner_shadow_reconciliations (
+             id, exchange, evidence_id, row_count, mapped_uid_count, unmapped_uid_count,
+             simulated_gross_units, wallet_cash_collected_units, discrepancy_units,
+             status, notes, created_at
+           ) VALUES (?, 'kucoin', ?, 5, 5, 0,
+             1000000000, 1000000000, 0, 'PROMOTED_READY', 'Bare SQLite UTC timestamp', ?)`
+        )
+        .run(`sh_utc_kucoin_bare_${day}`, evId, ts);
+    }
 
     const exact30DaysUtcMs = Date.parse('2026-10-31T00:00:00.000Z');
     const oneSecondEarly = await validateShadowPromotionGate(
@@ -975,15 +1011,16 @@ describe('Ascendancy Admin Console — WebAuthn Browser Bridge & Runtime Flags A
       'kucoin',
       exact30DaysUtcMs
     );
-    expect(onExactBoundary).toEqual({
+    expect(onExactBoundary).toMatchObject({
       allowed: true,
-      totalBatches: 1,
+      totalBatches: 30,
       earliestAt: '2026-10-01 00:00:00',
+      distinctDays: 30,
     });
 
     // Insert an older ISO-8601 timestamp ('2026-10-01T18:00:00.000Z') alongside a newer
-    // bare SQLite timestamp ('2026-10-01 23:00:00'). Lexicographically ' ' < 'T' would
-    // pick the 23:00:00 row by mistake; `MIN(datetime(created_at))` picks 18:00:00 UTC.
+    // bare SQLite timestamp ('2026-10-01 23:00:00') plus daily coverage through Oct 31.
+    // Lexicographically ' ' < 'T' would pick 23:00:00 by mistake; UTC ordering picks 18:00:00.
     sqlite
       .prepare(
         `INSERT INTO partner_shadow_reconciliations (
@@ -998,14 +1035,39 @@ describe('Ascendancy Admin Console — WebAuthn Browser Bridge & Runtime Flags A
       )
       .run();
 
+    for (let day = 1; day <= 30; day++) {
+      const tsIso = new Date(
+        Date.parse('2026-10-01T18:00:00.000Z') + day * 24 * 60 * 60 * 1000
+      ).toISOString();
+      const evId = `ev_utc_gateio_d${day}`;
+      sqlite
+        .prepare(
+          `INSERT INTO r2_evidence_objects (
+             id, exchange, source_kind, r2_object_key, payload_sha256, byte_length,
+             statement_period_start, statement_period_end, retention_until
+           ) VALUES (?, 'gateio', 'rest_poll', ?, ?, 512, ?, ?, '2031-10-01T00:00:00Z')`
+        )
+        .run(evId, `gateio/2026-10/d${day}.json`, 'e'.repeat(64), tsIso, tsIso);
+      sqlite
+        .prepare(
+          `INSERT INTO partner_shadow_reconciliations (
+             id, exchange, evidence_id, row_count, mapped_uid_count, unmapped_uid_count,
+             simulated_gross_units, wallet_cash_collected_units, discrepancy_units,
+             status, notes, created_at
+           ) VALUES (?, 'gateio', ?, 4, 4, 0,
+             800000000, 800000000, 0, 'PROMOTED_READY', 'Daily coverage', ?)`
+        )
+        .run(`sh_gate_d${day}`, evId, tsIso);
+    }
+
     const mixedEval = await validateShadowPromotionGate(
       db,
       'gateio',
       Date.parse('2026-10-31T20:00:00.000Z')
     );
-    expect(mixedEval).toEqual({
+    expect(mixedEval).toMatchObject({
       allowed: true,
-      totalBatches: 2,
+      totalBatches: 32,
       earliestAt: '2026-10-01 18:00:00',
     });
   });

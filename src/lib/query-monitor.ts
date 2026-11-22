@@ -239,13 +239,15 @@ export class QueryMonitor {
 // Statement Wrapping
 // ============================================================================
 
+const unwrappedStatements = new WeakMap<D1PreparedStatement, D1PreparedStatement>();
+
 function wrapPreparedStatement(
   original: D1PreparedStatement,
   sql: string,
   monitor: QueryMonitor,
   context: { endpointPath?: string; userId?: string }
 ): D1PreparedStatement {
-  return {
+  const wrapped: D1PreparedStatement = {
     bind(...values: unknown[]): D1PreparedStatement {
       const bound = original.bind(...values);
       return wrapPreparedStatement(bound, sql, monitor, context);
@@ -384,6 +386,8 @@ function wrapPreparedStatement(
       return original.raw<T>();
     },
   };
+  unwrappedStatements.set(wrapped, original);
+  return wrapped;
 }
 
 function wrapPreparedStatementWithSql(
@@ -413,8 +417,11 @@ export function wrapDatabase(
 
     async batch(statements: D1PreparedStatement[]): Promise<D1Result[]> {
       const startTime = Date.now();
+      const rawStatements = statements.map(
+        (stmt) => unwrappedStatements.get(stmt) ?? stmt
+      );
       try {
-        const result = await originalDb.batch(statements);
+        const result = await originalDb.batch(rawStatements);
         const durationMs = Date.now() - startTime;
 
         // Record each statement in the batch
