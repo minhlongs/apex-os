@@ -453,6 +453,7 @@ describe('TurnkeyServerHsmTransport & Durable Recovery — Unknown Outcome Harde
       payoutId: 'payout-remote-accepted',
       chain: 'arbitrum',
       signerAddress: EVM_HOT_ADDR,
+      digestHex,
     });
     expect(recovered.outcomeState).toBe('SIGNED_CONFIRMED');
     expect(recovered.requiresHumanReview).toBe(false);

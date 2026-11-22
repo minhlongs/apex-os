@@ -19,7 +19,7 @@
 import type * as StellarSdkTypes from '@stellar/stellar-sdk';
 import Decimal from 'decimal.js';
 import { Turnkey } from '@turnkey/sdk-server';
-import { keccak256, type Hex } from 'viem';
+import { keccak256, recoverAddress, type Hex } from 'viem';
 import type { D1Database } from '../db';
 import {
   LEDGER_UNITS_PER_USD,
@@ -236,6 +236,7 @@ export interface TurnkeySigningTransport {
     payoutId: string;
     chain: Phase1SettlementChain;
     signerAddress: string;
+    digestHex?: Hex;
     unsignedEnvelopeXdr?: string;
     txHashHex?: string;
   }): Promise<TurnkeyActivityRecoveryResult>;
@@ -415,9 +416,9 @@ function extractTurnkeySignatureComponents(
   payoutId: string
 ): { rHex: string; sHex: string; vHex: string; activityId: string } {
   const nested = response.activity?.result?.signRawPayloadResult;
-  const rCandidate = (response.r ?? nested?.r ?? '').replace(/^0x/i, '').trim();
-  const sCandidate = (response.s ?? nested?.s ?? '').replace(/^0x/i, '').trim();
-  const vCandidate = (response.v ?? nested?.v ?? '').replace(/^0x/i, '').trim();
+  const rCandidate = String(response.r ?? nested?.r ?? '').replace(/^0x/i, '').trim();
+  const sCandidate = String(response.s ?? nested?.s ?? '').replace(/^0x/i, '').trim();
+  const vCandidate = String(response.v ?? nested?.v ?? '').replace(/^0x/i, '').trim();
 
   if (
     !/^[0-9a-fA-F]{1,64}$/.test(rCandidate) ||
@@ -952,6 +953,21 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
       }
 
       const { rHex, sHex, vHex, activityId } = extracted;
+      const SECP256K1_HALF_N = BigInt(
+        '0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0'
+      );
+      if (BigInt(`0x${sHex}`) > SECP256K1_HALF_N) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: opIdentity,
+          message: `Turnkey HSM returned non-canonical high-S EVM signature (EIP-2 violation) for payout ${params.payoutId}`,
+        });
+      }
       const vNum = /^[0-9a-fA-F]{1,4}$/.test(vHex) ? parseInt(vHex, 16) : NaN;
       if (vNum !== 0 && vNum !== 1 && vNum !== 27 && vNum !== 28) {
         throw new TurnkeyHsmOutcomeError({
@@ -966,6 +982,39 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
         });
       }
       const yParity: 0 | 1 = vNum === 27 || vNum === 0 ? 0 : 1;
+
+      const vByteHex = yParity === 0 ? '1b' : '1c';
+      let recoveredAddress: string;
+      try {
+        recoveredAddress = await recoverAddress({
+          hash: `0x${cleanPayload}` as Hex,
+          signature: `0x${rHex}${sHex}${vByteHex}` as Hex,
+        });
+      } catch (ecErr) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: opIdentity,
+          message: `Turnkey HSM EVM signature failed secp256k1 recovery for payout ${params.payoutId}: ${ecErr instanceof Error ? ecErr.message : String(ecErr)}`,
+          cause: ecErr,
+        });
+      }
+      if (recoveredAddress.toLowerCase() !== params.signerAddress.toLowerCase()) {
+        throw new TurnkeyHsmOutcomeError({
+          outcomeState: 'UNCERTAIN_OUTCOME',
+          payoutId: params.payoutId,
+          activityId,
+          requestDispatched: true,
+          retryAllowed: false,
+          requiresHumanReview: true,
+          operationIdentity: opIdentity,
+          message: `Turnkey HSM EVM signature recovered unexpected signer ${recoveredAddress} (expected ${params.signerAddress}) for payout ${params.payoutId}`,
+        });
+      }
 
       const confirmed: EvmDigestSignature = {
         r: `0x${rHex}`,
@@ -1080,6 +1129,7 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
     payoutId: string;
     chain: Phase1SettlementChain;
     signerAddress: string;
+    digestHex?: Hex;
     unsignedEnvelopeXdr?: string;
     txHashHex?: string;
   }): Promise<TurnkeyActivityRecoveryResult> {
@@ -1165,6 +1215,18 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
             };
           }
 
+          const SECP256K1_HALF_N = BigInt(
+            '0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0'
+          );
+          if (BigInt(`0x${extracted.sHex}`) > SECP256K1_HALF_N) {
+            return {
+              outcomeState: 'UNCERTAIN_OUTCOME',
+              payoutId: params.payoutId,
+              activityId: extracted.activityId,
+              requiresHumanReview: true,
+              reason: 'Provider activity completed with non-canonical high-S EVM signature (EIP-2 violation); human review required',
+            };
+          }
           const vNum = /^[0-9a-fA-F]{1,4}$/.test(extracted.vHex) ? parseInt(extracted.vHex, 16) : NaN;
           if (vNum !== 0 && vNum !== 1 && vNum !== 27 && vNum !== 28) {
             return {
@@ -1176,6 +1238,30 @@ export class TurnkeyServerHsmTransport implements TurnkeySigningTransport {
             };
           }
           const yParity: 0 | 1 = vNum === 27 || vNum === 0 ? 0 : 1;
+          const cleanDigest = params.digestHex?.replace(/^0x/i, '').trim() ?? '';
+          if (!/^[0-9a-fA-F]{64}$/.test(cleanDigest)) {
+            return {
+              outcomeState: 'UNCERTAIN_OUTCOME',
+              payoutId: params.payoutId,
+              activityId: extracted.activityId,
+              requiresHumanReview: true,
+              reason: 'Provider activity completed for EVM but 32-byte digestHex is missing for cryptographic signer recovery; human review required',
+            };
+          }
+          const vByteHex = yParity === 0 ? '1b' : '1c';
+          const recoveredAddress = await recoverAddress({
+            hash: `0x${cleanDigest}` as Hex,
+            signature: `0x${extracted.rHex}${extracted.sHex}${vByteHex}` as Hex,
+          });
+          if (recoveredAddress.toLowerCase() !== params.signerAddress.toLowerCase()) {
+            return {
+              outcomeState: 'UNCERTAIN_OUTCOME',
+              payoutId: params.payoutId,
+              activityId: extracted.activityId,
+              requiresHumanReview: true,
+              reason: `Provider activity EVM signature recovered unexpected signer ${recoveredAddress} (expected ${params.signerAddress}); human review required`,
+            };
+          }
           return {
             outcomeState: 'SIGNED_CONFIRMED',
             payoutId: params.payoutId,
@@ -1972,6 +2058,7 @@ export class TurnkeySigner {
     activityId: string;
     payoutId: string;
     chain: Phase1SettlementChain;
+    digestHex?: Hex;
     unsignedEnvelopeXdr?: string;
     txHashHex?: string;
   }): Promise<TurnkeyActivityRecoveryResult> {
@@ -1989,6 +2076,7 @@ export class TurnkeySigner {
       payoutId: params.payoutId,
       chain: params.chain,
       signerAddress: this.getHotWalletAddress(params.chain),
+      digestHex: params.digestHex,
       unsignedEnvelopeXdr: params.unsignedEnvelopeXdr,
       txHashHex: params.txHashHex,
     });

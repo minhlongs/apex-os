@@ -308,14 +308,6 @@ interface RawHorizonBalanceLine {
   is_authorized?: boolean;
 }
 
-interface RawSubmitTransactionResponse {
-  id?: string;
-  hash?: string;
-  fee_charged?: string | number;
-  envelope_xdr?: string;
-  created_at?: string;
-}
-
 export interface HorizonTransactionOperationRecord {
   type: string;
   destination?: string;
@@ -745,114 +737,38 @@ export class StellarService {
   }
 
   /**
-   * Sign and submit a transaction to the network
+   * Permanently disabled: raw secret-key Stellar transaction signing and direct
+   * Horizon submission bypass Turnkey HSM signing, payout-effect fencing,
+   * withdrawal-lock identity, and unknown-outcome preservation.
+   *
+   * Fails closed immediately with LegacyPayoutPathDisabledError before any
+   * signing or network I/O. Use BroadcastRecoveryMachine + TurnkeySigner +
+   * HorizonStellarBroadcastTransport instead.
    */
-  async submitTransaction(transaction: StellarSdkTypes.Transaction): Promise<PayoutResult> {
-    if (!this.senderKeypair) {
-      throw new Error('No secret key configured. Cannot sign transaction.');
-    }
-
-    transaction.sign(this.senderKeypair);
-
-    const senderAccountId = this.senderKeypair.publicKey();
-
-    const destinationOp = transaction.operations[0];
-    if (!destinationOp || destinationOp.type !== 'payment') {
-      throw new Error('Invalid transaction: expected payment operation');
-    }
-
-    const paymentOp = destinationOp as StellarSdkTypes.Operation.Payment;
-    const destAccountId = paymentOp.destination;
-    if (!destAccountId) {
-      throw new Error('Invalid transaction: missing destination');
-    }
-
-    const amount = paymentOp.amount;
-    const asset = paymentOp.asset;
-
-    try {
-      const result = (await this.server.submitTransaction(
-        transaction
-      )) as unknown as RawSubmitTransactionResponse;
-
-      return {
-        transactionId: result.id || result.hash || '',
-        fromAccount: senderAccountId,
-        toAccount: destAccountId,
-        asset: asset.getCode(),
-        amount,
-        fee: String(result.fee_charged ?? this.calculateFee()),
-        envelope: result.envelope_xdr,
-        ledgerTimestamp: result.created_at,
-      };
-    } catch (error: unknown) {
-      const err = error as { message?: string; status?: number; extras?: Record<string, unknown> };
-      throw new Error(
-        `Transaction failed: ${err.message || 'Unknown error'} (status: ${err.status || 'unknown'})`
-      );
-    }
+  async submitTransaction(_transaction: StellarSdkTypes.Transaction): Promise<PayoutResult> {
+    throw new LegacyPayoutPathDisabledError(
+      'StellarService.submitTransaction',
+      'Raw secret-key Stellar signing and direct Horizon broadcast are permanently disabled. Use BroadcastRecoveryMachine with TurnkeySigner and HorizonStellarBroadcastTransport.'
+    );
   }
 
   /**
-   * Send a USDC payout to a single recipient using 7-decimal stroops integer math
+   * Permanently disabled: direct single-recipient USDC payout via raw secret key
+   * is forbidden. Fails closed immediately with LegacyPayoutPathDisabledError
+   * before touching balances, signing, or Horizon.
+   *
+   * Read-only helpers (getAccount, getUSDCBalance*, getXLMBalance*,
+   * hasUsdcTrustline, getTransaction, verifyPayout, healthCheck) remain active.
    */
   async sendPayout(
-    toAccountId: string,
-    amount: number | string,
-    options: { memo?: string } = {}
+    _toAccountId: string,
+    _amount: number | string,
+    _options: { memo?: string } = {}
   ): Promise<PayoutResult> {
-    let requiredStroops: bigint;
-    try {
-      requiredStroops = toStellarStroops(amount);
-    } catch {
-      throw new Error('Invalid payout amount: must be greater than 0');
-    }
-
-    const amountStr = fromStellarStroops(requiredStroops);
-
-    if (!this.senderKeypair) {
-      throw new Error('Sender account not configured. Set STELLAR_SECRET_KEY.');
-    }
-
-    const senderAccountId = this.senderKeypair.publicKey();
-    const usdcBalanceStroops = await this.getUSDCBalanceStroops(senderAccountId);
-    const xlmBalanceStroops = await this.getXLMBalanceStroops(senderAccountId);
-
-    if (usdcBalanceStroops < requiredStroops) {
-      const availableStr = new Decimal(usdcBalanceStroops.toString())
-        .div(STROOPS_SCALE_DECIMAL)
-        .toFixed(2, Decimal.ROUND_DOWN);
-      throw new Error(
-        `Insufficient USDC balance. Available: ${availableStr} USDC, Required: ${amountStr} USDC`
-      );
-    }
-
-    const feeStroops = BigInt(this.calculateFee());
-    const minReserveStroops = parseNonNegativeStroops(String(this.config.minReserveXlm));
-    const requiredXlmStroops = feeStroops + minReserveStroops;
-
-    if (xlmBalanceStroops < requiredXlmStroops) {
-      const availableXlm = new Decimal(xlmBalanceStroops.toString())
-        .div(STROOPS_SCALE_DECIMAL)
-        .toFixed(4, Decimal.ROUND_DOWN);
-      const requiredXlm = new Decimal(requiredXlmStroops.toString())
-        .div(STROOPS_SCALE_DECIMAL)
-        .toFixed(4, Decimal.ROUND_DOWN);
-      throw new Error(
-        `Insufficient XLM for fee. Available: ${availableXlm} XLM, Required: ${requiredXlm} XLM`
-      );
-    }
-
-    const senderAccount = await this.server.loadAccount(senderAccountId);
-
-    const transaction = this.buildUSDCTransfer(
-      senderAccount,
-      toAccountId,
-      amountStr,
-      options.memo
+    throw new LegacyPayoutPathDisabledError(
+      'StellarService.sendPayout',
+      'Raw secret-key Stellar payouts are permanently disabled. Use BroadcastRecoveryMachine with TurnkeySigner and HorizonStellarBroadcastTransport.'
     );
-
-    return this.submitTransaction(transaction);
   }
 
   /**

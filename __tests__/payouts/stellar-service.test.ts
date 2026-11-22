@@ -17,6 +17,7 @@ import {
   toStellarStroops,
   fromStellarStroops,
   formatStellarUsdcAmount,
+  LegacyPayoutPathDisabledError,
   PayoutDatabase,
 } from '@/lib/payouts/stellar-service';
 
@@ -402,71 +403,44 @@ describe('StellarService', () => {
       });
     });
 
-    it('should send a USDC payout successfully and set explicit 180s TimeBounds', async () => {
-      const result = await service.sendPayout(
+    it('should build a USDC transfer with explicit 180s TimeBounds without signing', () => {
+      const tx = service.buildUSDCTransfer(
+        mocks.account as never,
         'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V',
-        '10.5'
-      );
-      expect(result.transactionId).toBe('mock_transaction_123');
-      expect(result.fromAccount).toBe(
-        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U'
-      );
-      expect(result.toAccount).toBe(
-        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V'
-      );
-      expect(result.asset).toBe('USDC');
-      expect(result.amount).toBe('10.5000000');
+        '10.5000000'
+      ) as unknown as { sign: jest.Mock };
       expect(mocks.builderInstance.setTimeout).toHaveBeenCalledWith(STELLAR_TIMEBOUNDS_SECONDS);
       expect(STELLAR_TIMEBOUNDS_SECONDS).toBe(180);
+      expect(tx.sign).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
 
-    it('should fail without sender account', async () => {
+    it('should fail closed on sendPayout with LegacyPayoutPathDisabledError even when secretKey is configured', async () => {
+      await expect(
+        service.sendPayout(
+          'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V',
+          '10.5'
+        )
+      ).rejects.toThrow(LegacyPayoutPathDisabledError);
+      expect(mocks.builderInstance.build).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('should fail closed on sendPayout without sender account', async () => {
       service = new StellarService({ network: StellarNetwork.TESTNET });
       await expect(
         service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 10)
-      ).rejects.toThrow('Sender account not configured');
+      ).rejects.toThrow(LegacyPayoutPathDisabledError);
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
 
-    it('should validate positive amount', async () => {
+    it('should fail closed on submitTransaction with LegacyPayoutPathDisabledError without signing or broadcasting', async () => {
+      const mockTx = { sign: jest.fn(), operations: [] };
       await expect(
-        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 0)
-      ).rejects.toThrow('Invalid payout amount');
-    });
-
-    it('should check USDC balance before sending', async () => {
-      mocks.account.balances = [
-        { asset_code: 'XLM', asset_issuer: null, balance: '10.0000000', asset_type: 'native' },
-      ];
-      mocks.server.loadAccount.mockResolvedValue(mocks.account);
-      await expect(
-        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', 10)
-      ).rejects.toThrow('Insufficient USDC balance');
-    });
-
-    it('should check XLM balance for fees', async () => {
-      mocks.account.balances = [
-        {
-          asset_code: 'USDC',
-          asset_issuer: 'GA6D2QCM3WQM3YQKV6W5HR5TMRIE5X5QJQZ6WESBG7N5VWBNX6QJX3BM',
-          balance: '100.0000000',
-          asset_type: 'credit_alphanum4',
-        },
-        { asset_code: 'XLM', asset_issuer: null, balance: '0.0000001', asset_type: 'native' },
-      ];
-      mocks.server.loadAccount.mockResolvedValue(mocks.account);
-      await expect(
-        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', '1')
-      ).rejects.toThrow('Insufficient XLM for fee');
-    });
-
-    it('should handle transaction submission failures', async () => {
-      mocks.server.loadAccount.mockResolvedValue(mocks.account);
-      mocks.server.submitTransaction.mockRejectedValueOnce(
-        new Error('Transaction failed: insufficient balance')
-      );
-      await expect(
-        service.sendPayout('GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7V', '10')
-      ).rejects.toThrow('Transaction failed');
+        service.submitTransaction(mockTx as never)
+      ).rejects.toThrow(LegacyPayoutPathDisabledError);
+      expect(mockTx.sign).not.toHaveBeenCalled();
+      expect(mocks.server.submitTransaction).not.toHaveBeenCalled();
     });
   });
 
