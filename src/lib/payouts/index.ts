@@ -12,6 +12,7 @@ export * from './payouts-service';
 // Value exports
 export {
   USDC_CONFIG,
+  LegacyPayoutPathDisabledError,
   createStellarService,
   isValidStellarAccountId,
   parseStellarAmount,
