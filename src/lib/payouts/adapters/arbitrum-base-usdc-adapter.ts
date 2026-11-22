@@ -23,6 +23,9 @@ import {
   type Hex,
   type TransactionSerializableEIP1559,
 } from 'viem';
+import { withPayoutEffect, type PayoutEffectKind, type PayoutWorkflow } from '../payout-effect-fence';
+import type { D1Database } from '@/lib/db';
+import { normalizeColdTxHash, type ColdPaymentEvidence } from '../cold-payment-evidence';
 import { JsonRpcClient, JsonRpcError } from '../rpc/json-rpc-client';
 
 // ============================================================================
@@ -80,6 +83,30 @@ export const REJECTED_BASE_BRIDGED_USDBC =
   '0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA' as const;
 
 export const CIRCLE_IS_BLACKLISTED_SELECTOR = '0xfe575a87' as const;
+
+const ERC20_TRANSFER_TOPIC = keccak256('0x5472616e7366657228616464726573732c616464726573732c75696e7432353629');
+const RPC_HASH = /^0x[\da-f]{64}$/i;
+const RPC_QUANTITY = /^0x(?:0|[1-9a-f][\da-f]*)$/i;
+const INDEXED_ADDRESS = /^0x0{24}[\da-f]{40}$/i;
+
+interface RawEvmReceipt {
+  status?: string;
+  blockNumber?: string;
+  blockHash?: string;
+  transactionHash?: string;
+  gasUsed?: string;
+  effectiveGasPrice?: string;
+  logs?: Array<{
+    address: string;
+    topics: string[];
+    data: string;
+    logIndex: string;
+    transactionHash: string;
+    blockHash: string;
+    blockNumber: string;
+    removed?: boolean;
+  }>;
+}
 
 const CIRCLE_USDC_ABI = parseAbi([
   'function transfer(address to, uint256 value) returns (bool)',
@@ -363,7 +390,7 @@ export function validateCanonicalUsdcContract(
 // ============================================================================
 
 export interface EvmJsonRpcTransport {
-  call<T>(method: string, params?: unknown[]): Promise<T>;
+  call<T>(method: string, params?: unknown[], options?: { retryCount?: number }): Promise<T>;
 }
 
 export interface ArbitrumBaseUsdcAdapterConfig {
@@ -400,6 +427,7 @@ export interface EvmReceiptResult {
   found: boolean;
   confirmed: boolean;
   reverted: boolean;
+  finalized?: boolean;
   blockNumber?: number;
   gasUsed?: bigint;
   effectiveGasPrice?: bigint;
@@ -433,6 +461,7 @@ export class ArbitrumBaseUsdcAdapter {
   readonly decimals = EVM_USDC_DECIMALS;
 
   private readonly primaryRpc: EvmJsonRpcTransport;
+  private readonly sendRpc: EvmJsonRpcTransport;
   private readonly fallbackRpc?: EvmJsonRpcTransport;
   private readonly ethPriceUsd: number;
 
@@ -480,6 +509,23 @@ export class ArbitrumBaseUsdcAdapter {
     const primaryUrl =
       config.primaryRpcUrl ?? DEFAULT_RPC_URLS[this.chain][this.networkMode];
     this.primaryRpc = config.primaryRpc ?? new JsonRpcClient(primaryUrl, { retryCount: 1 });
+    // Reads may retry; a send has one HTTP request and must not follow a redirect.
+    this.sendRpc = config.primaryRpc ?? {
+      call: async <T>(method: string, params: unknown[] = []): Promise<T> => {
+        const response = await fetch(primaryUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+          redirect: 'error',
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (!response.ok) throw new Error(`EVM send HTTP ${response.status}; outcome unknown`);
+        const result = await response.json() as { result?: T; error?: { code: number; message: string; data?: unknown } };
+        if (result.error) throw new JsonRpcError(result.error.message, result.error.code, result.error.data, method);
+        if (result.result === undefined) throw new Error('EVM send result missing; outcome unknown');
+        return result.result;
+      },
+    };
 
     if (config.fallbackRpc) {
       this.fallbackRpc = config.fallbackRpc;
@@ -758,24 +804,36 @@ export class ArbitrumBaseUsdcAdapter {
    * Broadcast a signed raw EIP-1559 transaction via primary RPC (NOTE: does NOT blindly auto-retry
    * uncertain 504 timeouts across endpoints without going through BroadcastRecoveryMachine).
    */
-  async broadcastSignedTransaction(signedRawTxHex: Hex): Promise<Hex> {
-    const txHash = await this.primaryRpc.call<string>('eth_sendRawTransaction', [signedRawTxHex]);
-    if (!txHash || typeof txHash !== 'string' || !txHash.startsWith('0x')) {
-      throw new Error(`Invalid transaction hash returned from ${this.chain} RPC: ${String(txHash)}`);
-    }
-    return txHash as Hex;
+  async broadcastSignedTransaction(
+    signedRawTxHex: Hex,
+    fence: { workflow?: PayoutWorkflow; db: D1Database; payoutId: string; effect: Extract<PayoutEffectKind, 'EVM_BROADCAST' | 'EVM_REBROADCAST' | 'EVM_RBF_BROADCAST'> }
+  ): Promise<Hex> {
+    return withPayoutEffect({
+      workflow: fence.workflow,
+      db: fence.db,
+      payoutId: fence.payoutId,
+      effect: fence.effect,
+      payload: signedRawTxHex,
+      expectedHash: keccak256(signedRawTxHex),
+      chain: this.chain,
+      signerAddress: this.hotWalletAddress,
+    }, async () => {
+      const hash = await this.sendRpc.call<string>('eth_sendRawTransaction', [signedRawTxHex], { retryCount: 0 });
+      if (typeof hash !== 'string' || !/^0x[0-9a-f]{64}$/i.test(hash)) {
+        throw new Error(`Invalid transaction hash returned from ${this.chain} RPC`);
+      }
+      if (hash.toLowerCase() !== keccak256(signedRawTxHex).toLowerCase()) {
+        throw new Error(`Unexpected transaction hash returned from ${this.chain} RPC`);
+      }
+      return hash as Hex;
+    });
   }
 
   /**
    * Query transaction receipt on-chain via primary/fallback RPC.
    */
   async getTransactionReceipt(txHash: string): Promise<EvmReceiptResult> {
-    const receipt = await this.callReadWithFallback<{
-      status?: string;
-      blockNumber?: string;
-      gasUsed?: string;
-      effectiveGasPrice?: string;
-    } | null>('eth_getTransactionReceipt', [txHash]);
+    const receipt = await this.callReadWithFallback<RawEvmReceipt | null>('eth_getTransactionReceipt', [txHash]);
 
     if (!receipt) {
       return {
@@ -787,17 +845,110 @@ export class ArbitrumBaseUsdcAdapter {
     }
 
     const confirmed = receipt.status === '0x1' || receipt.status === '1';
-    const reverted = receipt.status === '0x0' || receipt.status === '0';
+    let reverted = false;
+    let finalized = false;
+    if (confirmed) {
+      try {
+        const canonicalHash = normalizeColdTxHash(this.chain, txHash);
+        try {
+          await this.readFinalizedReceipt(this.primaryRpc, canonicalHash, '0x1');
+        } catch (error) {
+          if (!this.fallbackRpc) throw error;
+          await this.readFinalizedReceipt(this.fallbackRpc, canonicalHash, '0x1');
+        }
+        finalized = true;
+      } catch {
+        // Receipt is mined but not yet in a canonical finalized block; keep finalized=false.
+        finalized = false;
+      }
+    } else if (receipt.status === '0x0' || receipt.status === '0') {
+      const canonicalHash = normalizeColdTxHash(this.chain, txHash);
+      try {
+        await this.readFinalizedReceipt(this.primaryRpc, canonicalHash, '0x0');
+      } catch (error) {
+        if (!this.fallbackRpc) throw error;
+        await this.readFinalizedReceipt(this.fallbackRpc, canonicalHash, '0x0');
+      }
+      reverted = true;
+      finalized = true;
+    }
 
     return {
       found: true,
       confirmed,
       reverted,
+      finalized,
       blockNumber: receipt.blockNumber ? parseInt(receipt.blockNumber, 16) : undefined,
       gasUsed: receipt.gasUsed ? BigInt(receipt.gasUsed) : undefined,
       effectiveGasPrice: receipt.effectiveGasPrice ? BigInt(receipt.effectiveGasPrice) : undefined,
       transactionHash: txHash,
     };
+  }
+
+  private async readFinalizedReceipt(rpc: EvmJsonRpcTransport, txHash: string, expectedStatus: '0x0' | '0x1') {
+    const chainId = await rpc.call<string>('eth_chainId');
+    if (!RPC_QUANTITY.test(chainId) || BigInt(chainId) !== BigInt(this.chainId)) {
+      throw new Error('Receipt RPC network does not match the configured chain');
+    }
+    const receipt = await rpc.call<RawEvmReceipt | null>('eth_getTransactionReceipt', [txHash]);
+    if (receipt?.status !== expectedStatus || receipt.transactionHash?.toLowerCase() !== txHash ||
+        !receipt.blockHash || !RPC_HASH.test(receipt.blockHash) ||
+        !receipt.blockNumber || !RPC_QUANTITY.test(receipt.blockNumber)) {
+      throw new Error(`Expected a ${expectedStatus === '0x1' ? 'successful' : 'failed'} on-chain receipt for the requested transaction`);
+    }
+    const blockHash = receipt.blockHash.toLowerCase();
+    const blockNumber = receipt.blockNumber.toLowerCase();
+    const [finalized, canonical] = await Promise.all([
+      rpc.call<{ hash?: string; number?: string } | null>('eth_getBlockByNumber', ['finalized', false]),
+      rpc.call<{ hash?: string; number?: string } | null>('eth_getBlockByNumber', [blockNumber, false]),
+    ]);
+    if (!finalized?.number || !RPC_QUANTITY.test(finalized.number) ||
+        !finalized.hash || !RPC_HASH.test(finalized.hash) ||
+        BigInt(finalized.number) < BigInt(blockNumber) ||
+        (finalized.number.toLowerCase() === blockNumber && finalized.hash.toLowerCase() !== blockHash) ||
+        canonical?.hash?.toLowerCase() !== blockHash ||
+        canonical.number?.toLowerCase() !== blockNumber) {
+      throw new Error('Receipt is not in a canonical finalized block');
+    }
+    return { receipt, blockHash, blockNumber };
+  }
+
+  /** Cold settlement needs canonical finalized receipt logs, not merely receipt status. */
+  async getColdPaymentEvidence(inputHash: string): Promise<ColdPaymentEvidence> {
+    const txHash = normalizeColdTxHash(this.chain, inputHash);
+    const read = async (rpc: EvmJsonRpcTransport): Promise<ColdPaymentEvidence> => {
+      const { receipt, blockHash, blockNumber } = await this.readFinalizedReceipt(rpc, txHash, '0x1');
+      if (!Array.isArray(receipt.logs)) throw new Error('Receipt is missing transfer metadata');
+      const transfers = receipt.logs.flatMap((log) => {
+        if (log.address?.toLowerCase() !== this.usdcContractAddress.toLowerCase()) return [];
+        if (!Array.isArray(log.topics) || !RPC_HASH.test(log.topics[0])) {
+          throw new Error('Malformed canonical token receipt log');
+        }
+        if (log.topics[0].toLowerCase() !== ERC20_TRANSFER_TOPIC) return [];
+        if (log.removed !== false || log.transactionHash?.toLowerCase() !== txHash ||
+            log.blockHash?.toLowerCase() !== blockHash || log.blockNumber?.toLowerCase() !== blockNumber ||
+            !RPC_QUANTITY.test(log.logIndex) || log.topics.length !== 3 ||
+            !INDEXED_ADDRESS.test(log.topics[1]) || !INDEXED_ADDRESS.test(log.topics[2]) ||
+            !RPC_HASH.test(log.data)) {
+          throw new Error('Malformed ERC20 Transfer log in cold payment receipt');
+        }
+        return [{
+          operationId: BigInt(log.logIndex).toString(),
+          source: `0x${log.topics[1].slice(-40).toLowerCase()}`,
+          recipient: `0x${log.topics[2].slice(-40).toLowerCase()}`,
+          asset: this.usdcContractAddress.toLowerCase(),
+          amountUnits: BigInt(log.data),
+        }];
+      });
+      return { network: `eip155:${this.chainId}`, txHash, blockReference: blockHash, transfers };
+    };
+    try {
+      return await read(this.primaryRpc);
+    } catch (err) {
+      // Restart the whole proof on fallback; never combine finality and logs from different RPCs.
+      if (!this.fallbackRpc) throw err;
+      return read(this.fallbackRpc);
+    }
   }
 
   /**

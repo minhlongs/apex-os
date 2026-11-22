@@ -314,6 +314,8 @@ export interface HorizonTransactionDetails {
   id: string;
   hash?: string;
   successful: boolean;
+  ledger?: number;
+  ledger_attr?: number;
   fee_charged?: string | number;
   created_at?: string;
   operations?: HorizonTransactionOperationRecord[];

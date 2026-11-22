@@ -13,6 +13,7 @@
  *   in-flight indexing / Stellar `timebounds_max_unix` bounds.
  */
 
+import { withPayoutEffect } from '@/lib/payouts/payout-effect-fence';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import Database from 'better-sqlite3';
@@ -206,6 +207,9 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
       '024_kyc_compliance_schema.sql',
       '028_ascendancy_audit_core.sql',
       '031_ascendancy_phase2_ui_and_poller.sql',
+      '033_cold_settlement_claims.sql',
+      '034_withdrawal_freeze_at_write.sql',
+      '035_payout_effect_grants.sql', '036_durable_hot_exposure.sql',
     ]) {
       sqlite.exec(fs.readFileSync(path.join(migDir, file), 'utf8'));
     }
@@ -299,8 +303,10 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
       hasUsdcTrustline: (addr) => realTransport.hasUsdcTrustline(addr),
       getAccountSequence: (addr) => realTransport.getAccountSequence(addr),
       buildUnsignedUsdcPayment: (p) => realTransport.buildUnsignedUsdcPayment(p),
-      async submitSignedTransaction() {
-        throw new Error('Horizon 504 Gateway Timeout after submit');
+      async submitSignedTransaction({ db, payoutId, workflow, effect, signedEnvelopeXdr, expectedTxHash }) {
+        return withPayoutEffect({ db, payoutId, workflow, effect, payload: signedEnvelopeXdr, expectedHash: expectedTxHash }, async () => {
+          throw new Error('Horizon 504 Gateway Timeout after submit');
+        });
       },
       async lookupTransaction(txHash: string) {
         return txStatuses.get(txHash) ?? { found: false, successful: false };
@@ -322,7 +328,7 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
     return { machine, signerTransport, txStatuses, clock };
   }
 
-  it('passively finalizes CONFIRMED broadcasts, reverts expired dropped broadcasts without re-signing, and preserves still-pending rows', async () => {
+  it('passively finalizes CONFIRMED broadcasts, retains expired broadcasts without re-signing, and preserves still-pending rows', async () => {
     const ledger = new DoubleEntryLedgerService(db);
     const signerTransport = new CountingStellarSigningTransport();
 
@@ -348,9 +354,10 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
       hasUsdcTrustline: (addr) => realTransport.hasUsdcTrustline(addr),
       getAccountSequence: (addr) => realTransport.getAccountSequence(addr),
       buildUnsignedUsdcPayment: (p) => realTransport.buildUnsignedUsdcPayment(p),
-      async submitSignedTransaction() {
-        // Simulate network timeout during initial broadcast so row lands in BROADCAST_PENDING
-        throw new Error('Horizon 504 Gateway Timeout after submit');
+      async submitSignedTransaction({ db, payoutId, workflow, effect, signedEnvelopeXdr, expectedTxHash }) {
+        return withPayoutEffect({ db, payoutId, workflow, effect, payload: signedEnvelopeXdr, expectedHash: expectedTxHash }, async () => {
+          throw new Error('Horizon 504 Gateway Timeout after submit');
+        });
       },
       async lookupTransaction(txHash: string) {
         return (
@@ -473,30 +480,30 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
     });
     expect(tick2.scanned).toBe(2);
     expect(tick2.confirmed).toBe(0);
-    expect(tick2.reverted).toBe(1);
-    expect(tick2.stillPending).toBe(1);
+    expect(tick2.reverted).toBe(0);
+    expect(tick2.stillPending).toBe(2);
     expect(tick2.errors).toEqual([]);
     // Crucial safety invariant: passive reconciler NEVER re-signs or re-broadcasts!
     expect(signerTransport.signCount).toBe(signCountBeforeReconcile);
 
     const droppedLockBatch = await ledger.getBatchById(lockDropped.batch.id);
-    expect(droppedLockBatch?.status).toBe('VOIDED');
+    expect(droppedLockBatch?.status).toBe('INFLIGHT');
 
     const pendingLockBatch = await ledger.getBatchById(lockPending.batch.id);
     expect(pendingLockBatch?.status).toBe('INFLIGHT');
 
     // Settled balance check: started at $285.00
     // - $50.00 confirmed paid
-    // - $60.00 reverted back to settled
+    // - $60.00 retained in escrow
     // - $40.00 still locked in `WITHDRAWAL_ESCROW`
-    // => settledBalanceUnits = $285.00 - $50.00 - $40.00 = $195.00
+    // => settledBalanceUnits = $285.00 - $50.00 - $40.00 = $135.00
     const affAccount = await ledger.getAccountByOwner('affiliate', 'aff_l1');
     expect(affAccount?.settledBalanceUnits.toString()).toBe(
-      parseUsdToLedgerUnits('195.00').toString()
+      parseUsdToLedgerUnits('135.00').toString()
     );
     const escrowAccount = await ledger.getAccountByOwner('treasury', 'withdrawal_escrow');
     expect(escrowAccount?.settledBalanceUnits.toString()).toBe(
-      parseUsdToLedgerUnits('40.00').toString()
+      parseUsdToLedgerUnits('100.00').toString()
     );
 
     const invariants = await verifyLedgerInvariants(db);
@@ -551,7 +558,7 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
     // The on-chain outcome becomes visible while the operator freezes the ledger:
     // one payout landed, the other failed on-chain.
     txStatuses.set(bcastPaid.txHash!, { found: true, successful: true, ledger: 920001 });
-    txStatuses.set(bcastFailed.txHash!, { found: true, successful: false });
+    txStatuses.set(bcastFailed.txHash!, { found: true, successful: false, ledger: 920002 });
     await setEmergencyLedgerFreeze(db, true, 'drift drill');
     clock.nowUnix += 30;
 
@@ -727,7 +734,7 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
 
   it('refuses to re-sign or re-queue a payout whose withdrawal lock was already resolved by passive reconciliation', async () => {
     const ledger = new DoubleEntryLedgerService(db);
-    const { machine, signerTransport, clock } = createStellarHarness();
+    const { machine, signerTransport, clock, txStatuses } = createStellarHarness();
 
     const lock = await ledger.lockSettledForWithdrawal({
       idempotencyKey: 'wd_lock:po_revoked',
@@ -750,6 +757,7 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
     expect(bcast.state).toBe('BROADCAST_PENDING');
     expect(signerTransport.signCount).toBe(1);
 
+    txStatuses.set(bcast.txHash!, { found: true, successful: false, ledger: 920001 });
     clock.nowUnix += 400;
     const expireTick = await reconcilePendingSettlementBroadcasts(db, {
       machine,
@@ -767,11 +775,11 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
         nowUnix: clock.nowUnix,
         reexecuteExpired: true,
       })
-    ).rejects.toThrow(/withdrawal lock is already/i);
+    ).resolves.toMatchObject({ state: 'FAILED_ABORTED', action: 'NO_RECOVERY_NEEDED' });
 
     await expect(
       machine.executeSettlement({ ...request, nowUnix: clock.nowUnix })
-    ).rejects.toThrow(/withdrawal lock is already/i);
+    ).rejects.toThrow(/withdrawal lock is already|workflow ownership unconfirmed/i);
 
     // Cold-safe multisig queueing (> $250/tx cap) is also fenced when the lock was voided.
     await expect(
@@ -780,15 +788,15 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
         amountUnits1e8: parseUsdToLedgerUnits('300.00'),
         nowUnix: clock.nowUnix,
       })
-    ).rejects.toThrow(/withdrawal lock is already/i);
+    ).rejects.toThrow(/withdrawal lock is already|workflow ownership unconfirmed/i);
 
-    // Passive recovery on an already-EXPIRED_RECOVERED row remains a clean no-op.
+    // Passive recovery on an already-FAILED_ABORTED row remains a clean no-op.
     const passiveAfterRevert = await machine.recoverUncertainBroadcast('po_revoked', {
       nowUnix: clock.nowUnix,
       reexecuteExpired: true,
       passiveOnly: true,
     });
-    expect(passiveAfterRevert.state).toBe('EXPIRED_RECOVERED');
+    expect(passiveAfterRevert.state).toBe('FAILED_ABORTED');
     expect(passiveAfterRevert.action).toBe('NO_RECOVERY_NEEDED');
 
     // None of the paths ever reached the signing enclave again.
@@ -797,7 +805,7 @@ describe('Passive Settlement Broadcast Reconciler (G7)', () => {
     const revokedRow = sqlite
       .prepare('SELECT state FROM settlement_broadcasts WHERE payout_id = ?')
       .get('po_revoked') as { state: string };
-    expect(revokedRow.state).toBe('EXPIRED_RECOVERED');
+    expect(revokedRow.state).toBe('FAILED_ABORTED');
 
     const invariants = await verifyLedgerInvariants(db);
     expect(invariants.valid).toBe(true);

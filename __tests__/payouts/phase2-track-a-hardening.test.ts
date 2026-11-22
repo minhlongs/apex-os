@@ -96,6 +96,48 @@ function applyMigrations(sqlite: Database.Database, filenames: string[]): void {
   }
 }
 
+async function fundFixtureTrader(d1: SqliteD1Adapter) {
+  const r2 = new InMemoryR2Bucket();
+  const ledger = new DoubleEntryLedgerService(d1);
+  const partnerEv = await storeEvidenceObject(d1, r2, {
+    exchange: 'bybit',
+    sourceKind: 'rest_poll',
+    rawBytes: '{"cold_seed":true}',
+    statementPeriodStart: '2026-11-01T00:00:00Z',
+    statementPeriodEnd: '2026-11-01T23:59:59Z',
+  });
+  const walletEv = await storeEvidenceObject(d1, r2, {
+    exchange: 'bybit',
+    sourceKind: 'wallet_statement',
+    rawBytes: '{"cold_wallet":true}',
+    statementPeriodStart: '2026-11-01T00:00:00Z',
+    statementPeriodEnd: '2026-11-01T23:59:59Z',
+  });
+  const grossSeed = parseUsdToLedgerUnits('1000.00'); // trader rebate = $475.00
+  const recon = await reconcilePartnerCashBatch(d1, {
+    exchange: 'bybit',
+    evidenceId: partnerEv.id,
+    walletEvidenceId: walletEv.id,
+    uidAllocatedUnits: grossSeed,
+    walletCashCollectedUnits: grossSeed,
+    r2,
+  });
+  const seedBatch = await ledger.recordVerifiedCommissionInflight({
+    idempotencyKey: 'seed-cold-verify-1',
+    exchange: 'bybit',
+    tradeRefId: 'trd-cold-verify-1',
+    traderUid: 'uid-cold-verify-1',
+    traderId: 'trader-1',
+    reconciliationId: recon.id,
+    evidenceId: partnerEv.id,
+    grossCommissionUnits: grossSeed,
+    createdAt: '2026-11-01T00:00:00.000Z',
+    r2,
+  });
+  await ledger.releaseMaturedInflightBatch(seedBatch.batch.id, '2026-11-10T00:00:00.000Z');
+  return ledger;
+}
+
 function createSettlementTestDb(): {
   sqlite: Database.Database;
   d1: SqliteD1Adapter;
@@ -112,6 +154,16 @@ function createSettlementTestDb(): {
     '028_ascendancy_audit_core.sql',
     '031_ascendancy_phase2_ui_and_poller.sql',
   ]);
+  const snapshotBeforeRemediation = new Database(sqlite.serialize());
+  try {
+    applyMigrations(sqlite, [
+      '033_cold_settlement_claims.sql',
+      '034_withdrawal_freeze_at_write.sql',
+      '035_payout_effect_grants.sql', '036_durable_hot_exposure.sql',
+    ]);
+  } finally {
+    snapshotBeforeRemediation.close();
+  }
 
   const futureExp = new Date(Date.now() + 3_600_000).toISOString();
   sqlite
@@ -557,7 +609,8 @@ describe('Phase 2 Track A Hardening (G8 Turnkey HSM & G9 Multichain Money Precis
     });
 
     it('aligns Stellar 7dp units directly in BroadcastRecoveryMachine and reports residualDustUnits1e8', async () => {
-      const { sqlite, legacyD1 } = createSettlementTestDb();
+      const { sqlite, d1, legacyD1 } = createSettlementTestDb();
+      const ledger = await fundFixtureTrader(d1);
       const signer = new TurnkeySigner({
         transport: createSignedTurnkeyTransport(),
         evmHotWalletAddress: EVM_HOT_ADDR,
@@ -569,7 +622,12 @@ describe('Phase 2 Track A Hardening (G8 Turnkey HSM & G9 Multichain Money Precis
         stellarTransport: createMockStellarTransport(),
       });
 
+      const lock1 = await ledger.lockSettledForWithdrawal({
+        idempotencyKey: 'lock:payout-xlm-dust-1', ownerType: 'trader', ownerId: 'trader-1',
+        payoutId: 'payout-xlm-dust-1', chain: 'stellar', amountUnits: BigInt(1_234_567_890),
+      });
       const outcome = await machine.executeSettlement({
+        lockBatchId: lock1.batch.id,
         payoutId: 'payout-xlm-dust-1',
         idempotencyKey: 'idem-xlm-dust-1',
         affiliateId: 'trader-1',
@@ -668,12 +726,24 @@ describe('Phase 2 Track A Hardening (G8 Turnkey HSM & G9 Multichain Money Precis
   // ==========================================================================
   describe('Task 4: BroadcastRecoveryMachine cold-safe verification & secret redaction', () => {
     it('rejects cold-safe EVM confirmation when receipt recipient, tokenContract, or amountUnits mismatches', async () => {
-      const { sqlite, legacyD1 } = createSettlementTestDb();
+      const { sqlite, d1, legacyD1 } = createSettlementTestDb();
+      const ledger = await fundFixtureTrader(d1);
+
+      const lockResult = await ledger.lockSettledForWithdrawal({
+        idempotencyKey: 'wd_lock:idem-cold-verify-1',
+        ownerType: 'trader',
+        ownerId: 'trader-1',
+        amountUnits: BigInt(30_000_000_000), // $300.00 -> 300_000_000 Arbitrum 6dp units
+        payoutId: 'payout-cold-verify-1',
+        chain: 'arbitrum',
+      });
+
       const signer = new TurnkeySigner({
         transport: createSignedTurnkeyTransport(),
         evmHotWalletAddress: EVM_HOT_ADDR,
         stellarHotWalletAddress: STELLAR_HOT_PUB,
       });
+      const coldTreasury = signer.getSafeColdMultisigAddress('arbitrum');
 
       const baseAdapter = createMockEvmAdapter('arbitrum');
       const machine = new BroadcastRecoveryMachine({
@@ -690,93 +760,125 @@ describe('Phase 2 Track A Hardening (G8 Turnkey HSM & G9 Multichain Money Precis
         chain: 'arbitrum',
         recipientAddress: EVM_RECIPIENT,
         amountUnits1e8: BigInt(30_000_000_000), // $300 -> 300_000_000 chain units
+        lockBatchId: lockResult.batch.id,
         nowUnix: 1_700_000_000,
       });
       expect(queued.state).toBe('QUEUED_COLD_SAFE');
 
-      const receiptSpy = jest.spyOn(baseAdapter, 'getTransactionReceipt');
+      const evidenceSpy = jest.spyOn(baseAdapter, 'getColdPaymentEvidence');
+      const network = `eip155:${baseAdapter.chainId}`;
 
       // Mismatched recipient
-      receiptSpy.mockResolvedValueOnce({
-        found: true,
-        confirmed: true,
-        reverted: false,
-        transactionHash: '0x' + 'a'.repeat(64),
-        recipient: '0x000000000000000000000000000000000000dEaD',
-        tokenContract: baseAdapter.usdcContractAddress,
-        amountUnits: '300000000',
-      } as Awaited<ReturnType<ArbitrumBaseUsdcAdapter['getTransactionReceipt']>>);
+      const badRecipientTx = '0x' + 'a'.repeat(64);
+      evidenceSpy.mockResolvedValueOnce({
+        network,
+        txHash: badRecipientTx,
+        blockReference: '16:0x' + '1'.repeat(64),
+        transfers: [
+          {
+            operationId: '0',
+            source: coldTreasury,
+            recipient: '0x000000000000000000000000000000000000dEaD',
+            asset: baseAdapter.usdcContractAddress,
+            amountUnits: BigInt(300_000_000),
+          },
+        ],
+      });
 
       await expect(
         machine.resolveColdSafeBroadcast({
           payoutId: 'payout-cold-verify-1',
           resolution: 'CONFIRMED',
-          txHash: '0x' + 'a'.repeat(64),
+          txHash: badRecipientTx,
         })
       ).rejects.toThrow(/recipient/i);
 
-      // Mismatched tokenContract
-      receiptSpy.mockResolvedValueOnce({
-        found: true,
-        confirmed: true,
-        reverted: false,
-        transactionHash: '0x' + 'b'.repeat(64),
-        recipient: EVM_RECIPIENT,
-        tokenContract: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
-        amountUnits: '300000000',
-      } as Awaited<ReturnType<ArbitrumBaseUsdcAdapter['getTransactionReceipt']>>);
+      // Mismatched tokenContract / USDC asset
+      const badAssetTx = '0x' + 'b'.repeat(64);
+      evidenceSpy.mockResolvedValueOnce({
+        network,
+        txHash: badAssetTx,
+        blockReference: '16:0x' + '2'.repeat(64),
+        transfers: [
+          {
+            operationId: '0',
+            source: coldTreasury,
+            recipient: EVM_RECIPIENT,
+            asset: '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
+            amountUnits: BigInt(300_000_000),
+          },
+        ],
+      });
 
       await expect(
         machine.resolveColdSafeBroadcast({
           payoutId: 'payout-cold-verify-1',
           resolution: 'CONFIRMED',
-          txHash: '0x' + 'b'.repeat(64),
+          txHash: badAssetTx,
         })
       ).rejects.toThrow(/asset/i);
 
       // Mismatched amountUnits
-      receiptSpy.mockResolvedValueOnce({
-        found: true,
-        confirmed: true,
-        reverted: false,
-        transactionHash: '0x' + 'c'.repeat(64),
-        recipient: EVM_RECIPIENT,
-        tokenContract: baseAdapter.usdcContractAddress,
-        amountUnits: '299000000',
-      } as Awaited<ReturnType<ArbitrumBaseUsdcAdapter['getTransactionReceipt']>>);
+      const badAmountTx = '0x' + 'c'.repeat(64);
+      evidenceSpy.mockResolvedValueOnce({
+        network,
+        txHash: badAmountTx,
+        blockReference: '16:0x' + '3'.repeat(64),
+        transfers: [
+          {
+            operationId: '0',
+            source: coldTreasury,
+            recipient: EVM_RECIPIENT,
+            asset: baseAdapter.usdcContractAddress,
+            amountUnits: BigInt(299_000_000),
+          },
+        ],
+      });
 
       await expect(
         machine.resolveColdSafeBroadcast({
           payoutId: 'payout-cold-verify-1',
           resolution: 'CONFIRMED',
-          txHash: '0x' + 'c'.repeat(64),
+          txHash: badAmountTx,
         })
-      ).rejects.toThrow(/amount/i);
+      ).rejects.toThrow(/units|amount/i);
 
-      // Exact match succeeds
-      receiptSpy.mockResolvedValueOnce({
-        found: true,
-        confirmed: true,
-        reverted: false,
-        transactionHash: '0x' + 'd'.repeat(64),
-        recipient: EVM_RECIPIENT,
-        tokenContract: baseAdapter.usdcContractAddress,
-        amountUnits: '300000000',
-      } as Awaited<ReturnType<ArbitrumBaseUsdcAdapter['getTransactionReceipt']>>);
+      // Exact match succeeds and settles the bound withdrawal lock
+      const exactTx = '0x' + 'd'.repeat(64);
+      evidenceSpy.mockResolvedValueOnce({
+        network,
+        txHash: exactTx,
+        blockReference: '16:0x' + '4'.repeat(64),
+        transfers: [
+          {
+            operationId: '0',
+            source: coldTreasury,
+            recipient: EVM_RECIPIENT,
+            asset: baseAdapter.usdcContractAddress,
+            amountUnits: BigInt(300_000_000),
+          },
+        ],
+      });
 
       const confirmed = await machine.resolveColdSafeBroadcast({
         payoutId: 'payout-cold-verify-1',
         resolution: 'CONFIRMED',
-        txHash: '0x' + 'd'.repeat(64),
+        txHash: exactTx,
       });
       expect(confirmed.state).toBe('CONFIRMED');
-      expect(confirmed.tx_hash).toBe('0x' + 'd'.repeat(64));
+      expect(confirmed.tx_hash).toBe(exactTx);
+      expect(await ledger.getBatchById(lockResult.batch.id)).toMatchObject({
+        status: 'SETTLED',
+        settledTxHash: exactTx,
+      });
+      expect((await verifyLedgerInvariants(d1)).valid).toBe(true);
 
       sqlite.close();
     });
 
     it('sanitizes Stellar secrets and API credentials from broadcastErr / submitErr before persisting error_reason', async () => {
-      const { sqlite, legacyD1 } = createSettlementTestDb();
+      const { sqlite, d1, legacyD1 } = createSettlementTestDb();
+      const ledger = await fundFixtureTrader(d1);
       const signer = new TurnkeySigner({
         transport: createSignedTurnkeyTransport(),
         evmHotWalletAddress: EVM_HOT_ADDR,
@@ -801,7 +903,12 @@ describe('Phase 2 Track A Hardening (G8 Turnkey HSM & G9 Multichain Money Precis
         stellarTransport: failingStellarTransport,
       });
 
+      const lock1 = await ledger.lockSettledForWithdrawal({
+        idempotencyKey: 'lock:payout-err-sanitize-evm', ownerType: 'trader', ownerId: 'trader-1',
+        payoutId: 'payout-err-sanitize-evm', chain: 'arbitrum', amountUnits: BigInt(2_500_000_000),
+      });
       const evmOutcome = await machine.executeSettlement({
+        lockBatchId: lock1.batch.id,
         payoutId: 'payout-err-sanitize-evm',
         idempotencyKey: 'idem-err-sanitize-evm',
         affiliateId: 'trader-1',
@@ -821,7 +928,12 @@ describe('Phase 2 Track A Hardening (G8 Turnkey HSM & G9 Multichain Money Precis
       expect(evmRow.error_reason).not.toContain('secret_rpc_123');
       expect(evmRow.error_reason).not.toContain(LEAK_TURNKEY_KEY);
 
+      const lock2 = await ledger.lockSettledForWithdrawal({
+        idempotencyKey: 'lock:payout-err-sanitize-xlm', ownerType: 'trader', ownerId: 'trader-1',
+        payoutId: 'payout-err-sanitize-xlm', chain: 'stellar', amountUnits: BigInt(2_500_000_000),
+      });
       const xlmOutcome = await machine.executeSettlement({
+        lockBatchId: lock2.batch.id,
         payoutId: 'payout-err-sanitize-xlm',
         idempotencyKey: 'idem-err-sanitize-xlm',
         affiliateId: 'trader-1',

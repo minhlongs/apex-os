@@ -26,6 +26,7 @@ import {
   type EvmPhase1SettlementChain,
   type Phase1SettlementChain,
 } from './adapters/arbitrum-base-usdc-adapter';
+import { withPayoutEffect, withPayoutWorkflow, type PayoutEffectKind, type PayoutWorkflow } from './payout-effect-fence';
 import { StellarNetwork, resolveStellarNetwork } from './stellar-service';
 
 function resolveStellarSdkForSigner(): typeof StellarSdkTypes {
@@ -65,6 +66,30 @@ export const HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8 = BigInt('150000000000');
 export const COLD_SAFE_MIN_RESERVE_BPS = 8000; // 80.00%
 export const SAFE_MULTISIG_REQUIRED_OWNERS = 3;
 export const SAFE_MULTISIG_REQUIRED_THRESHOLD = 2;
+
+/** Exact attempt-bound proof, shared by admission and passive refunds. */
+export const VERIFIED_EXPOSURE_RELEASE_SQL = `EXISTS (
+  SELECT 1 FROM settlement_verified_exposure_releases proof
+  WHERE proof.payout_id = settlement_broadcasts.payout_id
+)`;
+
+// Unknown states, lanes, invalid/future times and historical terminal labels stay counted.
+const HOT_EXPOSURE_SQL = `(
+  (state = 'QUEUED_COLD_SAFE' AND signing_lane = 'COLD')
+  OR (${VERIFIED_EXPOSURE_RELEASE_SQL})
+  OR (state = 'CONFIRMED' AND (
+    typeof(confirmation_observed_at) = 'integer' AND confirmation_observed_at > 0
+    AND confirmation_observed_at <= unixepoch('now')
+    AND (confirmation_lane = 'COLD'
+      OR (confirmation_lane = 'HOT' AND confirmation_observed_at < unixepoch('now') - 86400))))
+) IS NOT TRUE`;
+
+// SUM deliberately stays SQLite INTEGER: overflow throws rather than creating headroom.
+const HOT_EXPOSURE_TOTAL_SQL = `(SELECT CASE
+  WHEN COUNT(*) = 0 THEN 0
+  WHEN SUM(CASE WHEN typeof(amount_units_1e8) != 'integer' OR amount_units_1e8 <= 0 THEN 1 ELSE 0 END) > 0
+    THEN NULL ELSE SUM(amount_units_1e8) END
+  FROM settlement_broadcasts WHERE ${HOT_EXPOSURE_SQL} AND payout_id != ?)`;
 
 const LEDGER_SCALE_DECIMAL = new Decimal(LEDGER_UNITS_PER_USD.toString());
 
@@ -166,7 +191,7 @@ export interface ColdSafeQueueProposal {
    * (e.g., Turnkey HSM policy rejection mid-sign). Defaults to `false` so a cross-isolate
    * cold-queue fallback can never clobber another isolate's active `SIGNING` claim.
    */
-  allowFromSigningState?: boolean;
+  preSubmissionWorkflow?: PayoutWorkflow;
 }
 
 export interface ColdSafeQueueResult {
@@ -664,33 +689,30 @@ export class TurnkeySigner {
     return addr;
   }
 
-  /**
-   * Query D1 `settlement_broadcasts` for the rolling 24-hour hot-wallet volume in 10^-8 units.
-   * Counts all hot-wallet committed/in-flight states (`SIGNING`, `BROADCAST_PENDING`, `CONFIRMED`)
-   * created in the past 24 hours so concurrent payouts cannot race past $1,500.00/24h.
-   */
+  /** Outstanding obligations never age out; only verified confirmations have a window. */
   async getRolling24hHotVolumeUnits1e8(
     db: D1Database,
     excludePayoutId?: string
   ): Promise<bigint> {
-    const query = excludePayoutId
-      ? `SELECT COALESCE(SUM(amount_units_1e8), 0) AS total_units
-         FROM settlement_broadcasts
-         WHERE state IN ('SIGNING', 'BROADCAST_PENDING', 'CONFIRMED')
-           AND created_at >= datetime('now', '-24 hours')
-           AND payout_id != ?`
-      : `SELECT COALESCE(SUM(amount_units_1e8), 0) AS total_units
-         FROM settlement_broadcasts
-         WHERE state IN ('SIGNING', 'BROADCAST_PENDING', 'CONFIRMED')
-           AND created_at >= datetime('now', '-24 hours')`;
-
-    const stmt = excludePayoutId
-      ? db.prepare(query).bind(excludePayoutId)
-      : db.prepare(query);
-
-    const row = await stmt.first<{ total_units: number | string | null }>();
-    const raw = row?.total_units ?? 0;
-    return BigInt(String(Math.trunc(Number(raw))));
+    const row = await db.prepare(`SELECT CAST(SUM(
+      CASE WHEN typeof(amount_units_1e8) = 'integer' AND amount_units_1e8 > 0
+        THEN amount_units_1e8 ELSE NULL END) AS TEXT) AS total_units,
+      COUNT(*) AS exposure_count,
+      SUM(CASE WHEN typeof(amount_units_1e8) != 'integer' OR amount_units_1e8 <= 0
+        THEN 1 ELSE 0 END) AS invalid_count
+      FROM settlement_broadcasts WHERE ${HOT_EXPOSURE_SQL}
+      AND (? IS NULL OR payout_id != ?)`)
+      .bind(excludePayoutId ?? null, excludePayoutId ?? null)
+      .first<{ total_units: unknown; exposure_count: unknown; invalid_count: unknown }>();
+    if (!row || !Number.isSafeInteger(row.exposure_count) || Number(row.exposure_count) < 0 ||
+        (row.invalid_count !== 0 && !(row.exposure_count === 0 && row.invalid_count === null))) {
+      throw new Error('Invalid global hot-wallet exposure accounting');
+    }
+    if (row.exposure_count === 0 && row.total_units === null) return BigInt(0);
+    if (typeof row.total_units !== 'string' || !/^[1-9][0-9]*$/.test(row.total_units)) {
+      throw new Error('Invalid exact global hot-wallet exposure total');
+    }
+    return BigInt(row.total_units);
   }
 
   /**
@@ -805,6 +827,8 @@ export class TurnkeySigner {
         .prepare(
           `UPDATE settlement_broadcasts
            SET state = 'SIGNING',
+               signing_lane = 'HOT', confirmation_lane = NULL, confirmation_observed_at = NULL,
+               exposure_release_kind = NULL, exposure_released_at = NULL, exposure_release_attempt_id = NULL,
                signer_address = ?,
                amount_units_1e8 = ?,
                chain_token_units = ?,
@@ -821,15 +845,14 @@ export class TurnkeySigner {
                error_reason = NULL,
                created_at = datetime('now'),
                updated_at = datetime('now')
-           WHERE payout_id = ?
-             AND state IN ('EXPIRED_RECOVERED', 'FAILED_ABORTED')
-             AND (
-               SELECT COALESCE(SUM(amount_units_1e8), 0)
-               FROM settlement_broadcasts
-               WHERE state IN ('SIGNING', 'BROADCAST_PENDING', 'CONFIRMED')
-                 AND created_at >= datetime('now', '-24 hours')
-                 AND payout_id != ?
-             ) + ? <= ?`
+           WHERE payout_id = ? AND chain = ? AND recipient_address = ? AND affiliate_id = ?
+             AND idempotency_key = ? AND lock_batch_id IS ?
+             AND ${VERIFIED_EXPOSURE_RELEASE_SQL}
+             AND EXISTS (SELECT 1 FROM ledger_journal_batches l
+               WHERE l.id = settlement_broadcasts.lock_batch_id
+                 AND l.payout_id = settlement_broadcasts.payout_id
+                 AND l.journal_type = 'WITHDRAWAL_LOCK' AND l.status = 'INFLIGHT')
+             AND ${HOT_EXPOSURE_TOTAL_SQL} <= ? - ?`
         )
         .bind(
           signerAddress,
@@ -838,20 +861,21 @@ export class TurnkeySigner {
           params.chainDecimals,
           params.lockBatchId ?? null,
           params.payoutId,
+          params.chain,
+          params.recipientAddress,
+          params.affiliateId,
+          params.idempotencyKey,
+          params.lockBatchId ?? null,
           params.payoutId,
-          amountUnitsNum,
-          capUnitsNum
+          capUnitsNum,
+          amountUnitsNum
         )
         .run();
 
-      if (typeof updRes.meta?.changes === 'number') {
-        return updRes.meta.changes > 0;
+      if (updRes.success !== true || ![0, 1].includes(updRes.meta?.changes)) {
+        throw new Error('Hot-wallet claim ownership unconfirmed');
       }
-      const verifyRow = await db
-        .prepare('SELECT state FROM settlement_broadcasts WHERE payout_id = ?')
-        .bind(params.payoutId)
-        .first<{ state: string }>();
-      return verifyRow?.state === 'SIGNING';
+      return updRes.meta.changes === 1;
     };
 
     const existingRow = await db
@@ -868,24 +892,18 @@ export class TurnkeySigner {
           .prepare(
             `INSERT INTO settlement_broadcasts (
                payout_id, idempotency_key, affiliate_id, chain, recipient_address,
-               amount_units_1e8, chain_token_units, chain_decimals, state,
+               amount_units_1e8, chain_token_units, chain_decimals, state, signing_lane,
                signer_address, assigned_nonce, stellar_sequence, timebounds_max_unix,
                tx_hash, signed_raw_tx, rbf_candidate_tx_hash, candidate_tx_hashes, lock_batch_id,
                turnkey_activity_id, error_reason, created_at, updated_at
              )
              SELECT
                ?, ?, ?, ?, ?,
-               ?, ?, ?, 'SIGNING',
+               ?, ?, ?, 'SIGNING', 'HOT',
                ?, NULL, NULL, NULL,
                NULL, NULL, NULL, '[]', ?,
                NULL, NULL, datetime('now'), datetime('now')
-             WHERE (
-               SELECT COALESCE(SUM(amount_units_1e8), 0)
-               FROM settlement_broadcasts
-               WHERE state IN ('SIGNING', 'BROADCAST_PENDING', 'CONFIRMED')
-                 AND created_at >= datetime('now', '-24 hours')
-                 AND payout_id != ?
-             ) + ? <= ?`
+             WHERE ${HOT_EXPOSURE_TOTAL_SQL} <= ? - ?`
           )
           .bind(
             params.payoutId,
@@ -899,20 +917,15 @@ export class TurnkeySigner {
             signerAddress,
             params.lockBatchId ?? null,
             params.payoutId,
-            amountUnitsNum,
-            capUnitsNum
+            capUnitsNum,
+            amountUnitsNum
           )
           .run();
 
-        if (typeof insRes.meta?.changes === 'number') {
-          slotClaimed = insRes.meta.changes > 0;
-        } else {
-          const verifyRow = await db
-            .prepare('SELECT state FROM settlement_broadcasts WHERE payout_id = ?')
-            .bind(params.payoutId)
-            .first<{ state: string }>();
-          slotClaimed = verifyRow?.state === 'SIGNING';
+        if (insRes.success !== true || ![0, 1].includes(insRes.meta?.changes)) {
+          throw new Error('Hot-wallet claim ownership unconfirmed');
         }
+        slotClaimed = insRes.meta.changes === 1;
       } catch (insErr: unknown) {
         const msg = insErr instanceof Error ? insErr.message : String(insErr);
         if (/unique|constraint/i.test(msg)) {
@@ -934,11 +947,8 @@ export class TurnkeySigner {
       .prepare('SELECT state FROM settlement_broadcasts WHERE payout_id = ?')
       .bind(params.payoutId)
       .first<{ state: string }>();
-    if (
-      latestRow &&
-      latestRow.state !== 'EXPIRED_RECOVERED' &&
-      latestRow.state !== 'FAILED_ABORTED'
-    ) {
+    if (latestRow && !(await db.prepare(`SELECT payout_id FROM settlement_broadcasts
+      WHERE payout_id = ? AND ${VERIFIED_EXPOSURE_RELEASE_SQL}`).bind(params.payoutId).first())) {
       return {
         claimed: false,
         violationCode: 'CONCURRENT_PAYOUT_ACTIVE',
@@ -1003,11 +1013,11 @@ export class TurnkeySigner {
     );
     const safeMultisigTxHash = `safe_2of3_${digestHex.slice(2, 50)}`;
 
-    const updatableStatesClause = proposal.allowFromSigningState
+    const updatableStatesClause = proposal.preSubmissionWorkflow
       ? `('SIGNING', 'EXPIRED_RECOVERED', 'FAILED_ABORTED', 'QUEUED_COLD_SAFE')`
       : `('EXPIRED_RECOVERED', 'FAILED_ABORTED', 'QUEUED_COLD_SAFE')`;
 
-    await db
+    const enqueueRes = await db
       .prepare(
         `INSERT INTO settlement_broadcasts (
            payout_id,
@@ -1022,12 +1032,14 @@ export class TurnkeySigner {
            signer_address,
            lock_batch_id,
            safe_multisig_tx_hash,
+           signing_lane,
            error_reason,
            created_at,
            updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED_COLD_SAFE', ?, ?, ?, ?, datetime('now'), datetime('now'))
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'QUEUED_COLD_SAFE', ?, ?, ?, 'COLD', ?, datetime('now'), datetime('now'))
          ON CONFLICT(payout_id) DO UPDATE SET
            state = 'QUEUED_COLD_SAFE',
+           signing_lane = 'COLD',
            signer_address = excluded.signer_address,
            assigned_nonce = NULL,
            stellar_sequence = NULL,
@@ -1036,7 +1048,14 @@ export class TurnkeySigner {
            safe_multisig_tx_hash = excluded.safe_multisig_tx_hash,
            error_reason = excluded.error_reason,
            updated_at = datetime('now')
-         WHERE settlement_broadcasts.state IN ${updatableStatesClause}`
+         WHERE settlement_broadcasts.state IN ${updatableStatesClause}
+           AND (state = 'QUEUED_COLD_SAFE' AND signing_lane = 'COLD'
+             OR ${VERIFIED_EXPOSURE_RELEASE_SQL}
+             OR (state = 'SIGNING' AND signing_lane = 'HOT'
+               AND EXISTS (SELECT 1 FROM payout_effect_attempts a WHERE a.payout_id = settlement_broadcasts.payout_id
+                 AND a.attempt_id = ? AND a.active = 1 AND a.owner_id = settlement_broadcasts.affiliate_id
+                 AND a.lock_batch_id IS settlement_broadcasts.lock_batch_id
+                 AND NOT EXISTS (SELECT 1 FROM payout_effect_grants g WHERE g.attempt_id = a.attempt_id))))`
       )
       .bind(
         proposal.payoutId,
@@ -1050,9 +1069,16 @@ export class TurnkeySigner {
         safeAddress,
         proposal.lockBatchId ?? null,
         safeMultisigTxHash,
-        proposal.reason
+        proposal.reason,
+        proposal.preSubmissionWorkflow?.attemptId ?? null
       )
       .run();
+
+    if (!enqueueRes.success || Number(enqueueRes.meta?.changes ?? 0) !== 1) {
+      throw new Error(
+        `Cold Safe enqueue rejected for payout ${proposal.payoutId}: existing broadcast state retains unresolved hot exposure`
+      );
+    }
 
     return {
       payoutId: proposal.payoutId,
@@ -1072,7 +1098,14 @@ export class TurnkeySigner {
     chain: EvmPhase1SettlementChain;
     amountUnits1e8: bigint;
     digestHex: Hex;
+    assignedNonce?: number;
+    effect?: Extract<PayoutEffectKind, 'TURNKEY_SIGN' | 'EVM_RBF_SIGN'>;
+    workflow?: PayoutWorkflow;
   }): Promise<EvmDigestSignature> {
+    if (!params.workflow) {
+      return withPayoutWorkflow(params.db, params.payoutId, (workflow) =>
+        this.signEvmDigestEnforced({ ...params, workflow }));
+    }
     if (params.amountUnits1e8 > HOT_WALLET_SINGLE_TX_CAP_UNITS_1E8) {
       throw new Error(
         `Turnkey policy hard-block: refusing to hot-sign EVM payout ${params.payoutId} exceeding $${HOT_WALLET_SINGLE_TX_CAP_USD} USDC`
@@ -1089,12 +1122,20 @@ export class TurnkeySigner {
       );
     }
 
-    return this.transport.signEvmDigest({
+    return withPayoutEffect({
+      workflow: params.workflow,
+      db: params.db,
+      payoutId: params.payoutId,
+      effect: params.effect ?? 'TURNKEY_SIGN',
+      payload: params.digestHex,
+      chain: params.chain, signerAddress: this.evmHotWalletAddress,
+      assignedNonce: params.assignedNonce, amountUnits1e8: params.amountUnits1e8,
+    }, () => this.transport.signEvmDigest({
       chain: params.chain,
       signerAddress: this.evmHotWalletAddress,
       digestHex: params.digestHex,
       payoutId: params.payoutId,
-    });
+    }));
   }
 
   /**
@@ -1106,7 +1147,14 @@ export class TurnkeySigner {
     amountUnits1e8: bigint;
     unsignedEnvelopeXdr: string;
     txHashHex: string;
+    stellarSequence?: string;
+    effect?: 'STELLAR_SIGN';
+    workflow?: PayoutWorkflow;
   }): Promise<StellarEnvelopeSignature> {
+    if (!params.workflow) {
+      return withPayoutWorkflow(params.db, params.payoutId, (workflow) =>
+        this.signStellarEnvelopeEnforced({ ...params, workflow }));
+    }
     if (params.amountUnits1e8 > HOT_WALLET_SINGLE_TX_CAP_UNITS_1E8) {
       throw new Error(
         `Turnkey policy hard-block: refusing to hot-sign Stellar payout ${params.payoutId} exceeding $${HOT_WALLET_SINGLE_TX_CAP_USD} USDC`
@@ -1123,11 +1171,19 @@ export class TurnkeySigner {
       );
     }
 
-    return this.transport.signStellarEnvelope({
+    return withPayoutEffect({
+      workflow: params.workflow,
+      db: params.db,
+      payoutId: params.payoutId,
+      effect: params.effect ?? 'STELLAR_SIGN',
+      payload: params.unsignedEnvelopeXdr,
+      chain: 'stellar', signerAddress: this.stellarHotWalletAddress,
+      stellarSequence: params.stellarSequence, amountUnits1e8: params.amountUnits1e8,
+    }, () => this.transport.signStellarEnvelope({
       signerAddress: this.stellarHotWalletAddress,
       unsignedEnvelopeXdr: params.unsignedEnvelopeXdr,
       txHashHex: params.txHashHex,
       payoutId: params.payoutId,
-    });
+    }));
   }
 }

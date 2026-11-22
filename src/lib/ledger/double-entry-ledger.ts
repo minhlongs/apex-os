@@ -419,6 +419,7 @@ export interface WithdrawalLockInput {
   ownerId: string;
   amountUnits: bigint;
   payoutId: string;
+  chain?: 'stellar' | 'arbitrum' | 'base';
   enforceMinimumThreshold?: boolean;
   nowIso?: string;
 }
@@ -2040,6 +2041,9 @@ export class DoubleEntryLedgerService {
 
     const replayBatch = await this.checkIdempotencyReplay(input.idempotencyKey, fingerprint);
     if (replayBatch) {
+      if (replayBatch.metadata.chain !== undefined && input.chain !== replayBatch.metadata.chain) {
+        throw new IdempotencyConflictError(input.idempotencyKey);
+      }
       return {
         batch: replayBatch,
         postings: await this.getPostingsForBatch(replayBatch.id),
@@ -2073,6 +2077,7 @@ export class DoubleEntryLedgerService {
       ownerId: input.ownerId.trim(),
       payoutId: trimmedPayoutId,
       lockedAmountUnits: input.amountUnits.toString(),
+      ...(input.chain ? { chain: input.chain } : {}),
       resolution: 'LOCKED',
     };
 

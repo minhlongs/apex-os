@@ -132,25 +132,29 @@ export function evaluateUsdcPegBand(
 /**
  * Read whether settlement is currently paused in `system_runtime_flags`.
  */
+const EMERGENCY_SETTLEMENT_FLAGS = ['EMERGENCY_PAUSE', 'EMERGENCY_LEDGER_FREEZE'] as const;
+
 export async function isEmergencySettlementPaused(
   db: D1Database
 ): Promise<{ paused: boolean; flagKey?: string; reason?: string }> {
-  const row = await db
+  const { results } = await db
     .prepare(
       `SELECT flag_key, flag_value, reason
        FROM system_runtime_flags
-       WHERE flag_key IN ('EMERGENCY_PAUSE', 'EMERGENCY_LEDGER_FREEZE')
-         AND lower(flag_value) = 'true'
-       LIMIT 1`
+       WHERE flag_key IN (?, ?)`
     )
-    .first<{ flag_key: string; flag_value: string; reason: string | null }>();
+    .bind(...EMERGENCY_SETTLEMENT_FLAGS)
+    .all<{ flag_key: string; flag_value: string; reason: string | null }>();
 
-  if (row) {
-    return {
-      paused: true,
-      flagKey: row.flag_key,
-      reason: row.reason ?? `${row.flag_key} active`,
-    };
+  for (const flagKey of EMERGENCY_SETTLEMENT_FLAGS) {
+    const rows = results.filter((row) => row.flag_key === flagKey);
+    const row = rows[0];
+    if (rows.length !== 1 || !row || (row.flag_value !== 'true' && row.flag_value !== 'false')) {
+      return { paused: true, flagKey, reason: 'Mandatory emergency control is missing or invalid' };
+    }
+    if (row.flag_value === 'true') {
+      return { paused: true, flagKey, reason: row.reason ?? `${flagKey} active` };
+    }
   }
 
   return { paused: false };

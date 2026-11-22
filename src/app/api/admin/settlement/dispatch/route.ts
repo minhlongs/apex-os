@@ -59,6 +59,7 @@ interface SettlementDispatchBody {
   nowUnix?: number;
   coldResolution?: 'CONFIRMED' | 'CANCELLED';
   txHash?: string;
+  operationId?: string;
   reason?: string;
 }
 
@@ -293,38 +294,18 @@ export async function POST(request: NextRequest): Promise<Response> {
         );
       }
 
-      const lockBatchId = await resolveLockBatchIdForPayout(ledger, machine, payoutId);
       const updatedRecord = await machine.resolveColdSafeBroadcast({
         payoutId,
         resolution: body.coldResolution,
         txHash: body.txHash,
+        operationId: body.operationId,
         reason: body.reason,
       });
-
-      if (lockBatchId) {
-        const lockBatch = await ledger.getBatchById(lockBatchId);
-        if (lockBatch && lockBatch.status === 'INFLIGHT') {
-          if (updatedRecord.state === 'CONFIRMED' && updatedRecord.tx_hash) {
-            await ledger.finalizeWithdrawal({
-              idempotencyKey: `wd_cold_fin:${payoutId}`,
-              lockBatchId,
-              txHash: updatedRecord.tx_hash,
-            });
-          } else if (updatedRecord.state === 'FAILED_ABORTED') {
-            await ledger.revertWithdrawal({
-              idempotencyKey: `wd_cold_rev:${payoutId}`,
-              lockBatchId,
-              reason:
-                updatedRecord.error_reason ?? 'Safe 2-of-3 cold multisig proposal cancelled',
-            });
-          }
-        }
-      }
 
       return NextResponse.json(
         {
           success: true,
-          lockBatchId,
+          lockBatchId: updatedRecord.lock_batch_id ?? null,
           settlement: updatedRecord,
         },
         { status: 200 }
@@ -382,6 +363,13 @@ export async function POST(request: NextRequest): Promise<Response> {
           code: 'IDEMPOTENCY_CONFLICT',
           error: `payoutId '${payoutId}' is already bound to a different idempotencyKey`,
         },
+        { status: 409 }
+      );
+    }
+
+    if (existingSettlement?.safe_multisig_tx_hash && existingSettlement.state !== 'QUEUED_COLD_SAFE') {
+      return NextResponse.json(
+        { success: false, code: 'COLD_SAFE_RESOLUTION_REQUIRED', error: 'Use cold Safe resolution for this payout' },
         { status: 409 }
       );
     }
@@ -553,6 +541,7 @@ export async function POST(request: NextRequest): Promise<Response> {
       ownerId: affiliateId,
       amountUnits: disbursableUnits1e8,
       payoutId,
+      chain,
     });
 
     // Reverted Withdrawal Lock Double-Spend Guard:
@@ -609,7 +598,8 @@ export async function POST(request: NextRequest): Promise<Response> {
     } catch (execErr) {
       // Only revert the withdrawal lock if `machine` NEVER persisted an in-flight/committed
       // broadcast record (`SIGNING`, `BROADCAST_PENDING`, `CONFIRMED`, `QUEUED_COLD_SAFE`)!
-      const persistedAfterErr = await machine.getSettlementRecord(payoutId).catch(() => null);
+      // A failed read cannot establish absence and must never authorize a refund.
+      const persistedAfterErr = await machine.getSettlementRecord(payoutId);
       const unsafeToRevert =
         persistedAfterErr !== null &&
         (persistedAfterErr.state === 'SIGNING' ||

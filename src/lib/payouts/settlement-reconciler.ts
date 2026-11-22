@@ -16,9 +16,9 @@
  * - Automated cron reconciliation runs strictly in passive mode (`bumpGasRbf: false`,
  *   `reexecuteExpired: false`, `passiveOnly: true`) so unattended ticks never emit new HSM
  *   signatures, never broadcast, and never abort an active `SIGNING` claim.
- * - Terminal broadcasts (`CONFIRMED`, `FAILED_ABORTED`, `EXPIRED_RECOVERED`) are re-visited until
- *   their paired `WITHDRAWAL_LOCK` leaves `INFLIGHT`, so a ledger freeze or transient D1 error
- *   between the on-chain outcome and ledger resolution cannot strand user funds forever.
+ * - Hot terminal broadcasts (`CONFIRMED`, `FAILED_ABORTED`, `EXPIRED_RECOVERED`) are re-visited
+ *   until their paired `WITHDRAWAL_LOCK` leaves `INFLIGHT`. Cold recovery resumes only durable
+ *   verified claims; ambiguous legacy cold rows are reported without releasing funds.
  */
 
 import type { D1Database as AuthD1Database } from '@/lib/auth/adapters/d1-adapter';
@@ -26,9 +26,13 @@ import { SanctionsScreeningService } from '@/lib/compliance/sanctions-service';
 import type { D1Database as LegacyD1Database } from '@/lib/db';
 import { DoubleEntryLedgerService } from '@/lib/ledger';
 import { ArbitrumBaseUsdcAdapter } from './adapters/arbitrum-base-usdc-adapter';
-import { BroadcastRecoveryMachine } from './broadcast-recovery-machine';
+import {
+  BroadcastRecoveryMachine,
+  sanitizeSettlementErrorMessage,
+} from './broadcast-recovery-machine';
 import { HorizonStellarBroadcastTransport } from './stellar-horizon-transport';
-import { TurnkeySigner } from './turnkey-signer';
+import { StellarNetwork } from './stellar-service';
+import { TurnkeySigner, VERIFIED_EXPOSURE_RELEASE_SQL } from './turnkey-signer';
 
 /**
  * Module-scope cache: one `BroadcastRecoveryMachine` per (D1 binding, configuration fingerprint).
@@ -153,8 +157,9 @@ export function resolveSettlementMachine(
   }
 
   const stellarTransport = new HorizonStellarBroadcastTransport({
-    horizonUrl: process.env.STELLAR_HORIZON_URL?.trim(),
-    usdcIssuer: process.env.STELLAR_USDC_ISSUER?.trim(),
+    network: networkMode === 'testnet' ? StellarNetwork.TESTNET : StellarNetwork.MAINNET,
+    horizonUrl: process.env.STELLAR_HORIZON_URL?.trim() || undefined,
+    usdcIssuer: process.env.STELLAR_USDC_ISSUER?.trim() || undefined,
   });
 
   const machine = new BroadcastRecoveryMachine({
@@ -197,6 +202,9 @@ interface ScannedBroadcastRow {
   tx_hash: string | null;
   lock_batch_id: string | null;
   error_reason: string | null;
+  safe_multisig_tx_hash: string | null;
+  confirmation_lane?: string | null;
+  requires_manual_review?: number;
 }
 
 function emptySummary(skippedNoMachine = false): PendingBroadcastReconcileSummary {
@@ -211,106 +219,103 @@ function emptySummary(skippedNoMachine = false): PendingBroadcastReconcileSummar
 }
 
 /**
- * Selects rows that still need reconciliation work:
- * - every `BROADCAST_PENDING` row (on-chain outcome not yet established), and
- * - every terminal row (`CONFIRMED` / `FAILED_ABORTED` / `EXPIRED_RECOVERED`) whose paired
- *   `WITHDRAWAL_LOCK` is still `INFLIGHT`, which means the ledger never observed the outcome
- *   (transient D1 failure, `EMERGENCY_LEDGER_FREEZE`, or a crashed isolate mid-resolution).
+ * Selects pending broadcasts, durable cold claims and terminal/inflight ledger gaps.
+ * Cold rows without a resumable claim have a separate bounded diagnostic quota:
+ * an unchanged legacy backlog must never consume slots needed for passive recovery.
+ * Each quota is capped at `limit`, so at most `2 * limit` rows are returned.
  */
 async function selectReconciliationCandidates(
   db: AuthD1Database,
   limit: number
 ): Promise<ScannedBroadcastRow[]> {
-  try {
-    const joined = await db
-      .prepare(
-        `SELECT sb.payout_id, sb.state, sb.tx_hash, sb.lock_batch_id, sb.error_reason
-         FROM settlement_broadcasts sb
-         WHERE sb.state = 'BROADCAST_PENDING'
-            OR (
-              sb.state IN ('CONFIRMED', 'FAILED_ABORTED', 'EXPIRED_RECOVERED')
-              AND EXISTS (
-                SELECT 1
-                FROM ledger_journal_batches lb
-                WHERE lb.journal_type = 'WITHDRAWAL_LOCK'
-                  AND lb.status = 'INFLIGHT'
-                  AND (
-                    (sb.lock_batch_id IS NOT NULL AND lb.id = sb.lock_batch_id)
-                    OR lb.payout_id = sb.payout_id
-                  )
-              )
+  const select = () => {
+    const hasClaim = `EXISTS (
+      SELECT 1 FROM cold_settlement_claims claim WHERE claim.payout_id = sb.payout_id
+    )`;
+    const needsManualReview = `sb.state NOT IN ('QUEUED_COLD_SAFE', 'CONFIRMED') OR NOT ${hasClaim}`;
+    const unresolvedTerminal = `sb.state IN ('FAILED_ABORTED', 'EXPIRED_RECOVERED')
+      AND NOT EXISTS (SELECT 1 FROM settlement_verified_exposure_releases proof WHERE proof.payout_id = sb.payout_id)`;
+    return db.prepare(`
+      WITH candidates AS (
+        SELECT sb.payout_id, sb.state, sb.tx_hash, sb.lock_batch_id, sb.error_reason,
+          sb.safe_multisig_tx_hash, sb.confirmation_lane, sb.updated_at,
+          CASE WHEN (sb.safe_multisig_tx_hash IS NOT NULL OR sb.state = 'QUEUED_COLD_SAFE') AND (
+            ${needsManualReview}
+          ) OR (${unresolvedTerminal}) THEN 1 ELSE 0 END AS requires_manual_review
+        FROM settlement_broadcasts sb
+        WHERE sb.state = 'BROADCAST_PENDING'
+          OR (sb.state = 'QUEUED_COLD_SAFE' AND ${hasClaim})
+          OR (sb.state = 'CONFIRMED' AND sb.confirmation_lane = 'UNVERIFIED_HOT' AND sb.safe_multisig_tx_hash IS NULL)
+          OR (
+            sb.state IN ('CONFIRMED', 'FAILED_ABORTED', 'EXPIRED_RECOVERED')
+            AND EXISTS (
+              SELECT 1 FROM ledger_journal_batches lb
+              WHERE lb.journal_type = 'WITHDRAWAL_LOCK' AND lb.status = 'INFLIGHT'
+                AND ((sb.lock_batch_id IS NOT NULL AND lb.id = sb.lock_batch_id)
+                  OR lb.payout_id = sb.payout_id)
             )
-         ORDER BY sb.updated_at ASC
-         LIMIT ?`
+          )
       )
-      .bind(limit)
+      SELECT * FROM (
+        SELECT * FROM candidates WHERE requires_manual_review = 0
+        ORDER BY
+          CASE
+            WHEN state = 'CONFIRMED' AND confirmation_lane = 'UNVERIFIED_HOT' THEN 1
+            ELSE 0
+          END ASC,
+          updated_at ASC,
+          payout_id ASC
+        LIMIT ?
+      )
+      UNION ALL
+      SELECT * FROM (
+        SELECT * FROM candidates WHERE requires_manual_review = 1
+        ORDER BY updated_at ASC, payout_id ASC LIMIT ?
+      )`)
+      .bind(limit, limit)
       .all<ScannedBroadcastRow>();
-    return joined.results ?? [];
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/no such table:\s*ledger_journal_batches/i.test(message)) {
-      const pendingOnly = await db
-        .prepare(
-          `SELECT payout_id, state, tx_hash, lock_batch_id, error_reason
-           FROM settlement_broadcasts
-           WHERE state = 'BROADCAST_PENDING'
-           ORDER BY updated_at ASC
-           LIMIT ?`
-        )
-        .bind(limit)
-        .all<ScannedBroadcastRow>();
-      return pendingOnly.results ?? [];
-    }
-    throw err;
-  }
+  };
+  return (await select()).results ?? [];
 }
 
 /**
  * Finds the `INFLIGHT` `WITHDRAWAL_LOCK` batch that still has to be resolved for a payout.
  * Prefers the batch id recorded on the broadcast row, then falls back to the unique active
- * lock for the payout. Returns `null` when the lock table is absent or nothing is `INFLIGHT`.
+ * lock for the payout. Returns `null` only when no lock is `INFLIGHT`; schema/query failures propagate.
  */
 async function findInflightWithdrawalLockId(
   db: AuthD1Database,
   payoutId: string,
   lockBatchId: string | null
 ): Promise<string | null> {
-  try {
-    if (lockBatchId) {
-      const bound = await db
-        .prepare(
-          `SELECT id
-           FROM ledger_journal_batches
-           WHERE id = ? AND journal_type = 'WITHDRAWAL_LOCK' AND status = 'INFLIGHT'
-           LIMIT 1`
-        )
-        .bind(lockBatchId)
-        .first<{ id: string }>();
-      if (bound?.id) {
-        return bound.id;
-      }
-    }
-
-    const active = await db
+  if (lockBatchId) {
+    const bound = await db
       .prepare(
         `SELECT id
          FROM ledger_journal_batches
-         WHERE journal_type = 'WITHDRAWAL_LOCK'
-           AND payout_id = ?
-           AND status = 'INFLIGHT'
-         ORDER BY created_at DESC
+         WHERE id = ? AND journal_type = 'WITHDRAWAL_LOCK' AND status = 'INFLIGHT'
          LIMIT 1`
       )
-      .bind(payoutId)
+      .bind(lockBatchId)
       .first<{ id: string }>();
-    return active?.id ?? null;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/no such table:\s*ledger_journal_batches/i.test(message)) {
-      return null;
+    if (bound?.id) {
+      return bound.id;
     }
-    throw err;
   }
+
+  const active = await db
+    .prepare(
+      `SELECT id
+       FROM ledger_journal_batches
+       WHERE journal_type = 'WITHDRAWAL_LOCK'
+         AND payout_id = ?
+         AND status = 'INFLIGHT'
+       ORDER BY created_at DESC
+       LIMIT 1`
+    )
+    .bind(payoutId)
+    .first<{ id: string }>();
+  return active?.id ?? null;
 }
 
 /**
@@ -333,16 +338,7 @@ export async function reconcilePendingSettlementBroadcasts(
 ): Promise<PendingBroadcastReconcileSummary> {
   const limit = Math.max(1, Math.min(options?.limit ?? 25, 100));
 
-  let rows: ScannedBroadcastRow[];
-  try {
-    rows = await selectReconciliationCandidates(db, limit);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (/no such table/i.test(message)) {
-      return emptySummary();
-    }
-    throw err;
-  }
+  const rows = await selectReconciliationCandidates(db, limit);
 
   if (rows.length === 0) {
     return emptySummary();
@@ -363,6 +359,35 @@ export async function reconcilePendingSettlementBroadcasts(
 
   for (const row of rows) {
     const payoutId = row.payout_id;
+
+    if (row.safe_multisig_tx_hash || row.state === 'QUEUED_COLD_SAFE') {
+      // Legacy cold cancellations/confirmations cannot authorize a refund or a ledger posting.
+      if (row.requires_manual_review) {
+        errors.push({ payoutId, error: 'Cold Safe payout has no resumable verified payment claim or eligible state; manual reconciliation required; no funds released' });
+        continue;
+      }
+      if (!machine) {
+        stillPending += 1;
+        errors.push({ payoutId, error: 'Settlement machine is not configured; verified cold payment claim remains reserved' });
+        continue;
+      }
+      try {
+        await machine.resumeColdPaymentClaim(payoutId);
+        confirmed += 1;
+      } catch (err) {
+        errors.push({
+          payoutId,
+          error: sanitizeSettlementErrorMessage(err, 'Cold payment reconciliation failed'),
+        });
+      }
+      continue;
+    }
+
+    if (row.requires_manual_review) {
+      stillPending += 1;
+      errors.push({ payoutId, error: 'Terminal label lacks exact durable release proof; withdrawal remains locked' });
+      continue;
+    }
 
     if (row.state === 'BROADCAST_PENDING') {
       if (!machine) {
@@ -416,16 +441,18 @@ export async function reconcilePendingSettlementBroadcasts(
           recovered.state === 'FAILED_ABORTED' ||
           recovered.state === 'EXPIRED_RECOVERED'
         ) {
-          if (inflightLockId) {
-            await ledger.revertWithdrawal({
+          const proof = inflightLockId && await db.prepare(`SELECT payout_id FROM settlement_broadcasts
+            WHERE payout_id = ? AND lock_batch_id = ? AND ${VERIFIED_EXPOSURE_RELEASE_SQL}`)
+            .bind(payoutId, inflightLockId).first();
+          if (!proof || !inflightLockId) { stillPending += 1; continue; }
+          await ledger.revertWithdrawal({
               idempotencyKey: `wd_rec_rev:${payoutId}`,
               lockBatchId: inflightLockId,
               reason:
                 latestRecord?.error_reason ??
                 recovered.reason ??
                 `Settlement recovery terminal non-confirmed state: ${recovered.state}`,
-            });
-          }
+          });
           reverted += 1;
         } else {
           stillPending += 1;
@@ -445,7 +472,7 @@ export async function reconcilePendingSettlementBroadcasts(
     try {
       const freshRow = await db
         .prepare(
-          `SELECT state, tx_hash, lock_batch_id, error_reason
+          `SELECT state, tx_hash, lock_batch_id, error_reason, confirmation_lane
            FROM settlement_broadcasts
            WHERE payout_id = ?`
         )
@@ -455,12 +482,16 @@ export async function reconcilePendingSettlementBroadcasts(
           tx_hash: string | null;
           lock_batch_id: string | null;
           error_reason: string | null;
+          confirmation_lane: string | null;
         }>();
       if (!freshRow) {
         continue;
       }
 
       if (freshRow.state === 'CONFIRMED') {
+        if (freshRow.confirmation_lane === 'UNVERIFIED_HOT' && machine) {
+          await machine.promoteUnverifiedHotConfirmation(payoutId);
+        }
         const txHash = (freshRow.tx_hash ?? '').trim();
         if (!txHash) {
           errors.push({
@@ -499,6 +530,10 @@ export async function reconcilePendingSettlementBroadcasts(
         if (!inflightLockId) {
           continue;
         }
+        const proof = await db.prepare(`SELECT payout_id FROM settlement_broadcasts
+          WHERE payout_id = ? AND lock_batch_id = ? AND ${VERIFIED_EXPOSURE_RELEASE_SQL}`)
+          .bind(payoutId, inflightLockId).first();
+        if (!proof) { stillPending += 1; continue; }
         await ledger.revertWithdrawal({
           idempotencyKey: `wd_rec_rev:${payoutId}`,
           lockBatchId: inflightLockId,

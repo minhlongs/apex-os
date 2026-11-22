@@ -123,12 +123,78 @@ function createAscendancyDb(): { sqlite: Database.Database; db: D1Database } {
     CREATE TABLE profiles (id TEXT PRIMARY KEY, email TEXT);
     CREATE TABLE deals (id TEXT PRIMARY KEY);
   `);
-  const migrationPath = path.resolve(
-    process.cwd(),
-    'src/database/migrations/028_ascendancy_audit_core.sql'
-  );
-  sqlite.exec(fs.readFileSync(migrationPath, 'utf8'));
+  for (const migFile of [
+    '028_ascendancy_audit_core.sql',
+    '033_cold_settlement_claims.sql',
+    '034_withdrawal_freeze_at_write.sql',
+    '035_payout_effect_grants.sql',
+    '036_durable_hot_exposure.sql',
+  ]) {
+    const migrationPath = path.resolve(
+      process.cwd(),
+      `src/database/migrations/${migFile}`
+    );
+    sqlite.exec(fs.readFileSync(migrationPath, 'utf8'));
+  }
   return { sqlite, db: createSqliteD1(sqlite) };
+}
+
+function ensureTestWithdrawalLock(
+  sqlite: Database.Database,
+  payoutId: string,
+  ownerId = 'trader_g8',
+  amountUnits1e8: bigint = BigInt(0),
+  chain?: string
+): string {
+  const lockId = `lock_${payoutId}`;
+  const existing = sqlite
+    .prepare(
+      `SELECT id FROM ledger_journal_batches WHERE payout_id = ? AND journal_type = 'WITHDRAWAL_LOCK' LIMIT 1`
+    )
+    .get(payoutId) as { id: string } | undefined;
+  if (existing) return existing.id;
+  const amountNum = Number(amountUnits1e8);
+  sqlite
+    .prepare(
+      `INSERT INTO ledger_journal_batches (
+         id, idempotency_key, payload_fingerprint, journal_type, status,
+         gross_commission_units, payout_id, metadata
+       ) VALUES (?, ?, ?, 'WITHDRAWAL_LOCK', 'INFLIGHT', ?, ?, ?)`
+    )
+    .run(
+      lockId,
+      `lock_idem_${payoutId}`,
+      `fp_${payoutId}`,
+      amountNum,
+      payoutId,
+      JSON.stringify({
+        payoutId,
+        ownerId,
+        ownerType: 'trader',
+        ...(chain ? { chain } : {}),
+        lockedAmountUnits: amountUnits1e8.toString(),
+      })
+    );
+  return lockId;
+}
+
+function bindTestWithdrawalLocks(
+  machine: BroadcastRecoveryMachine,
+  sqlite: Database.Database
+): BroadcastRecoveryMachine {
+  const origExecute = machine.executeSettlement.bind(machine);
+  machine.executeSettlement = async (req) => {
+    const lockBatchId =
+      req.lockBatchId ??
+      ensureTestWithdrawalLock(sqlite, req.payoutId, req.affiliateId, req.amountUnits1e8, req.chain);
+    return origExecute({ ...req, lockBatchId });
+  };
+  const origRecover = machine.recoverUncertainBroadcast.bind(machine);
+  machine.recoverUncertainBroadcast = async (payoutId, opts) => {
+    ensureTestWithdrawalLock(sqlite, payoutId);
+    return origRecover(payoutId, opts);
+  };
+  return machine;
 }
 
 // ============================================================================
@@ -471,17 +537,20 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
       primaryRpc: baseSepoliaSim,
     });
 
-    machine = new BroadcastRecoveryMachine({
-      db,
-      turnkeySigner,
-      evmAdapters: {
-        arbitrum: arbAdapter,
-        base: baseAdapter,
-      },
-      stellarTransport: stellarTestnetSim,
-      defaultUsdcPriceUsd: '1.0000',
-      nowUnixProvider: () => stellarTestnetSim.currentClockUnix,
-    });
+    machine = bindTestWithdrawalLocks(
+      new BroadcastRecoveryMachine({
+        db,
+        turnkeySigner,
+        evmAdapters: {
+          arbitrum: arbAdapter,
+          base: baseAdapter,
+        },
+        stellarTransport: stellarTestnetSim,
+        defaultUsdcPriceUsd: '1.0000',
+        nowUnixProvider: () => stellarTestnetSim.currentClockUnix,
+      }),
+      sqlite
+    );
   });
 
   afterEach(() => {
@@ -576,15 +645,30 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
 
     // ========================================================================
     // Wave 2: Attempt duplicate executeSettlement on all 15 BROADCAST_PENDING payouts!
-    // Must stay strictly locked: ZERO new nonces allocated, ZERO new HSM signatures!
+    // Must stay strictly locked: blocked by retained workflow owner or BROADCAST_PENDING,
+    // with ZERO new nonces allocated and ZERO new HSM signatures!
     // ========================================================================
     const dupAttempts = await Promise.all(
-      pendingUncertain.map((p) => {
+      pendingUncertain.map(async (p) => {
         const origReq = requests.find((r) => r.payoutId === p.payoutId)!;
-        return machine.executeSettlement(origReq);
+        try {
+          const outcome = await machine.executeSettlement(origReq);
+          return { blocked: false as const, state: outcome.state };
+        } catch (err: unknown) {
+          return {
+            blocked: true as const,
+            message: err instanceof Error ? err.message : String(err),
+          };
+        }
       })
     );
-    expect(dupAttempts.every((d) => d.state === 'BROADCAST_PENDING')).toBe(true);
+    expect(
+      dupAttempts.every((d) =>
+        d.blocked
+          ? /workflow ownership unconfirmed or stale/.test(d.message)
+          : d.state === 'BROADCAST_PENDING'
+      )
+    ).toBe(true);
     expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(arbNextNonceBefore);
     expect(await machine.getNextSignerNonce('base', EVM_HOT_WALLET)).toBe(baseNextNonceBefore);
     expect(await machine.getNextSignerNonce('stellar', STELLAR_HOT_WALLET)).toBe(xlmNextSeqBefore);
@@ -594,9 +678,9 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
 
     // ========================================================================
     // Wave 3: Run recovery at t0 + 60s (BEFORE Stellar 180s TimeBounds expiry!)
-    // - Landed Stellar & EVM 504s reconcile to CONFIRMED with 0 re-signs.
-    // - Dropped EVM 504s recover reusing their EXACT assigned_nonce (including RBF check).
-    // - Dropped Stellar 504s MUST STAY LOCKED in BROADCAST_PENDING (60s <= 180s)!
+    // - Landed Stellar & EVM 504s reconcile to CONFIRMED via passive observation with 0 re-signs.
+    // - Dropped EVM & Stellar 504s with uncertain provider outcomes stay strictly locked in
+    //   BROADCAST_PENDING (retained workflow owner; ZERO automatic re-sign or nonce reuse).
     // ========================================================================
     stellarTestnetSim.currentClockUnix += 60; // +60s (< 180s TimeBounds!)
 
@@ -604,18 +688,21 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
       pendingUncertain.map((p, idx) =>
         machine.recoverUncertainBroadcast(p.payoutId, {
           nowUnix: stellarTestnetSim.currentClockUnix,
-          // Exercise both raw signed tx rebroadcast and RBF gas-bump same-nonce recovery on EVM
           bumpGasRbf: idx % 2 === 1,
         })
       )
     );
 
-    // Check Stellar dropped txs (3 of them) remained strictly LOCKED_AWAITING_TIMEBOUNDS_EXPIRY
+    // Check Stellar dropped txs (3 of them) remained strictly LOCKED in BROADCAST_PENDING
     const lockedStellarAt60s = recoveryAt60s.filter(
-      (r) => r.action === 'LOCKED_AWAITING_TIMEBOUNDS_EXPIRY'
+      (r) => r.chain === 'stellar' && r.state === 'BROADCAST_PENDING'
     );
     expect(lockedStellarAt60s).toHaveLength(3);
-    expect(lockedStellarAt60s.every((r) => r.state === 'BROADCAST_PENDING')).toBe(true);
+    expect(
+      lockedStellarAt60s.every(
+        (r) => r.action === 'LOCKED_AWAITING_TIMEBOUNDS_EXPIRY' || r.action === 'STILL_BROADCAST_PENDING'
+      )
+    ).toBe(true);
 
     // Check Stellar landed txs (2 of them) reconciled cleanly without re-signing
     const reconciledStellarAt60s = recoveryAt60s.filter(
@@ -623,21 +710,16 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
     );
     expect(reconciledStellarAt60s).toHaveLength(2);
 
-    // Check ALL 10 EVM 504s (5 landed + 5 dropped) are now CONFIRMED and signer_nonces NEVER incremented!
+    // Check EVM 504s: 5 landed reconciled to CONFIRMED, 5 dropped stay fenced in BROADCAST_PENDING
     const evmRecoveries = recoveryAt60s.filter(
       (r) => r.chain === 'arbitrum' || r.chain === 'base'
     );
     expect(evmRecoveries).toHaveLength(10);
-    expect(evmRecoveries.every((r) => r.state === 'CONFIRMED')).toBe(true);
     expect(
-      evmRecoveries.filter((r) => r.action === 'RECONCILED_ON_CHAIN')
+      evmRecoveries.filter((r) => r.state === 'CONFIRMED' && r.action === 'RECONCILED_ON_CHAIN')
     ).toHaveLength(5);
     expect(
-      evmRecoveries.filter(
-        (r) =>
-          r.action === 'EVM_REBROADCAST_SAME_NONCE_CONFIRMED' ||
-          r.action === 'EVM_RBF_SAME_NONCE_CONFIRMED'
-      )
+      evmRecoveries.filter((r) => r.state === 'BROADCAST_PENDING')
     ).toHaveLength(5);
 
     // CRITICAL INVARIANT: EVM next_nonce stayed at 15 (0 extra nonces ever allocated!)
@@ -647,42 +729,27 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
     // Verify each EVM payout preserved its exact original assigned_nonce
     for (const pendingItem of pendingUncertain.filter((p) => p.chain !== 'stellar')) {
       const updated = await machine.getSettlementRecord(pendingItem.payoutId);
-      expect(updated?.state).toBe('CONFIRMED');
       expect(updated?.assigned_nonce).toBe(pendingItem.assignedNonce);
     }
 
     // ========================================================================
-    // Wave 4: Advance clock past 180s TimeBounds (t0 + 185s) and recover the 3 dropped Stellar txs
+    // Wave 4: Advance clock past 180s TimeBounds (t0 + 185s) — local expiry + Horizon absence
+    // cannot prove non-execution, so dropped Stellar txs remain safely fenced in BROADCAST_PENDING.
     // ========================================================================
     stellarTestnetSim.currentClockUnix += 125; // Total +185s (> 180s TimeBounds!)
 
-    // Step 4a: First verify transition to EXPIRED_RECOVERED on one Stellar tx, then re-execute all 3
-    const firstDroppedStellar = lockedStellarAt60s[0];
-    const expiredStep = await machine.recoverUncertainBroadcast(
-      firstDroppedStellar.payoutId,
-      { nowUnix: stellarTestnetSim.currentClockUnix, reexecuteExpired: false }
-    );
-    expect(expiredStep.state).toBe('EXPIRED_RECOVERED');
-    expect(expiredStep.action).toBe('EXPIRED_RECOVERED');
-
-    // Re-execute the EXPIRED_RECOVERED payout + recover-and-reexecute the other 2 dropped Stellar payouts
-    const reexecFirst = await machine.executeSettlement(
-      requests.find((r) => r.payoutId === firstDroppedStellar.payoutId)!
-    );
-    expect(reexecFirst.state).toBe('CONFIRMED');
-
-    const remainingTwoRecoveries = await Promise.all(
-      lockedStellarAt60s.slice(1).map((item) =>
+    const postExpiryChecks = await Promise.all(
+      lockedStellarAt60s.map((item) =>
         machine.recoverUncertainBroadcast(item.payoutId, {
           nowUnix: stellarTestnetSim.currentClockUnix,
           reexecuteExpired: true,
         })
       )
     );
-    expect(remainingTwoRecoveries.every((r) => r.state === 'CONFIRMED')).toBe(true);
-    expect(
-      remainingTwoRecoveries.every((r) => r.action === 'EXPIRED_AND_REEXECUTED')
-    ).toBe(true);
+    expect(postExpiryChecks.every((r) => r.state === 'BROADCAST_PENDING')).toBe(true);
+    expect(enclave.evmSignedPayoutIds.length + enclave.stellarSignedPayoutIds.length).toBe(
+      signCountBeforeDupCalls
+    );
 
     // ========================================================================
     // Final Audit Across All 50 Payouts: ZERO Double-Sends & ZERO Cap Leaks
@@ -701,8 +768,10 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
     expect(allDbRows).toHaveLength(50);
 
     const confirmedRows = allDbRows.filter((r) => r.state === 'CONFIRMED');
+    const pendingRows = allDbRows.filter((r) => r.state === 'BROADCAST_PENDING');
     const queuedSafeRows = allDbRows.filter((r) => r.state === 'QUEUED_COLD_SAFE');
-    expect(confirmedRows).toHaveLength(45);
+    expect(confirmedRows).toHaveLength(37); // 30 immediate + 7 landed 504s reconciled
+    expect(pendingRows).toHaveLength(8); // 5 dropped EVM + 3 dropped Stellar safely fenced
     expect(queuedSafeRows).toHaveLength(5);
 
     // 1. Assert ZERO payouts > $250 ever landed in CONFIRMED / hot wallet
@@ -710,26 +779,19 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
       expect(BigInt(row.amount_units_1e8) <= HOT_WALLET_SINGLE_TX_CAP_UNITS_1E8).toBe(true);
     }
 
-    // 2. Assert total 24h hot-wallet settled volume <= $1,500.00 ($1,350.00 exact)
+    // 2. Assert total 24h hot-wallet exposure includes BOTH confirmed and unresolved pending ($1,350.00 exact)
     const rolling24h = await turnkeySigner.getRolling24hHotVolumeUnits1e8(db);
     expect(rolling24h).toBe(toLedgerUnits1e8('1350.00'));
     expect(rolling24h <= HOT_WALLET_ROLLING_24H_CAP_UNITS_1E8).toBe(true);
 
-    // 3. Assert ZERO double-sends on Arbitrum Sepolia (15 confirmed payouts === 15 mined transfers)
-    expect(arbSepoliaSim.getConfirmedTransferCount()).toBe(15);
-    // 4. Assert ZERO double-sends on Base Sepolia (15 confirmed payouts === 15 mined transfers)
-    expect(baseSepoliaSim.getConfirmedTransferCount()).toBe(15);
-    // 5. Assert ZERO double-sends on Stellar Testnet (15 confirmed payouts === 15 mined transfers)
-    expect(stellarTestnetSim.minedByHash.size).toBe(15);
-
-    // 6. Total on-chain transfers across all 3 networks === 45 (exact 1:1 with the 45 hot-eligible payouts!)
+    // 3. Assert ZERO double-sends: total on-chain transfers === confirmedRows.length (37 exact 1:1)
     const totalOnChainTransfers =
       arbSepoliaSim.getConfirmedTransferCount() +
       baseSepoliaSim.getConfirmedTransferCount() +
       stellarTestnetSim.minedByHash.size;
-    expect(totalOnChainTransfers).toBe(45);
+    expect(totalOnChainTransfers).toBe(37);
 
-    // 7. Every single EVM recipient received exactly 1 transfer of 30_000_000 (6-decimal) USDC units
+    // 4. Every EVM recipient that received a transfer received AT MOST 1 transfer of 30_000_000 (6-decimal) USDC units
     for (let i = 0; i < 45; i++) {
       const chain = chains[i % 3];
       if (chain === 'arbitrum' || chain === 'base') {
@@ -738,8 +800,10 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
         const transfersToRecipient = Array.from(sim.minedByNonce.values()).filter(
           (t) => t.recipient === expectedRecipient
         );
-        expect(transfersToRecipient).toHaveLength(1);
-        expect(transfersToRecipient[0].amountUnits6).toBe(BigInt(30000000));
+        expect(transfersToRecipient.length).toBeLessThanOrEqual(1);
+        if (transfersToRecipient.length === 1) {
+          expect(transfersToRecipient[0].amountUnits6).toBe(BigInt(30000000));
+        }
       }
     }
   });
@@ -748,18 +812,24 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
     // 1. Cross-isolate 24h cap race: launch 8 concurrent $240 payouts ($1,920 total > $1,500 24h cap)
     //    across two separate BroadcastRecoveryMachine instances sharing D1 (simulating 2 Worker isolates
     //    where process-local mutexes do NOT coordinate).
-    const isolateMachineA = new BroadcastRecoveryMachine({
-      db,
-      turnkeySigner,
-      evmAdapters: { arbitrum: arbAdapter, base: baseAdapter },
-      stellarTransport: stellarTestnetSim,
-    });
-    const isolateMachineB = new BroadcastRecoveryMachine({
-      db,
-      turnkeySigner,
-      evmAdapters: { arbitrum: arbAdapter, base: baseAdapter },
-      stellarTransport: stellarTestnetSim,
-    });
+    const isolateMachineA = bindTestWithdrawalLocks(
+      new BroadcastRecoveryMachine({
+        db,
+        turnkeySigner,
+        evmAdapters: { arbitrum: arbAdapter, base: baseAdapter },
+        stellarTransport: stellarTestnetSim,
+      }),
+      sqlite
+    );
+    const isolateMachineB = bindTestWithdrawalLocks(
+      new BroadcastRecoveryMachine({
+        db,
+        turnkeySigner,
+        evmAdapters: { arbitrum: arbAdapter, base: baseAdapter },
+        stellarTransport: stellarTestnetSim,
+      }),
+      sqlite
+    );
 
     const raceOutcomes = await Promise.all(
       Array.from({ length: 8 }, (_, idx) => {
@@ -815,26 +885,41 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
         amountUnits1e8: toLedgerUnits1e8('40.00'),
         usdcReferencePriceUsd: '1.0000',
       })
-    ).rejects.toThrow(/Turnkey HSM transient network socket reset/);
+    ).rejects.toThrow(/provider outcome uncertain; reconcile retained owner/);
 
-    const abortedRow = sqlite
+    // Provider exception after signing grant does not prove non-execution; nonce 6 is retained.
+    const retainedRow = sqlite
       .prepare('SELECT state, assigned_nonce FROM settlement_broadcasts WHERE payout_id = ?')
       .get('po_reclaim_nonce_fail') as { state: string; assigned_nonce: number | null };
-    expect(abortedRow.state).toBe('FAILED_ABORTED');
-    expect(abortedRow.assigned_nonce).toBeNull();
+    expect(retainedRow.state).toBe('SIGNING');
+    expect(retainedRow.assigned_nonce).toBe(6);
 
-    const reclaimedSuccess = await isolateMachineB.executeSettlement({
-      payoutId: 'po_reclaim_nonce_ok',
-      idempotencyKey: 'idem_reclaim_nonce_ok',
+    // Retained unresolved $40 keeps 24h hot exposure at $1,480 ($1,440 + $40), so another $40
+    // exceeds the $1,500 rolling cap and routes to QUEUED_COLD_SAFE instead of leaking exposure.
+    const capProtectedCold = await isolateMachineB.executeSettlement({
+      payoutId: 'po_reclaim_nonce_cold',
+      idempotencyKey: 'idem_reclaim_nonce_cold',
       affiliateId: 'aff_reclaim_2',
       chain: 'arbitrum',
       recipientAddress: makeEvmRecipient(302),
       amountUnits1e8: toLedgerUnits1e8('40.00'),
       usdcReferencePriceUsd: '1.0000',
     });
-    expect(reclaimedSuccess.state).toBe('CONFIRMED');
-    // Nonce 6 was reclaimed cleanly rather than stranding hot wallet with a nonce gap at 6!
-    expect(reclaimedSuccess.assignedNonce).toBe(6);
+    expect(capProtectedCold.state).toBe('QUEUED_COLD_SAFE');
+
+    // A $20 payout fits within the remaining $20 cap ($1,480 + $20 = $1,500) and allocates nonce 7
+    // so it never collides with uncertain nonce 6.
+    const nextSuccess = await isolateMachineB.executeSettlement({
+      payoutId: 'po_reclaim_nonce_ok',
+      idempotencyKey: 'idem_reclaim_nonce_ok',
+      affiliateId: 'aff_reclaim_3',
+      chain: 'arbitrum',
+      recipientAddress: makeEvmRecipient(303),
+      amountUnits1e8: toLedgerUnits1e8('20.00'),
+      usdcReferencePriceUsd: '1.0000',
+    });
+    expect(nextSuccess.state).toBe('CONFIRMED');
+    expect(nextSuccess.assignedNonce).toBe(7);
   });
 
   it('aborts EVM settlement when pre-submission nonce read or unsigned tx construction fails, reclaiming the nonce without burning it', async () => {
@@ -993,28 +1078,29 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
     expect((await machine.getNextStellarSequence(STELLAR_HOT_WALLET))?.toString()).toBe('10001');
 
     // Case 3: Turnkey HSM fails while signing a fully built envelope.
+    // Provider exception after signing grant retains sequence 10001 instead of reclaiming blindly.
     enclave.failStellarSignTimes = 1;
     await expect(
       machine.executeSettlement(
         stellarRequest('po_xlm_hsm_fail', VALID_STELLAR_RECIPIENTS[2], 'idem_xlm_hsm_fail')
       )
-    ).rejects.toThrow(/HSM transient timeout during Stellar envelope signing/);
+    ).rejects.toThrow(/provider outcome uncertain; reconcile retained owner/);
 
-    const hsmAborted = sqlite
+    const hsmRetained = sqlite
       .prepare('SELECT state, stellar_sequence FROM settlement_broadcasts WHERE payout_id = ?')
       .get('po_xlm_hsm_fail') as { state: string; stellar_sequence: string | null };
-    expect(hsmAborted.state).toBe('FAILED_ABORTED');
-    expect(hsmAborted.stellar_sequence).toBeNull();
+    expect(hsmRetained.state).toBe('SIGNING');
+    expect(hsmRetained.stellar_sequence).toBe('10001');
     expect(enclave.stellarSignedPayoutIds).not.toContain('po_xlm_hsm_fail');
-    expect((await machine.getNextStellarSequence(STELLAR_HOT_WALLET))?.toString()).toBe('10001');
+    expect((await machine.getNextStellarSequence(STELLAR_HOT_WALLET))?.toString()).toBe('10002');
     expect(stellarTestnetSim.minedSequences.size).toBe(0);
 
-    // The reclaimed sequence 10001 is handed to the next payout instead of being skipped.
+    // Next payout allocates sequence 10002 without colliding with retained sequence 10001.
     const recovered = await machine.executeSettlement(
       stellarRequest('po_xlm_prep_recovered', VALID_STELLAR_RECIPIENTS[0], 'idem_xlm_prep_recovered')
     );
     expect(recovered.state).toBe('CONFIRMED');
-    expect(recovered.stellarSequence).toBe('10001');
+    expect(recovered.stellarSequence).toBe('10002');
   });
 
   it('refuses to abort an active or payload-bearing SIGNING claim and never signs or broadcasts during passive recovery', async () => {
@@ -1045,14 +1131,14 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
         6
       );
 
-    // Fresh claim: interactive recovery must not abort a younger-than-staleness SIGNING row.
+    // Fresh claim: interactive recovery must never auto-abort a SIGNING row on elapsed time.
     expect(SIGNING_STALE_ABORT_AFTER_SECONDS).toBe(300);
     const youngOutcome = await machine.recoverUncertainBroadcast('po_signing_active', {
       nowUnix: realNowUnix + 60,
     });
     expect(youngOutcome.state).toBe('SIGNING');
     expect(youngOutcome.action).toBe('NO_RECOVERY_NEEDED');
-    expect(youngOutcome.reason).toMatch(/younger than the 300s staleness window/);
+    expect(youngOutcome.reason).toMatch(/Elapsed time does not prove signing did not occur/);
 
     // Passive recovery never aborts an active SIGNING claim, even when it is stale.
     const passiveOutcome = await machine.recoverUncertainBroadcast('po_signing_active', {
@@ -1061,7 +1147,7 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
     });
     expect(passiveOutcome.state).toBe('SIGNING');
     expect(passiveOutcome.action).toBe('NO_RECOVERY_NEEDED');
-    expect(passiveOutcome.reason).toMatch(/never aborts an active SIGNING claim/);
+    expect(passiveOutcome.reason).toMatch(/Elapsed time does not prove signing did not occur/);
 
     // A stale SIGNING row holding a Turnkey activity id must never be released either.
     sqlite
@@ -1077,7 +1163,7 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
     });
     expect(payloadOutcome.state).toBe('SIGNING');
     expect(payloadOutcome.action).toBe('NO_RECOVERY_NEEDED');
-    expect(payloadOutcome.reason).toMatch(/refusing to release an uncertain signature/);
+    expect(payloadOutcome.reason).toMatch(/Elapsed time does not prove signing did not occur/);
 
     expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(7);
     expect(enclave.evmSignedPayoutIds).toHaveLength(0);
@@ -1115,9 +1201,9 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
     const staleOutcome = await machine.recoverUncertainBroadcast('po_signing_stale', {
       nowUnix: realNowUnix,
     });
-    expect(staleOutcome.state).toBe('FAILED_ABORTED');
-    expect(staleOutcome.action).toBe('FAILED_PRE_BROADCAST_ABORTED');
-    expect(staleOutcome.reason).toMatch(/Stale SIGNING record/);
+    expect(staleOutcome.state).toBe('SIGNING');
+    expect(staleOutcome.action).toBe('NO_RECOVERY_NEEDED');
+    expect(staleOutcome.reason).toMatch(/Elapsed time does not prove signing did not occur/);
 
     const staleRow = sqlite
       .prepare('SELECT state, assigned_nonce, tx_hash, signed_raw_tx FROM settlement_broadcasts WHERE payout_id = ?')
@@ -1127,30 +1213,15 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
       tx_hash: string | null;
       signed_raw_tx: string | null;
     };
-    expect(staleRow.state).toBe('FAILED_ABORTED');
-    expect(staleRow.assigned_nonce).toBeNull();
+    expect(staleRow.state).toBe('SIGNING');
+    expect(staleRow.assigned_nonce).toBe(42);
     expect(staleRow.tx_hash).toBeNull();
     expect(staleRow.signed_raw_tx).toBeNull();
 
-    // Top-of-counter CAS rolled 43 back to 42 so the nonce is not skipped.
-    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(42);
+    // Nonce 42 is NOT blindly reclaimed on elapsed time alone.
+    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(43);
 
-    // A resumed isolate that still believes it owns the SIGNING claim cannot persist
-    // BROADCAST_PENDING: the conditional state transition matches zero rows.
-    const resumedUpdate = await db
-      .prepare(
-        `UPDATE settlement_broadcasts
-         SET state = 'BROADCAST_PENDING',
-             tx_hash = '0xdeadbeef',
-             signed_raw_tx = '0xdeadbeef',
-             updated_at = datetime('now')
-         WHERE payout_id = ? AND state = 'SIGNING'`
-      )
-      .bind('po_signing_stale')
-      .run();
-    expect(resumedUpdate.meta?.changes).toBe(0);
-
-    // Re-dispatch sees the terminal FAILED_ABORTED record and refuses to allocate a new nonce.
+    // Re-dispatch sees the unresolved SIGNING record and refuses to allocate a duplicate nonce.
     const reDispatch = await machine.executeSettlement({
       payoutId: 'po_signing_stale',
       idempotencyKey: 'idem_signing_stale',
@@ -1160,13 +1231,13 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
       amountUnits1e8: toLedgerUnits1e8('30.00'),
       usdcReferencePriceUsd: '1.0000',
     });
-    expect(reDispatch.state).toBe('FAILED_ABORTED');
-    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(42);
+    expect(reDispatch.state).toBe('SIGNING');
+    expect(await machine.getNextSignerNonce('arbitrum', EVM_HOT_WALLET)).toBe(43);
     expect(enclave.evmSignedPayoutIds).toHaveLength(0);
     expect(arbSepoliaSim.getConfirmedTransferCount()).toBe(0);
   });
 
-  it('aborts a stale zero-payload Stellar SIGNING claim, reclaims the 64-bit sequence, and fences the resumed isolate', async () => {
+  it('refuses to auto-abort a stale Stellar SIGNING claim on elapsed time alone and retains sequence ownership', async () => {
     const realNowUnix = Math.floor(Date.now() / 1000);
 
     sqlite
@@ -1197,8 +1268,9 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
     const staleOutcome = await machine.recoverUncertainBroadcast('po_xlm_signing_stale', {
       nowUnix: realNowUnix,
     });
-    expect(staleOutcome.state).toBe('FAILED_ABORTED');
-    expect(staleOutcome.action).toBe('FAILED_PRE_BROADCAST_ABORTED');
+    expect(staleOutcome.state).toBe('SIGNING');
+    expect(staleOutcome.action).toBe('NO_RECOVERY_NEEDED');
+    expect(staleOutcome.reason).toMatch(/Elapsed time does not prove signing did not occur/);
 
     const staleRow = sqlite
       .prepare('SELECT state, stellar_sequence, timebounds_max_unix FROM settlement_broadcasts WHERE payout_id = ?')
@@ -1207,25 +1279,11 @@ describe('Gate G8: 50 Concurrent Payouts with 30% 504 Timeout Chaos & BROADCAST_
       stellar_sequence: string | null;
       timebounds_max_unix: number | null;
     };
-    expect(staleRow.state).toBe('FAILED_ABORTED');
-    expect(staleRow.stellar_sequence).toBeNull();
-    expect(staleRow.timebounds_max_unix).toBeNull();
+    expect(staleRow.state).toBe('SIGNING');
+    expect(staleRow.stellar_sequence).toBe('10001');
+    expect(staleRow.timebounds_max_unix).toBe(realNowUnix + 10_000);
 
-    expect((await machine.getNextStellarSequence(STELLAR_HOT_WALLET))?.toString()).toBe('10001');
-
-    const resumedUpdate = await db
-      .prepare(
-        `UPDATE settlement_broadcasts
-         SET state = 'BROADCAST_PENDING',
-             tx_hash = 'deadbeef',
-             signed_raw_tx = 'SIGNED:UNSIGNED_XLM|10001',
-             updated_at = datetime('now')
-         WHERE payout_id = ? AND state = 'SIGNING'`
-      )
-      .bind('po_xlm_signing_stale')
-      .run();
-    expect(resumedUpdate.meta?.changes).toBe(0);
-
+    expect((await machine.getNextStellarSequence(STELLAR_HOT_WALLET))?.toString()).toBe('10002');
     expect(enclave.stellarSignedPayoutIds).toHaveLength(0);
     expect(stellarTestnetSim.minedSequences.size).toBe(0);
   });
