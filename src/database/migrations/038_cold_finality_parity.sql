@@ -9,7 +9,9 @@
 --    HOT -> COLD escalation into QUEUED_COLD_SAFE, and preserves confirmed lineage
 --    (including chain_token_units, chain_decimals, signer_address, idempotency_key).
 -- 4. Enforces unique non-empty tx_hash on HOT/non-COLD rows (allowing multi-op batched COLD
---    settlements enforced by cold_settlement_claims PK) and unique safe_multisig_tx_hash.
+--    settlements enforced by cold_settlement_claims PRIMARY KEY (network, tx_hash, operation_id))
+--    and unique safe_multisig_tx_hash (Case A invariant: 1:1 Safe proposal hash per payout;
+--    Safe MultiSend shared proposal hashes are NOT currently supported and are intentionally rejected).
 -- Additive and idempotent: never alters historical settlement rows and never blocks pending COLD rows.
 
 DROP INDEX IF EXISTS idx_settlement_broadcasts_unique_tx_hash;
@@ -26,6 +28,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_settlement_broadcasts_unique_safe_tx_hash
   ON settlement_broadcasts(lower(trim(safe_multisig_tx_hash, ' ' || char(9) || char(10) || char(13))))
   WHERE safe_multisig_tx_hash IS NOT NULL
     AND length(trim(safe_multisig_tx_hash, ' ' || char(9) || char(10) || char(13))) > 0;
+
+DROP INDEX IF EXISTS idx_cold_settlement_claims_canonical_op;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cold_settlement_claims_canonical_op
+  ON cold_settlement_claims(
+    lower(trim(network, ' ' || char(9) || char(10) || char(13))),
+    lower(trim(tx_hash, ' ' || char(9) || char(10) || char(13))),
+    trim(operation_id, ' ' || char(9) || char(10) || char(13))
+  );
 
 DROP TRIGGER IF EXISTS trg_settlement_enforce_hot_finality_promotion;
 CREATE TRIGGER trg_settlement_enforce_hot_finality_promotion
