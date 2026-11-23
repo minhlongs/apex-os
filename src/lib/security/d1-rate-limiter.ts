@@ -22,6 +22,11 @@ export interface PersistentRateLimitConfig {
   maxRequests: number;
   windowSeconds: number;
   nowMs?: number;
+  /**
+   * When true, always fail closed (HTTP 503) if D1 is unavailable or errors,
+   * regardless of NODE_ENV. Defaults to `isProductionOrStagingRuntime()`.
+   */
+  failClosed?: boolean;
 }
 
 export interface PersistentRateLimitResult {
@@ -88,12 +93,18 @@ RETURNING current_count, reset_at
 `;
 
 /**
- * Extracts normalized client IP from Cloudflare Edge headers (`cf-connecting-ip`),
- * falling back to `x-real-ip` / `x-forwarded-for`.
+ * Extracts normalized client IP from Cloudflare Edge headers (`cf-connecting-ip`).
+ * In production/staging runtimes, ONLY `cf-connecting-ip` is trusted (never falling
+ * back to spoofable `x-real-ip` or `x-forwarded-for`). In local dev/test, preserves
+ * fallback to `x-real-ip` / `x-forwarded-for`.
  */
 export function extractClientIp(request: Request): string {
   const cfIp = request.headers.get('cf-connecting-ip')?.trim();
   if (cfIp) return cfIp.toLowerCase();
+
+  if (isProductionOrStagingRuntime()) {
+    return 'unknown';
+  }
 
   const realIp = request.headers.get('x-real-ip')?.trim();
   if (realIp) return realIp.toLowerCase();
@@ -179,7 +190,7 @@ export async function enforcePersistentD1RateLimit(
   const endpointType = config.endpointType.trim();
   const identifier = normalizeRateLimitIdentifier(config.identifier);
   const key = `d1rl:${endpointType}:${identifier}`;
-  const strictRuntime = isProductionOrStagingRuntime();
+  const strictRuntime = config.failClosed ?? isProductionOrStagingRuntime();
 
   if (!db) {
     if (strictRuntime) {

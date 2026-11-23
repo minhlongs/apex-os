@@ -14,6 +14,9 @@ on:
           - 'rollback-staging'
           - 'rollback-production'
 
+permissions:
+  contents: read
+
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
@@ -22,13 +25,17 @@ jobs:
   deploy-staging:
     name: Deploy to Staging (apex-os-staging)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: github.event.inputs.action == 'deploy-staging' || github.event.inputs.action == 'deploy-production'
     environment:
       name: staging
       url: https://apex-os-staging.agencyos-openclaw.workers.dev
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Assert Cloudflare credentials are configured
         env:
@@ -37,7 +44,7 @@ jobs:
         run: bash scripts/assert-cloudflare-credentials.sh
 
       - name: Setup Node.js 26.7.0
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26.7.0'
           cache: 'npm'
@@ -70,6 +77,8 @@ jobs:
   deploy-production:
     name: Deploy to Production (apex-os)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs: [deploy-staging]
     if: |
       needs.deploy-staging.result == 'success' &&
@@ -80,7 +89,9 @@ jobs:
       url: ${{ vars.PRODUCTION_URL || 'https://apex-os.agencyos-openclaw.workers.dev' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Verify release commit SHA matches staging
         run: |
@@ -97,7 +108,7 @@ jobs:
         run: bash scripts/assert-cloudflare-credentials.sh
 
       - name: Setup Node.js 26.7.0
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26.7.0'
           cache: 'npm'
@@ -140,13 +151,17 @@ jobs:
   rollback-staging:
     name: Rollback Staging (apex-os-staging)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: github.event.inputs.action == 'rollback-staging'
     environment:
       name: staging
       url: https://apex-os-staging.agencyos-openclaw.workers.dev
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Assert Cloudflare credentials are configured
         env:
@@ -155,13 +170,16 @@ jobs:
         run: bash scripts/assert-cloudflare-credentials.sh
 
       - name: Setup Node.js 26.7.0
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26.7.0'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Assert staging D1 isolation
+        run: bash scripts/assert-staging-isolation.sh
 
       - name: Execute staging rollback
         env:
@@ -172,6 +190,8 @@ jobs:
   rollback-production:
     name: Rollback Production (apex-os)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: |
       github.event.inputs.action == 'rollback-production' &&
       github.ref == 'refs/heads/master'
@@ -180,7 +200,9 @@ jobs:
       url: ${{ vars.PRODUCTION_URL || 'https://apex-os.agencyos-openclaw.workers.dev' }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Assert Cloudflare credentials are configured
         env:
@@ -189,7 +211,7 @@ jobs:
         run: bash scripts/assert-cloudflare-credentials.sh
 
       - name: Setup Node.js 26.7.0
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26.7.0'
           cache: 'npm'

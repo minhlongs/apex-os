@@ -363,10 +363,7 @@ describe('sendBusinessAlertNotification', () => {
   });
 
   describe('Email channel', () => {
-    // Skipping email tests due to Resend SDK mocking complexity
-    // Email channel works in production, tests focus on other channels
-    it.skip('should send email via Resend when channel is email', async () => {
-      mockFetch.mockResolvedValue({ ok: true });
+    it('should send email via Resend when channel is email', async () => {
       const alert = createMockAlert();
       const context = createMockContext();
 
@@ -376,16 +373,15 @@ describe('sendBusinessAlertNotification', () => {
         context
       );
 
-      expect(MockResend).toHaveBeenCalledWith(expect.objectContaining({
-        apiKey: 'test-key',
-      }));
+      expect(MockResend).toHaveBeenCalledWith('test-key');
       expect(mockResendSend).toHaveBeenCalledWith(
         expect.objectContaining({
-          from: expect.stringContaining('TestApp'),
+          from: expect.stringContaining('ApexOS'),
           to: ['alerts@example.com'],
-          subject: expect.stringContaining('Revenue Drop Alert'),
+          subject: expect.stringContaining('Test Alert'),
         })
       );
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
     // Email channel test for missing API key - testing warning log

@@ -12,7 +12,7 @@
  * - Masked trader UID (`***1234`) — zero raw PII exposure
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle2, FileCheck2, Lock, Search, ShieldAlert, ShieldCheck } from 'lucide-react';
 
 interface ProofRecord {
@@ -88,6 +88,7 @@ export function ProofOfRebateVerifier({
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [proof, setProof] = useState<ProofRecord | null>(null);
+  const lastAutoVerifiedBatchIdRef = useRef<string | null>(null);
 
   const runVerification = useCallback(
     async (targetBatchId: string) => {
@@ -139,8 +140,10 @@ export function ProofOfRebateVerifier({
   );
 
   useEffect(() => {
-    if (initialBatchId.trim()) {
-      void runVerification(initialBatchId);
+    const trimmedInitial = initialBatchId.trim();
+    if (trimmedInitial && lastAutoVerifiedBatchIdRef.current !== trimmedInitial) {
+      lastAutoVerifiedBatchIdRef.current = trimmedInitial;
+      void runVerification(trimmedInitial);
     }
   }, [initialBatchId, runVerification]);
 
@@ -169,6 +172,11 @@ export function ProofOfRebateVerifier({
   return (
     <div className="space-y-6">
       <form
+        aria-label={
+          isVi
+            ? 'Biểu mẫu xác minh bằng chứng hoàn phí mật mã'
+            : 'Cryptographic Proof-of-Rebate Verification Form'
+        }
         onSubmit={(e) => {
           e.preventDefault();
           void runVerification(batchId);
@@ -177,38 +185,54 @@ export function ProofOfRebateVerifier({
       >
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-2">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+            <label
+              htmlFor="proof-batch-id"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+            >
               {isVi ? 'Mã lô sổ cái (Ledger Batch ID)' : 'Ledger Batch ID'}
             </label>
             <input
+              id="proof-batch-id"
               type="text"
               value={batchId}
               onChange={(e) => setBatchId(e.target.value)}
               placeholder="batch_bybit_20261118_001"
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-sm font-mono text-slate-100 focus:border-emerald-500 focus:outline-none"
+              aria-required="true"
+              aria-invalid={Boolean(error)}
+              aria-describedby={error ? 'proof-error' : undefined}
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-sm font-mono text-slate-100 focus:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500/40 focus:outline-none"
             />
           </div>
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">
+            <label
+              htmlFor="proof-api-key"
+              className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5"
+            >
               {isVi ? 'Khóa đối tác B2B (Tùy chọn)' : 'Partner API Key (Optional)'}
             </label>
             <input
+              id="proof-api-key"
               type="password"
+              autoComplete="off"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder="x-b2b-api-key (or session)"
-              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-sm font-mono text-slate-100 focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3.5 py-2.5 text-sm font-mono text-slate-100 focus:border-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500/40 focus:outline-none"
             />
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
-          <label className="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+          <label
+            htmlFor="proof-verify-r2"
+            className="inline-flex items-center gap-2 text-xs text-slate-300 cursor-pointer"
+          >
             <input
+              id="proof-verify-r2"
               type="checkbox"
               checked={verifyR2}
               onChange={(e) => setVerifyR2(e.target.checked)}
-              className="rounded border-slate-700 bg-slate-950 text-emerald-500"
+              className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus-visible:ring-2 focus-visible:ring-emerald-500"
             />
             {isVi
               ? 'Đối chiếu trực tiếp byte gốc trên kho lưu trữ bất biến R2 (5 năm SHA-256)'
@@ -217,9 +241,10 @@ export function ProofOfRebateVerifier({
           <button
             type="submit"
             disabled={loading}
-            className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400 disabled:opacity-50"
+            aria-busy={loading}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-emerald-400 focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 focus:outline-none disabled:opacity-50"
           >
-            <Search className="w-4 h-4" />
+            <Search className="w-4 h-4" aria-hidden="true" />
             {loading
               ? isVi
                 ? 'Đang xác minh...'
@@ -231,26 +256,49 @@ export function ProofOfRebateVerifier({
         </div>
       </form>
 
-      {error && (
-        <div className="flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-950/40 p-4 text-sm text-amber-200">
-          <ShieldAlert className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />
-          <div>{error}</div>
-        </div>
-      )}
+      <div role="status" aria-live="polite" className="sr-only">
+        {proof
+          ? isVi
+            ? `Đã xác minh bằng chứng hoàn phí cho lô ${proof.batchId}, trạng thái ${proof.status}.`
+            : `Verified Proof-of-Rebate for batch ${proof.batchId}, status ${proof.status}.`
+          : ''}
+      </div>
+
+      <div
+        id="proof-error"
+        role="alert"
+        aria-live="assertive"
+        className={
+          error
+            ? 'flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-950/40 p-4 text-sm text-amber-200'
+            : 'sr-only'
+        }
+      >
+        {error && (
+          <>
+            <ShieldAlert className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" aria-hidden="true" />
+            <div>{error}</div>
+          </>
+        )}
+      </div>
 
       {proof && (
-        <div className="rounded-2xl border border-emerald-500/30 bg-slate-900/90 p-6 space-y-6">
+        <div
+          role="region"
+          aria-label={isVi ? 'Kết quả bằng chứng hoàn phí' : 'Proof-of-Rebate Verification Result'}
+          className="rounded-2xl border border-emerald-500/30 bg-slate-900/90 p-6 space-y-6"
+        >
           <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
               <div className="flex items-center gap-2 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
-                <ShieldCheck className="w-4 h-4" />
+                <ShieldCheck className="w-4 h-4" aria-hidden="true" />
                 {conservationVerified
                   ? isVi
                     ? 'ĐÃ XÁC MINH BẢO TOÀN SỐ NGUYÊN 10^-8 USD & SHA-256'
                     : 'VERIFIED 10^-8 USD INTEGER CONSERVATION & SHA-256 ANCHOR'
                   : 'PROOF LOADED'}
               </div>
-              <h2 className="mt-1 text-lg font-mono font-bold text-white">{proof.batchId}</h2>
+              <h2 className="mt-1 text-lg font-mono font-bold text-white break-all">{proof.batchId}</h2>
             </div>
             <div className="flex items-center gap-2">
               <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-xs font-mono font-semibold text-emerald-300">
@@ -273,7 +321,7 @@ export function ProofOfRebateVerifier({
               <div className="text-slate-400">Cash-Collected Gross Commission</div>
               <div className="mt-1 font-mono text-base font-semibold text-emerald-400">
                 ${proof.grossCommissionUsd}{' '}
-                <span className="text-xs text-slate-500">({proof.grossCommissionUnits} u)</span>
+                <span className="text-xs text-slate-400">({proof.grossCommissionUnits} u)</span>
               </div>
             </div>
             <div className="rounded-xl border border-slate-800 bg-slate-950/70 p-4">
@@ -285,13 +333,13 @@ export function ProofOfRebateVerifier({
           </div>
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                <FileCheck2 className="w-4 h-4 text-emerald-400" />
+                <FileCheck2 className="w-4 h-4 text-emerald-400" aria-hidden="true" />
                 Safe-Spread Waterfall I4 Conservation ({computedSumUnits} === {proof.grossCommissionUnits} units)
               </h3>
               <span className="text-xs font-mono text-emerald-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3.5 h-3.5" />
+                <CheckCircle2 className="w-3.5 h-3.5" aria-hidden="true" />
                 L3 = 0 Units (Decree 40/2018/ND-CP)
               </span>
             </div>
@@ -322,7 +370,7 @@ export function ProofOfRebateVerifier({
               </div>
               <div className="rounded bg-slate-900 p-2.5 border border-slate-800">
                 <div className="text-slate-400 text-[11px]">L3 MLM Cap</div>
-                <div className="text-slate-500 mt-0.5">$0.00000000</div>
+                <div className="text-slate-400 mt-0.5">$0.00000000</div>
               </div>
               <div className="rounded bg-slate-900 p-2.5 border border-slate-800">
                 <div className="text-slate-400 text-[11px]">Platform Net</div>
@@ -335,27 +383,27 @@ export function ProofOfRebateVerifier({
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/80 p-4 space-y-2.5 text-xs font-mono">
             <div className="text-slate-400 font-sans font-semibold uppercase tracking-wider flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-emerald-400" />
+              <Lock className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" />
               Immutable R2 Evidence &amp; Cryptographic Digests
             </div>
             <div className="break-all text-slate-300">
-              <span className="text-slate-500">statementSha256: </span>
+              <span className="text-slate-400">statementSha256: </span>
               {proof.evidence.payloadSha256}
             </div>
             {proof.evidence.r2ObjectKey && (
               <div className="break-all text-slate-300">
-                <span className="text-slate-500">r2ObjectKey: </span>
+                <span className="text-slate-400">r2ObjectKey: </span>
                 {proof.evidence.r2ObjectKey}
               </div>
             )}
             {proof.reconciliation.walletPayloadSha256 && (
               <div className="break-all text-slate-300">
-                <span className="text-slate-500">walletStatementSha256: </span>
+                <span className="text-slate-400">walletStatementSha256: </span>
                 {proof.reconciliation.walletPayloadSha256}
               </div>
             )}
             <div className="break-all text-emerald-300">
-              <span className="text-slate-500">proofDigestSha256: </span>
+              <span className="text-slate-400">proofDigestSha256: </span>
               {proof.proofDigestSha256}
             </div>
             <div className="flex flex-wrap gap-4 pt-1 text-[11px] text-slate-400">
@@ -369,7 +417,7 @@ export function ProofOfRebateVerifier({
                     : 'MISMATCH'}
               </span>
               {proof.settlement.settledTxHash && (
-                <span>On-Chain Tx: {proof.settlement.settledTxHash}</span>
+                <span className="break-all">On-Chain Tx: {proof.settlement.settledTxHash}</span>
               )}
             </div>
           </div>
