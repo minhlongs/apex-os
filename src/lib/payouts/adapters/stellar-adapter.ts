@@ -14,6 +14,7 @@ import {
   resolveStellarNetwork,
   CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
   STELLAR_STROOPS_PER_USDC,
+  LegacyPayoutPathDisabledError,
 } from '../stellar-service';
 import type {
   FeeEstimateParams,
@@ -61,8 +62,10 @@ export class StellarAdapter extends BasePayoutChainAdapter {
         this.stellarService = createStellarService();
       } catch (err) {
         if (
-          err instanceof Error &&
-          /STELLAR_NETWORK/i.test(err.message)
+          err instanceof LegacyPayoutPathDisabledError ||
+          (err instanceof Error &&
+            (/STELLAR_NETWORK/i.test(err.message) ||
+              /Invalid Stellar senderPublicKey/i.test(err.message)))
         ) {
           throw err;
         }
@@ -133,50 +136,11 @@ export class StellarAdapter extends BasePayoutChainAdapter {
       );
     }
 
-    try {
-      const service = this.getService();
-      const hasTrustline = await service.hasUsdcTrustline(params.recipientAddress);
-      if (!hasTrustline) {
-        return this.createFailedResult(
-          params,
-          `Recipient account ${params.recipientAddress} lacks an active authorized USDC trustline (trustline sponsorship disabled)`
-        );
-      }
-
-      const result = await service.sendPayout(
-        params.recipientAddress,
-        params.amount,
-        { memo: params.memo }
-      );
-
-      const feeStroops = parseInt(result.fee, 10) || 300;
-      const gasFeeNativeDec = new Decimal(feeStroops).div(STROOPS_PER_XLM_DECIMAL);
-      const gasFeeNative = gasFeeNativeDec.toNumber();
-      const gasFeeUsd = gasFeeNativeDec
-        .mul(this.xlmPriceUsd)
-        .toDecimalPlaces(6, Decimal.ROUND_DOWN)
-        .toNumber();
-
-      return {
-        success: true,
-        payoutId: params.payoutId,
-        chain: 'stellar',
-        transactionId: result.transactionId,
-        fromAddress: result.fromAccount,
-        toAddress: result.toAccount,
-        amount: params.amount,
-        token: 'USDC',
-        gasFeeNative,
-        gasFeeUsd,
-        nativeFeeSymbol: 'XLM',
-        status: 'submitted',
-        explorerUrl: this.getExplorerUrl(result.transactionId),
-        timestamp: new Date().toISOString(),
-      };
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return this.createFailedResult(params, `Stellar payout failed: ${message}`);
-    }
+    const disabledErr = new LegacyPayoutPathDisabledError(
+      'StellarAdapter.sendPayout',
+      'Use BroadcastRecoveryMachine with DoubleEntryLedgerService withdrawal locks and TurnkeySigner.'
+    );
+    return this.createFailedResult(params, `Stellar payout failed: ${disabledErr.message}`);
   }
 
   /**

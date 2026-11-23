@@ -8,7 +8,7 @@
 
 import type * as StellarSdkTypes from '@stellar/stellar-sdk';
 import Decimal from 'decimal.js';
-import { error as logError, warn as logWarn } from '@/lib/logger';
+import { warn as logWarn } from '@/lib/logger';
 
 /**
  * Raised when a disabled legacy money-moving API is invoked directly.
@@ -218,8 +218,6 @@ export interface PayoutJobStatus {
 export interface StellarServiceConfig {
   /** Network: testnet or mainnet */
   network: StellarNetwork;
-  /** Secret key for the sending account (legacy local signing only; Turnkey HSM uses senderPublicKey) */
-  secretKey?: string;
   /** Read-only Stellar sender public key (e.g. TURNKEY_STELLAR_HOT_WALLET_ADDRESS) for Horizon balance/health checks without private keys */
   senderPublicKey?: string;
   /** USDC issuer address (optional, uses default if not provided) */
@@ -431,10 +429,22 @@ export class StellarService {
   private config: Required<StellarServiceConfig>;
   private server: StellarSdkTypes.Horizon.Server;
   private usdcAsset: StellarSdkTypes.Asset;
-  private senderKeypair?: StellarSdkTypes.Keypair;
   private senderPublicKey?: string;
 
   constructor(config: Partial<StellarServiceConfig>) {
+    // Fail closed if any untyped caller injects a legacy raw secretKey.
+    if (
+      config &&
+      typeof config === 'object' &&
+      'secretKey' in config &&
+      (config as Record<string, unknown>).secretKey !== undefined
+    ) {
+      throw new LegacyPayoutPathDisabledError(
+        'StellarService.constructor(secretKey)',
+        'Raw Stellar secret keys are permanently forbidden in Worker memory. Supply read-only senderPublicKey (TURNKEY_STELLAR_HOT_WALLET_ADDRESS) and sign via TurnkeySigner.'
+      );
+    }
+
     this.config = { ...DEFAULT_CONFIG, ...config } as Required<StellarServiceConfig>;
 
     // Validate network
@@ -457,25 +467,20 @@ export class StellarService {
       usdcConfig.issuer
     );
 
-    // Load sender keypair if secret key provided; otherwise accept read-only Turnkey public key
-    if (this.config.secretKey) {
-      try {
-        this.senderKeypair = StellarSdk.Keypair.fromSecret(this.config.secretKey);
-      } catch (error) {
-        logError(
-          'Failed to parse Stellar secret key:',
-          error instanceof Error ? error.name : 'InvalidSecretKey'
-        );
-        this.senderKeypair = undefined;
-      }
-    } else if (this.config.senderPublicKey?.trim()) {
+    // Accept read-only Turnkey public key only; validate strictly via Ed25519 StrKey check
+    if (this.config.senderPublicKey !== undefined) {
       const candidate = this.config.senderPublicKey.trim();
-      if (isValidStellarAccountId(candidate)) {
+      if (candidate.length > 0) {
+        const strKeyValid =
+          typeof StellarSdk.StrKey?.isValidEd25519PublicKey === 'function'
+            ? StellarSdk.StrKey.isValidEd25519PublicKey(candidate)
+            : isValidStellarAccountId(candidate);
+        if (!strKeyValid || !isValidStellarAccountId(candidate)) {
+          throw new Error(
+            'Invalid Stellar senderPublicKey configured (expected valid G... Ed25519 StrKey)'
+          );
+        }
         this.senderPublicKey = candidate;
-      } else {
-        logError(
-          'Invalid Stellar senderPublicKey configured (expected G... Ed25519 StrKey; value redacted)'
-        );
       }
     }
   }
@@ -505,17 +510,17 @@ export class StellarService {
   }
 
   /**
-   * Get the sender account ID (from local secret key or read-only Turnkey public key)
+   * Get the read-only sender account ID (Turnkey public key)
    */
   getSenderAccountId(): string | null {
-    return this.senderKeypair?.publicKey() || this.senderPublicKey || null;
+    return this.senderPublicKey || null;
   }
 
   /**
-   * Check if the sender account is configured
+   * Local raw secret signing is permanently disabled; always returns false.
    */
   hasSenderAccount(): boolean {
-    return this.senderKeypair !== undefined;
+    return false;
   }
 
   /**
@@ -999,21 +1004,19 @@ export function resolveStellarNetwork(
  * Factory function to create a Stellar service from environment variables
  */
 export function createStellarService(): StellarService {
-  const senderPublicKey = process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS?.trim();
-  const secretKey = senderPublicKey ? undefined : process.env.STELLAR_SECRET_KEY;
+  const senderPublicKey = process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS?.trim() || undefined;
   const network = resolveStellarNetwork();
   const usdcIssuer = process.env.STELLAR_USDC_ISSUER;
   const horizonUrl = process.env.STELLAR_HORIZON_URL;
 
-  if (!senderPublicKey && !secretKey) {
+  if (!senderPublicKey) {
     logWarn(
-      'Neither TURNKEY_STELLAR_HOT_WALLET_ADDRESS nor STELLAR_SECRET_KEY is set. Sender health checks and local signing will be unavailable.'
+      'TURNKEY_STELLAR_HOT_WALLET_ADDRESS is not set. Read-only sender health checks will be unavailable.'
     );
   }
 
   return new StellarService({
     network,
-    secretKey,
     senderPublicKey,
     usdcIssuer,
     horizonUrl,

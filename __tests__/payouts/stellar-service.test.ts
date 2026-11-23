@@ -259,13 +259,16 @@ describe('StellarService', () => {
       );
     });
 
-    it('should load secret key and get account ID', () => {
+    it('should reject raw secretKey injection with LegacyPayoutPathDisabledError and accept read-only senderPublicKey', () => {
       const secretKey = 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6';
-      service = new StellarService({ secretKey });
-      expect(service.hasSenderAccount()).toBe(true);
-      expect(service.getSenderAccountId()).toBe(
-        'GBDUU3J4M6A2UEIGTFVXZTVQDD2Z7XFPGWNYF44BH4R6NQMA6VJ6L7U'
-      );
+      expect(
+        () => new StellarService({ secretKey } as unknown as Parameters<typeof StellarService>[0])
+      ).toThrow(LegacyPayoutPathDisabledError);
+
+      const validPub = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+      service = new StellarService({ senderPublicKey: validPub });
+      expect(service.hasSenderAccount()).toBe(false);
+      expect(service.getSenderAccountId()).toBe(validPub);
     });
 
     it('should accept custom USDC issuer', () => {
@@ -286,7 +289,7 @@ describe('StellarService', () => {
 
     beforeEach(() => {
       service = new StellarService({
-        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+        senderPublicKey: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       });
     });
 
@@ -399,7 +402,7 @@ describe('StellarService', () => {
   describe('Payout Operations & 180s TimeBounds', () => {
     beforeEach(() => {
       service = new StellarService({
-        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+        senderPublicKey: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       });
     });
 
@@ -447,7 +450,7 @@ describe('StellarService', () => {
   describe('Transaction Verification', () => {
     beforeEach(() => {
       service = new StellarService({
-        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+        senderPublicKey: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       });
     });
 
@@ -583,7 +586,7 @@ describe('StellarService', () => {
       mocks.server.loadAccount.mockResolvedValue(mocks.account);
 
       service = new StellarService({
-        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+        senderPublicKey: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       });
     });
 
@@ -617,7 +620,7 @@ describe('StellarService', () => {
   describe('Health Check', () => {
     beforeEach(() => {
       service = new StellarService({
-        secretKey: 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6',
+        senderPublicKey: 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN',
       });
     });
 
@@ -669,28 +672,31 @@ describe('StellarService', () => {
   });
 
   describe('Factory Function', () => {
-    it('should create service from environment variables', () => {
-      process.env.STELLAR_SECRET_KEY = 'SBCVY4S7F3Z6M5A2P9W8X5Q3R1T7Y4Z6M5A2P9W8X5Q3R1T7Y4Z6';
+    it('should create service from environment variables using read-only Turnkey public key', () => {
+      const validPub = 'GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN';
+      process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS = validPub;
       process.env.STELLAR_NETWORK = 'mainnet';
       process.env.STELLAR_USDC_ISSUER = 'GCUSTOMISSUER12345678901234567890123456789012';
       process.env.STELLAR_HORIZON_URL = 'https://custom-horizon.example.com';
 
       const created = createStellarService();
       expect(created.getNetwork()).toBe(StellarNetwork.MAINNET);
-      expect(created.hasSenderAccount()).toBe(true);
+      expect(created.hasSenderAccount()).toBe(false);
+      expect(created.getSenderAccountId()).toBe(validPub);
 
-      delete process.env.STELLAR_SECRET_KEY;
+      delete process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS;
       delete process.env.STELLAR_NETWORK;
       delete process.env.STELLAR_USDC_ISSUER;
       delete process.env.STELLAR_HORIZON_URL;
     });
 
-    it('should warn when secret key is missing', () => {
+    it('should warn when TURNKEY_STELLAR_HOT_WALLET_ADDRESS is missing', () => {
+      delete process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS;
       const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       createStellarService();
       expect(consoleSpy).toHaveBeenCalledWith(
         '[ApexOS]',
-        expect.stringContaining('STELLAR_SECRET_KEY')
+        expect.stringContaining('TURNKEY_STELLAR_HOT_WALLET_ADDRESS')
       );
       consoleSpy.mockRestore();
     });
