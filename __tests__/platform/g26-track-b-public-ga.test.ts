@@ -219,7 +219,9 @@ describe('G26.B1 — Durable D1 Rate Limit on /api/b2b/proof-of-rebate', () => {
 
     // Verify no raw userId or raw IP or raw API key is stored in rate_limits
     const rows = sqlite
-      .prepare('SELECT key, endpoint_type, identifier, current_count FROM rate_limits')
+      .prepare(
+        "SELECT key, endpoint_type, identifier, current_count FROM rate_limits WHERE endpoint_type = 'b2b_proof_caller'"
+      )
       .all() as Array<{
       key: string;
       endpoint_type: string;

@@ -14,9 +14,11 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import {
   enforcePersistentD1RateLimit,
+  extractClientIp,
   type PersistentRateLimitResult,
 } from '@/lib/security/d1-rate-limiter';
 import type { D1Database as AuthD1Database } from '@/lib/auth/adapters/d1-adapter';
+import { isProductionOrStagingRuntime } from '@/lib/auth/runtime-env';
 import { getAuthenticatedUser } from '@/lib/auth/session-helper';
 import { redactPiiForReadOnlyAi } from '@/lib/compliance/pii-redactor';
 import type { D1Database as LegacyD1Database } from '@/lib/db';
@@ -42,13 +44,6 @@ function resolveBindings(): RuntimeBindings {
   };
 }
 
-/**
- * Compare two secrets without leaking either one's length.
- *
- * Hashing both sides to a fixed 32-byte SHA-256 digest makes the subsequent
- * `timingSafeEqual` call constant-time regardless of input length, so an
- * attacker cannot learn the configured key's byte length by timing guesses.
- */
 function hashRateLimitIdentifier(raw: string): string {
   return createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 32);
 }
@@ -79,6 +74,13 @@ function buildProofRateLimitResponse(
   );
 }
 
+/**
+ * Compare two secrets without leaking either one's length.
+ *
+ * Hashing both sides to a fixed 32-byte SHA-256 digest makes the subsequent
+ * `timingSafeEqual` call constant-time regardless of input length, so an
+ * attacker cannot learn the configured key's byte length by timing guesses.
+ */
 function timingSafeStringEqual(a: string | undefined, b: string | undefined): boolean {
   if (!a || !b) return false;
   const digestA = createHash('sha256').update(a, 'utf8').digest();
@@ -153,15 +155,73 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // Pre-auth IP rate limit (120 req/60s) using trusted Cloudflare Edge IP before
-    // query/AI-tool parsing or D1 session lookups, so unauthenticated floods cannot
-    // bypass D1 throttling or exhaust D1 session queries.
+    // Pre-auth ingress admission & durable D1 rate limit (120 req/60s) executed
+    // BEFORE query/AI-tool parsing and BEFORE any D1 session lookup.
     const legacyDb = db as unknown as LegacyD1Database;
-    const trustedCfIp = request.headers.get('cf-connecting-ip')?.trim().toLowerCase();
-    if (trustedCfIp) {
+    if (isProductionOrStagingRuntime()) {
+      const trustedCfIp = request.headers.get('cf-connecting-ip')?.trim().toLowerCase() || '';
+      if (trustedCfIp) {
+        const ipRateCheck = await enforcePersistentD1RateLimit(legacyDb, {
+          endpointType: 'b2b_proof_ip',
+          identifier: `ip:${hashRateLimitIdentifier(trustedCfIp)}`,
+          maxRequests: 120,
+          windowSeconds: 60,
+          failClosed: true,
+        });
+        if (!ipRateCheck.allowed) {
+          return buildProofRateLimitResponse(
+            ipRateCheck,
+            ipRateCheck.status === 503
+              ? 'Proof-of-Rebate rate limit store unavailable; failing closed.'
+              : 'Too many Proof-of-Rebate requests from this network. Please retry shortly.'
+          );
+        }
+      } else {
+        // Missing/empty/whitespace Cloudflare edge IP: never trust X-Forwarded-For or
+        // X-Real-IP, and never skip pre-auth throttling. Only admit legitimate internal
+        // Worker-to-Worker / service callers presenting a constant-time-verified
+        // B2B_PROOF_API_KEY (zero D1 session lookup).
+        const configuredB2bKey = process.env.B2B_PROOF_API_KEY?.trim();
+        const providedB2bKey = request.headers.get('x-b2b-api-key')?.trim();
+        const hasValidServiceKey = Boolean(
+          configuredB2bKey &&
+            providedB2bKey &&
+            timingSafeStringEqual(configuredB2bKey, providedB2bKey)
+        );
+
+        if (!hasValidServiceKey || !providedB2bKey) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'MISSING_TRUSTED_CLIENT_IP',
+              message: 'Trusted Cloudflare client IP header is required',
+            },
+            { status: 403, headers: { 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const svcIngressRateCheck = await enforcePersistentD1RateLimit(legacyDb, {
+          endpointType: 'b2b_proof_svc_ingress',
+          identifier: `svc_ingress:${hashRateLimitIdentifier(providedB2bKey)}`,
+          maxRequests: 120,
+          windowSeconds: 60,
+          failClosed: true,
+        });
+        if (!svcIngressRateCheck.allowed) {
+          return buildProofRateLimitResponse(
+            svcIngressRateCheck,
+            svcIngressRateCheck.status === 503
+              ? 'Proof-of-Rebate rate limit store unavailable; failing closed.'
+              : 'Too many Proof-of-Rebate service ingress requests. Please retry shortly.'
+          );
+        }
+      }
+    } else {
+      // Local dev/test: never silently skip pre-auth throttling.
+      const localClientIp = extractClientIp(request);
       const ipRateCheck = await enforcePersistentD1RateLimit(legacyDb, {
         endpointType: 'b2b_proof_ip',
-        identifier: `ip:${hashRateLimitIdentifier(trustedCfIp)}`,
+        identifier: `ip:${hashRateLimitIdentifier(localClientIp)}`,
         maxRequests: 120,
         windowSeconds: 60,
         failClosed: true,
