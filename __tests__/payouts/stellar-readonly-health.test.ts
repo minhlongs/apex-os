@@ -208,12 +208,19 @@ describe('Gate G8: Read-Only Stellar Horizon Health Boundary', () => {
     process.env.TURNKEY_STELLAR_HOT_WALLET_ADDRESS = LEAK_CANARY_SECRET;
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
-    // Direct StellarService instantiation
-    const svc = new StellarService({
-      network: StellarNetwork.TESTNET,
-      senderPublicKey: LEAK_CANARY_SECRET,
-    });
-    expect(svc.getSenderAccountId()).toBeNull();
+    // Direct StellarService instantiation fails closed without leaking the secret seed
+    let caughtError: unknown;
+    try {
+      new StellarService({
+        network: StellarNetwork.TESTNET,
+        senderPublicKey: LEAK_CANARY_SECRET,
+      });
+    } catch (err) {
+      caughtError = err;
+    }
+    expect(caughtError).toBeInstanceOf(Error);
+    expect((caughtError as Error).message).toMatch(/Invalid Stellar senderPublicKey/);
+    expect((caughtError as Error).message).not.toContain(LEAK_CANARY_SECRET);
 
     // Admin health endpoint
     const req = new NextRequest('https://apex-os.agencyos-openclaw.workers.dev/api/admin/settings/stellar/health');
