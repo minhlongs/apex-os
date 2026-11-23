@@ -234,10 +234,8 @@ describe('Adversarial Treasury Verification Suite (Groups A-F)', () => {
   it('Group B: Legacy StellarService.processBatchPayouts hard-disabled (LEGACY_PAYOUT_EXECUTION = 0)', async () => {
     const mockDb = { prepare: jest.fn(), batch: jest.fn(), exec: jest.fn() } as unknown as D1Database;
     const svc = new StellarService({
-      secretKey: 'S' + 'A'.repeat(55),
       network: 'testnet',
       usdcIssuer: CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
-      usdcCode: 'USDC',
     });
 
     await expect(svc.processBatchPayouts(mockDb, 10)).rejects.toBeInstanceOf(

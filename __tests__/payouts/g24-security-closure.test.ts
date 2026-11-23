@@ -1026,12 +1026,21 @@ describe('D1 settlement_broadcasts INSERT/UPDATE finality trigger adversarial te
 // ============================================================================
 
 describe('Stellar raw secret signer isolation (Strategy A fail-closed)', () => {
-  it('hard-disables StellarService.sendPayout, submitTransaction, and processBatchPayouts even when a valid raw secretKey is supplied', async () => {
+  it('hard-disables raw secretKey in constructor and disables sendPayout, submitTransaction, and processBatchPayouts', async () => {
     const rawKeypair = StellarSdk.Keypair.fromRawEd25519Seed(Buffer.alloc(32, 42));
+    expect(
+      () =>
+        new StellarService({
+          network: StellarNetwork.TESTNET,
+          usdcIssuer: CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
+          secretKey: rawKeypair.secret(),
+        } as unknown as Parameters<typeof StellarService>[0])
+    ).toThrow(LegacyPayoutPathDisabledError);
+
     const service = new StellarService({
       network: StellarNetwork.TESTNET,
       usdcIssuer: CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
-      secretKey: rawKeypair.secret(),
+      senderPublicKey: rawKeypair.publicKey(),
     });
 
     const mockTx = { sign: jest.fn(), operations: [] };
@@ -1056,7 +1065,7 @@ describe('Stellar raw secret signer isolation (Strategy A fail-closed)', () => {
     const service = new StellarService({
       network: StellarNetwork.TESTNET,
       usdcIssuer: CANONICAL_CIRCLE_STELLAR_MAINNET_USDC_ISSUER,
-      secretKey: rawKeypair.secret(),
+      senderPublicKey: rawKeypair.publicKey(),
     });
     // Stub read-only trustline check so we exercise the actual service.sendPayout call
     const trustlineSpy = jest.spyOn(service, 'hasUsdcTrustline').mockResolvedValue(true);
@@ -1076,7 +1085,7 @@ describe('Stellar raw secret signer isolation (Strategy A fail-closed)', () => {
     expect(result.status).toBe('failed');
     expect(result.error).toContain('LEGACY_PAYOUT_PATH_DISABLED');
     expect(result.txHash).toBeUndefined();
-    expect(trustlineSpy).toHaveBeenCalledWith(STELLAR_RECIPIENT);
+    expect(trustlineSpy).not.toHaveBeenCalled();
 
     // Read-only helpers remain intact without any raw secret key
     const readOnlyService = new StellarService({

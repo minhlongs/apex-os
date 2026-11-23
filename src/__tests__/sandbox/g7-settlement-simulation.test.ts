@@ -699,12 +699,13 @@ describe('Gate G7: Multi-Chain Native Circle USDC Settlement Simulation', () => 
       expect(enclave.stellarSignCalls).toBe(0);
       expect(stellarTransport.operationsBuilt).toHaveLength(0);
 
-      // Also verify StellarAdapter refuses when StellarService.hasUsdcTrustline returns false
+      // Also verify StellarAdapter.hasUsdcTrustline returns false and sendPayout fails closed immediately
       const mockService = {
         hasUsdcTrustline: jest.fn(async () => false),
         sendPayout: jest.fn(),
       } as unknown as StellarService;
       const adapter = new StellarAdapter({ stellarService: mockService });
+      expect(await adapter.hasUsdcTrustline(untrustedWallet)).toBe(false);
       const adapterResult = await adapter.sendPayout({
         payoutId: 'po_adapter_untrusted',
         affiliateId: 'aff_untrusted',
@@ -713,7 +714,7 @@ describe('Gate G7: Multi-Chain Native Circle USDC Settlement Simulation', () => 
         idempotencyKey: 'idem_adapter_untrusted',
       });
       expect(adapterResult.success).toBe(false);
-      expect(adapterResult.error).toContain('USDC trustline');
+      expect(adapterResult.error).toContain('LEGACY_PAYOUT_PATH_DISABLED');
       expect((mockService.sendPayout as jest.Mock).mock.calls).toHaveLength(0);
     });
 
