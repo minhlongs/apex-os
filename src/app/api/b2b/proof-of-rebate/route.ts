@@ -12,9 +12,13 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { checkSlidingWindowRateLimit } from '@/lib/auth/passkey-step-up';
-import { extractIpAddress } from '@/lib/ratelimit/rate-limiter';
+import {
+  enforcePersistentD1RateLimit,
+  extractClientIp,
+  type PersistentRateLimitResult,
+} from '@/lib/security/d1-rate-limiter';
 import type { D1Database as AuthD1Database } from '@/lib/auth/adapters/d1-adapter';
+import { isProductionOrStagingRuntime } from '@/lib/auth/runtime-env';
 import { getAuthenticatedUser } from '@/lib/auth/session-helper';
 import { redactPiiForReadOnlyAi } from '@/lib/compliance/pii-redactor';
 import type { D1Database as LegacyD1Database } from '@/lib/db';
@@ -38,6 +42,36 @@ function resolveBindings(): RuntimeBindings {
     DB: globalScope.DB,
     STORAGE: globalScope.STORAGE,
   };
+}
+
+function hashRateLimitIdentifier(raw: string): string {
+  return createHash('sha256').update(raw, 'utf8').digest('hex').slice(0, 32);
+}
+
+function buildProofRateLimitResponse(
+  result: PersistentRateLimitResult,
+  message: string
+): NextResponse {
+  const errorCode =
+    result.errorCode ?? (result.status === 503 ? 'RATE_LIMIT_STORE_UNAVAILABLE' : 'RATE_LIMITED');
+  return NextResponse.json(
+    {
+      success: false,
+      error: errorCode,
+      message,
+      retryAfterSeconds: result.retryAfterSeconds,
+    },
+    {
+      status: result.status,
+      headers: {
+        'Cache-Control': 'no-store',
+        'Retry-After': String(Math.max(1, result.retryAfterSeconds)),
+        'X-RateLimit-Limit': String(result.limit),
+        'X-RateLimit-Remaining': String(result.remaining),
+        'X-RateLimit-Reset': String(result.resetAtUnixSeconds),
+      },
+    }
+  );
 }
 
 /**
@@ -109,6 +143,99 @@ async function authorizeB2bProofCaller(
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
+    const { DB: db, STORAGE: r2 } = resolveBindings();
+    if (!db) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'DATABASE_UNAVAILABLE',
+          message: 'Ledger D1 database binding is not configured',
+        },
+        { status: 503, headers: { 'Cache-Control': 'no-store' } }
+      );
+    }
+
+    // Pre-auth ingress admission & durable D1 rate limit (120 req/60s) executed
+    // BEFORE query/AI-tool parsing and BEFORE any D1 session lookup.
+    const legacyDb = db as unknown as LegacyD1Database;
+    if (isProductionOrStagingRuntime()) {
+      const trustedCfIp = request.headers.get('cf-connecting-ip')?.trim().toLowerCase() || '';
+      if (trustedCfIp) {
+        const ipRateCheck = await enforcePersistentD1RateLimit(legacyDb, {
+          endpointType: 'b2b_proof_ip',
+          identifier: `ip:${hashRateLimitIdentifier(trustedCfIp)}`,
+          maxRequests: 120,
+          windowSeconds: 60,
+          failClosed: true,
+        });
+        if (!ipRateCheck.allowed) {
+          return buildProofRateLimitResponse(
+            ipRateCheck,
+            ipRateCheck.status === 503
+              ? 'Proof-of-Rebate rate limit store unavailable; failing closed.'
+              : 'Too many Proof-of-Rebate requests from this network. Please retry shortly.'
+          );
+        }
+      } else {
+        // Missing/empty/whitespace Cloudflare edge IP: never trust X-Forwarded-For or
+        // X-Real-IP, and never skip pre-auth throttling. Only admit legitimate internal
+        // Worker-to-Worker / service callers presenting a constant-time-verified
+        // B2B_PROOF_API_KEY (zero D1 session lookup).
+        const configuredB2bKey = process.env.B2B_PROOF_API_KEY?.trim();
+        const providedB2bKey = request.headers.get('x-b2b-api-key')?.trim();
+        const hasValidServiceKey = Boolean(
+          configuredB2bKey &&
+            providedB2bKey &&
+            timingSafeStringEqual(configuredB2bKey, providedB2bKey)
+        );
+
+        if (!hasValidServiceKey || !providedB2bKey) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: 'MISSING_TRUSTED_CLIENT_IP',
+              message: 'Trusted Cloudflare client IP header is required',
+            },
+            { status: 403, headers: { 'Cache-Control': 'no-store' } }
+          );
+        }
+
+        const svcIngressRateCheck = await enforcePersistentD1RateLimit(legacyDb, {
+          endpointType: 'b2b_proof_svc_ingress',
+          identifier: `svc_ingress:${hashRateLimitIdentifier(providedB2bKey)}`,
+          maxRequests: 120,
+          windowSeconds: 60,
+          failClosed: true,
+        });
+        if (!svcIngressRateCheck.allowed) {
+          return buildProofRateLimitResponse(
+            svcIngressRateCheck,
+            svcIngressRateCheck.status === 503
+              ? 'Proof-of-Rebate rate limit store unavailable; failing closed.'
+              : 'Too many Proof-of-Rebate service ingress requests. Please retry shortly.'
+          );
+        }
+      }
+    } else {
+      // Local dev/test: never silently skip pre-auth throttling.
+      const localClientIp = extractClientIp(request);
+      const ipRateCheck = await enforcePersistentD1RateLimit(legacyDb, {
+        endpointType: 'b2b_proof_ip',
+        identifier: `ip:${hashRateLimitIdentifier(localClientIp)}`,
+        maxRequests: 120,
+        windowSeconds: 60,
+        failClosed: true,
+      });
+      if (!ipRateCheck.allowed) {
+        return buildProofRateLimitResponse(
+          ipRateCheck,
+          ipRateCheck.status === 503
+            ? 'Proof-of-Rebate rate limit store unavailable; failing closed.'
+            : 'Too many Proof-of-Rebate requests from this network. Please retry shortly.'
+        );
+      }
+    }
+
     const url = new URL(request.url);
     const rawBatchId = url.searchParams.get('batchId');
     const rawAffiliateId = url.searchParams.get('affiliateId');
@@ -194,45 +321,32 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       limit = Math.min(limit, 25);
     }
 
-    const { DB: db, STORAGE: r2 } = resolveBindings();
-    if (!db) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'DATABASE_UNAVAILABLE',
-          message: 'Ledger D1 database binding is not configured',
-        },
-        { status: 503, headers: { 'Cache-Control': 'no-store' } }
-      );
-    }
-
     const authz = await authorizeB2bProofCaller(request, db);
     if (!authz.authorized) {
       return authz.response;
     }
 
-    // Bound total proof reads per caller identity and source address. Without
-    // this a single caller can drive unlimited D1 scans plus, when verifyR2 is
-    // set, up to `limit` sequential R2 object reads and SHA-256 hashes per call.
-    const clientIp = extractIpAddress(request.headers);
-    const rateCheck = checkSlidingWindowRateLimit(
-      `b2b_proof:${authz.isServiceKey ? 'svc' : authz.userId}:${clientIp}`,
-      { maxRequests: 60, windowMs: 60_000 }
-    );
-    if (!rateCheck.allowed) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'RATE_LIMITED',
-          message: 'Too many Proof-of-Rebate requests. Please retry shortly.',
-        },
-        {
-          status: 429,
-          headers: {
-            'Cache-Control': 'no-store',
-            'Retry-After': String(Math.max(1, rateCheck.retryAfterSeconds)),
-          },
-        }
+    // Bound total proof reads per authenticated caller identity using durable D1
+    // rate_limits (migration 032). Never trust spoofable X-Forwarded-For / X-Real-IP
+    // headers and never store raw PII or credentials in rate-limit keys. Fails closed
+    // (HTTP 503) if D1 rate-limit storage is unavailable or errors.
+    const callerIdentifier = authz.isServiceKey
+      ? `svc:${hashRateLimitIdentifier(request.headers.get('x-b2b-api-key')?.trim() ?? 'service')}`
+      : `user:${hashRateLimitIdentifier(authz.userId ?? 'unknown')}`;
+
+    const callerRateCheck = await enforcePersistentD1RateLimit(legacyDb, {
+      endpointType: 'b2b_proof_caller',
+      identifier: callerIdentifier,
+      maxRequests: 60,
+      windowSeconds: 60,
+      failClosed: true,
+    });
+    if (!callerRateCheck.allowed) {
+      return buildProofRateLimitResponse(
+        callerRateCheck,
+        callerRateCheck.status === 503
+          ? 'Proof-of-Rebate rate limit store unavailable; failing closed.'
+          : 'Too many Proof-of-Rebate requests. Please retry shortly.'
       );
     }
 

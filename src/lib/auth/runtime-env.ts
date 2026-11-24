@@ -7,15 +7,29 @@
  * fail-closed secret verification) enforce production-grade fail-closed posture.
  */
 
+function firstNonEmptyString(...values: unknown[]): string {
+  for (const value of values) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
+    }
+  }
+  return '';
+}
+
 export function isProductionOrStagingRuntime(
   overrides?: { appEnv?: string; nodeEnv?: string }
 ): boolean {
   const globalRecord = globalThis as Record<string, unknown>;
-  const rawAppEnv =
-    overrides?.appEnv ??
-    process.env.APP_ENV ??
-    (typeof globalRecord.APP_ENV === 'string' ? globalRecord.APP_ENV : '');
-  const appEnv = rawAppEnv.trim().toLowerCase();
+  const appEnv = firstNonEmptyString(
+    overrides?.appEnv,
+    process.env.APP_ENV,
+    process.env.APEX_ENVIRONMENT,
+    globalRecord.APP_ENV,
+    globalRecord.APEX_ENVIRONMENT
+  ).toLowerCase();
 
   if (appEnv === 'production' || appEnv === 'staging') {
     return true;
@@ -24,7 +38,6 @@ export function isProductionOrStagingRuntime(
     return false;
   }
 
-  const rawNodeEnv = overrides?.nodeEnv ?? process.env.NODE_ENV ?? '';
-  const nodeEnv = rawNodeEnv.trim().toLowerCase();
+  const nodeEnv = firstNonEmptyString(overrides?.nodeEnv, process.env.NODE_ENV).toLowerCase();
   return nodeEnv === 'production';
 }
