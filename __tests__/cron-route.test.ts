@@ -133,21 +133,27 @@ describe('cron route authorization', () => {
   it('reads the pending earnings query exactly once on the payout path', async () => {
     const fake = createFakeDb({ rows: [] });
     (globalThis as { DB?: unknown }).DB = fake.db;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn().mockRejectedValue(new Error('offline-unit-test')) as typeof fetch;
 
-    const response = await readResponse(
-      await GET(buildRequest('https://x.test/api/cron?job=payouts', `Bearer ${CRON_SECRET}`))
-    );
+    try {
+      const response = await readResponse(
+        await GET(buildRequest('https://x.test/api/cron?job=payouts', `Bearer ${CRON_SECRET}`))
+      );
 
-    expect(response.status).toBe(200);
-    expect(response.body.success).toBe(true);
-    expect(response.body.results?.[0]?.job).toBe('payouts');
-    expect(response.body.results?.[0]?.success).toBe(true);
-    // The handler must have awaited the D1 call rather than invoking its
-    // result; a statement bound and then called as a function surfaces as a
-    // failed job rather than a thrown request, so assert on the job outcome.
-    const payoutQueries = fake.executed.filter((s) => /FROM earnings/i.test(s.sql));
-    expect(payoutQueries.length).toBeGreaterThan(0);
-  });
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.results?.[0]?.job).toBe('payouts');
+      expect(response.body.results?.[0]?.success).toBe(true);
+      // The handler must have awaited the D1 call rather than invoking its
+      // result; a statement bound and then called as a function surfaces as a
+      // failed job rather than a thrown request, so assert on the job outcome.
+      const payoutQueries = fake.executed.filter((s) => /FROM earnings/i.test(s.sql));
+      expect(payoutQueries.length).toBeGreaterThan(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  }, 15_000);
 
   it('reports the T+7 hold release job as a clean no-op when the ledger table is absent', async () => {
     // A deployment that has not yet applied the audited-ledger migration must
